@@ -203,8 +203,7 @@
       "command-palette:コマンドパレットを開く": false,
       "bases:新規ベースを作成": false,
       "obsidian-git:Open Git source control": false,
-      "obsidian-excalidraw-plugin:New drawing": false,
-      "excel:Create Excel File": false
+      "obsidian-excalidraw-plugin:New drawing": false
     }
   },
   "active": "6e600e68626a1071",
