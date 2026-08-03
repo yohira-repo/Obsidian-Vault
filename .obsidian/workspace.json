@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "2026-08-03.md",
+                "file": "2026-08-04.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-08-03"
+              "title": "2026-08-04"
             }
           }
         ]
@@ -157,13 +157,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "2026-08-03.md",
+                "file": "2026-08-04.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "2026-08-03のアウトライン"
+              "title": "アウトライン"
             }
           },
           {
@@ -172,8 +172,8 @@
             "state": {
               "type": "calendar",
               "state": {},
-              "icon": "lucide-ghost",
-              "title": "calendar"
+              "icon": "calendar-with-checkmark",
+              "title": "Calendar"
             }
           },
           {
@@ -207,12 +207,13 @@
       "excel:Create Excel File": false
     }
   },
-  "active": "6e600e68626a1071",
+  "active": "583b51293f9e7bb1",
   "lastOpenFiles": [
+    "2026-08-03.md",
+    "2026-08-04.md",
     "Tailscale ノード共有（Node Sharing）運用ガイド.md",
     "TailScale セットアップ.md",
     "Tailscale ノード共有（Node Sharing）運用ガイド 1.md",
-    "2026-08-03.md",
     "Tailscale使い方ガイド.pdf",
     "若林さん面談復職リハビリカリキュラム案.md",
     "2026-08-01.md",
