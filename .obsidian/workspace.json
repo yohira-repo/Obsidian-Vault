@@ -39,14 +39,12 @@
             "id": "772b2ff0aaa6282c",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "pdf",
               "state": {
-                "file": "社内LANネットワーク設定.md",
-                "mode": "source",
-                "source": false
+                "file": "ネットワーク設計.pdf"
               },
-              "icon": "lucide-file",
-              "title": "社内LANネットワーク設定"
+              "icon": "lucide-file-text",
+              "title": "ネットワーク設計"
             }
           }
         ],
@@ -238,8 +236,9 @@
   },
   "active": "772b2ff0aaa6282c",
   "lastOpenFiles": [
-    "ネットワーク構築提案書.md",
     "社内LANネットワーク設定.md",
+    "ネットワーク設計.pdf",
+    "ネットワーク構築提案書.md",
     "2026-08-04.md",
     "Pasted image 20260804144133.png",
     "若林さん面談復職リハビリカリキュラム案.md",

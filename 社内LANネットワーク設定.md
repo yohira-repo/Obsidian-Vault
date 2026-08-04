@@ -11,7 +11,7 @@
 - 無線給電は **PoEエクステンダー** を使用
 - **保守ターミナル** は RTX1300 の **LAN1** に接続
 
----
+<div style="page-break-before:always"></div>
 
 ## 1. 全体図
 
@@ -199,7 +199,7 @@ Develop-WiFi → VLAN 2（開発）
 Guest-WiFi   → VLAN 3（ゲスト / 社内ネットワークから分離）
 ```
 
----
+<div style="page-break-before:always"></div>
 
 ## 2. 個別図
 
@@ -249,7 +249,7 @@ flowchart LR
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | 使用番号 | ① | ② | ③ | ④ | ⑤ | ⑥ | ⑦ | - |
 
----
+<div style="page-break-before:always"></div>
 
 ### 2-2. 総務席（VLAN1）
 
@@ -332,7 +332,7 @@ flowchart LR
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | 使用番号 | ① | ② | ③ | - | - | - | - | - |
 
----
+<div style="page-break-before:always"></div>
 
 ## 3. 補足
 
