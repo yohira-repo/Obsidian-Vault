@@ -11,14 +11,14 @@
 ## 全体構成
 - ドキュメント
   - 当初のドキュメント（https://drive.google.com/drive/folders/15IA_PGpCoTHMoZ3zS73ApfOauh3g4UoG）
-  - バッチドキュメント（https://github.com/alphacmc/coop）
-- インフラ構築（https://github.com/alphacmc/coopinf）
-- Webアプリ（https://github.com/alphacmc/coopcdeweb）
-- バッチ（https://github.com/alphacmc/coopcdeweb）
-  - 次期バッチ（https://github.com/alphacmc/coopbatch）
+  - バッチドキュメント（ https://github.com/alphacmc/coop ）
+- インフラ構築( https://github.com/alphacmc/coopinf )
+- Webアプリ（ https://github.com/alphacmc/coopcdeweb ）
+- バッチ（ https://github.com/alphacmc/coopcdebatch ）
+  - 次期バッチ（ https://github.com/alphacmc/coopbatch ）
 -  運用サポート
-  - CloudWatch Arert（https://github.com/alphacmc/coopcdealert）
-  - S3 CSVビューア（https://github.com/alphacmc/coops3view）
+  - CloudWatch Arert（ https://github.com/alphacmc/coopcdealert ）
+  - S3 CSVビューア（ https://github.com/alphacmc/coops3view ）
 
 ## 現在状況
 - 次期バッチ追加（コープにいがた、コープながの）に向けて、バッチリファクタリング試験中

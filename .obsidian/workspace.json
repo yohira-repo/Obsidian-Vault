@@ -4,18 +4,18 @@
     "type": "split",
     "children": [
       {
-        "id": "7abb574a9cd3db3d",
+        "id": "e3b8cc6e7541a99e",
         "type": "tabs",
         "children": [
           {
-            "id": "cfda937a28596a32",
+            "id": "3eca8fd2ad405854",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
                 "file": "COOP説明.md",
                 "mode": "source",
-                "source": false
+                "source": true
               },
               "icon": "lucide-file",
               "title": "COOP説明"
@@ -207,8 +207,9 @@
       "excel:Create Excel File": false
     }
   },
-  "active": "cfda937a28596a32",
+  "active": "3eca8fd2ad405854",
   "lastOpenFiles": [
+    "().md",
     "COOP説明.md",
     "無題のファイル.canvas",
     "若林さん面談復職リハビリカリキュラム案.md",
