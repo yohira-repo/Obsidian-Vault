@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "e3b8cc6e7541a99e",
+        "id": "484e6862249619a6",
         "type": "tabs",
         "children": [
           {
-            "id": "3eca8fd2ad405854",
+            "id": "f3e00c80097decd0",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -20,35 +20,8 @@
               "icon": "lucide-file",
               "title": "2026-08-04"
             }
-          },
-          {
-            "id": "782fb95ff0aec4c6",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "ネットワーク構築提案書.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "ネットワーク構築提案書"
-            }
-          },
-          {
-            "id": "772b2ff0aaa6282c",
-            "type": "leaf",
-            "state": {
-              "type": "pdf",
-              "state": {
-                "file": "ネットワーク設計.pdf"
-              },
-              "icon": "lucide-file-text",
-              "title": "ネットワーク設計"
-            }
           }
-        ],
-        "currentTab": 2
+        ]
       }
     ],
     "direction": "vertical"
@@ -107,7 +80,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 200
+    "width": 304.5
   },
   "right": {
     "id": "bedad412766ec935",
@@ -234,11 +207,11 @@
       "excel:Create Excel File": false
     }
   },
-  "active": "772b2ff0aaa6282c",
+  "active": "f3e00c80097decd0",
   "lastOpenFiles": [
+    "ネットワーク構築提案書.md",
     "社内LANネットワーク設定.md",
     "ネットワーク設計.pdf",
-    "ネットワーク構築提案書.md",
     "2026-08-04.md",
     "Pasted image 20260804144133.png",
     "若林さん面談復職リハビリカリキュラム案.md",
