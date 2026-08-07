@@ -11,10 +11,14 @@
             "id": "c2a22cfa8df60c89",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "2026-08-06.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "新規タブ"
+              "title": "2026-08-06"
             }
           }
         ]
@@ -204,8 +208,9 @@
   },
   "active": "c2a22cfa8df60c89",
   "lastOpenFiles": [
-    "COOP説明.md",
+    "2026-08-05.md",
     "2026-08-06.md",
+    "COOP説明.md",
     "若林さん面談復職リハビリカリキュラム案.md",
     "2026-08-04.md",
     "システム機密情報扱い標準化.md",
