@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "2026-08-13.md",
+                "file": "インターネット回線更改.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-08-13"
+              "title": "インターネット回線更改"
             }
           }
         ]
@@ -157,7 +157,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "2026-08-13.md",
+                "file": "インターネット回線更改.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -207,10 +207,11 @@
       "excel:Create Excel File": false
     }
   },
-  "active": "583b51293f9e7bb1",
+  "active": "92e6f7640dac0051",
   "lastOpenFiles": [
-    "コープバッチ対応.md",
+    "2026-08-14.md",
     "2026-08-13.md",
+    "コープバッチ対応.md",
     "インターネット回線更改.md",
     "2026-08-12.md",
     "2026-08-10.md",
@@ -237,7 +238,6 @@
     "2026-07-29.md",
     "2026-07-31.md",
     "memo.md",
-    "2026-07-30.md",
-    "ようこそ.md"
+    "2026-07-30.md"
   ]
 }
