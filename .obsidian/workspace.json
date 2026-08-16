@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "インターネット回線更改.md",
+                "file": "2026-08-17.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "インターネット回線更改"
+              "title": "2026-08-17"
             }
           }
         ]
@@ -157,7 +157,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "インターネット回線更改.md",
+                "file": "2026-08-17.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -209,14 +209,15 @@
   },
   "active": "92e6f7640dac0051",
   "lastOpenFiles": [
-    "2026-08-14.md",
     "インターネット回線更改.md",
+    "2026-08-17.md",
+    "コープバッチ対応.md",
+    "2026-08-14.md",
     "社内LANネットワーク設定.md",
     "ネットワーク設計.pdf",
     "ネットワーク図.md",
     "ネットワーク構築提案書.md",
     "2026-08-13.md",
-    "コープバッチ対応.md",
     "2026-08-12.md",
     "2026-08-10.md",
     "COOP説明.md",
