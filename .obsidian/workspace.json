@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "01_Daily/2026-08-17.md",
+                "file": "02_Note/社内ネットワーク更改/インターネット回線更改.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-08-17"
+              "title": "インターネット回線更改"
             }
           }
         ]
@@ -157,7 +157,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "01_Daily/2026-08-17.md",
+                "file": "02_Note/社内ネットワーク更改/インターネット回線更改.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -209,6 +209,11 @@
   },
   "active": "32da3b35400d9e2f",
   "lastOpenFiles": [
+    "01_Daily/2026-08-18.md",
+    "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
+    "02_Note/TaleScale/TailScale セットアップ.md",
+    "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
+    "01_Daily/2026-08-17.md",
     "02_Note/社内システム/システム機密情報扱い標準化.md",
     "memo.md",
     "02_Note/社内システム",
@@ -217,8 +222,6 @@
     "02_Note/Coop/コープバッチ対応.md",
     "02_Note/Coop",
     "02_Note/社内ネットワーク更改/インターネット回線更改.md",
-    "01_Daily/2026-08-17.md",
-    "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
     "02_Note/社内ネットワーク更改/社内LANネットワーク設定.md",
     "02_Note/社内ネットワーク更改/ネットワーク設計.pdf",
     "02_Note/社内ネットワーク更改/ネットワーク図.png",
@@ -229,7 +232,6 @@
     "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
     "無題のファイル.canvas",
     "Pasted image 20260805093202.png",
-    "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
     "Excel 2026-08-17 08.51.00.sheet.md",
     "01_Daily/2026-07-29.md",
     "01_Daily",
@@ -243,8 +245,6 @@
     "Pasted image 20260804144133.png",
     "().md",
     "conflict-files-obsidian-git.md",
-    "01_Daily/2026-08-03.md",
-    "02_Note/TaleScale/TailScale セットアップ.md",
-    "Tailscale ノード共有（Node Sharing）運用ガイド 1.md"
+    "01_Daily/2026-08-03.md"
   ]
 }
