@@ -165,13 +165,130 @@
       "schemaVersion": 1,
       "id": "msg-1787045453555-bwyxe9l",
       "userTurnOrdinal": 12,
-      "state": "staged",
+      "state": "accepted",
       "localMessageId": "msg-1787045453538-1vhfoa6",
       "timestamp": 1787045453538,
       "rawDisplayText": "1. 再書き出ししました。 \n2.. OK です。\n3. 必要性が不明です。\n4. 作成お願いします。",
       "canonicalText": "1. 再書き出ししました。 \n2.. OK です。\n3. 必要性が不明です。\n4. 作成お願いします。",
       "images": [],
-      "contentDigest": "cd1febbd877f9062e9d274e8935c31645c65f9baed9bfb5324243a7dedde7070"
+      "contentDigest": "cd1febbd877f9062e9d274e8935c31645c65f9baed9bfb5324243a7dedde7070",
+      "providerUserMessageId": "e90dbde9-b18c-4d0a-a555-099495669ee1",
+      "providerAssistantMessageId": "75a35b14-6a0b-4c97-b9ca-cfa4c86cfaf4"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787047555631-9skcwx2",
+      "userTurnOrdinal": 13,
+      "state": "accepted",
+      "localMessageId": "msg-1787047555619-k0tti46",
+      "timestamp": 1787047555619,
+      "rawDisplayText": "1.再書き出ししました。\n2.. OK です。\n3.必要性が不明です。\n4.作成お願いします。",
+      "canonicalText": "1.再書き出ししました。\n2.. OK です。\n3.必要性が不明です。\n4.作成お願いします。",
+      "images": [],
+      "contentDigest": "8e32bbbfabf76c13084c01659f94d057af3f2d631a161acc9fd9bb8da9cf15ac",
+      "providerUserMessageId": "d6de7671-3266-4f63-8b48-14639e19d857"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787052976128-4bi3li2",
+      "userTurnOrdinal": 14,
+      "state": "accepted",
+      "localMessageId": "msg-1787052976106-31s1xpr",
+      "timestamp": 1787052976106,
+      "rawDisplayText": "途中でエラーしていますので再開お願いします。",
+      "canonicalText": "途中でエラーしていますので再開お願いします。",
+      "images": [],
+      "contentDigest": "1ea5597e83ff344f75861f0a8c6c86cde06959ea2e2fdd8eb75678ac938bdb18",
+      "providerUserMessageId": "d72761fd-261d-42b9-8cfc-ca1d45504e89",
+      "providerAssistantMessageId": "21fc80a3-a784-40cf-b539-5fde4ddba756"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787094910721-nqbuhl0",
+      "userTurnOrdinal": 15,
+      "state": "accepted",
+      "localMessageId": "msg-1787094910709-0nazz5u",
+      "timestamp": 1787094910709,
+      "rawDisplayText": "> **So-net退避用configの作成・保存**\nこれについては、単純に現在OCN用ルータに接続されているLANケーブルを差し替えるのみなので、特に不要と考えています。",
+      "canonicalText": "> **So-net退避用configの作成・保存**\nこれについては、単純に現在OCN用ルータに接続されているLANケーブルを差し替えるのみなので、特に不要と考えています。",
+      "context": {
+        "editorSelection": {
+          "notePath": "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
+          "mode": "selection",
+          "selectedText": "**So-net退避用configの作成・保存**",
+          "lineCount": 1,
+          "startLine": 28
+        }
+      },
+      "images": [],
+      "contentDigest": "098cdccf82a2a369c9eb3e7eeb34331e044415820434c2220492915092b6d278",
+      "providerUserMessageId": "e009779e-95ac-4c4a-a39e-007095560eda",
+      "providerAssistantMessageId": "1cb23b5e-c873-4d39-82a1-d0d8090ee5ad"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787095188534-6lk358g",
+      "userTurnOrdinal": 16,
+      "state": "accepted",
+      "localMessageId": "msg-1787095188494-qt1g091",
+      "timestamp": 1787095188494,
+      "rawDisplayText": "> 事前準備から「So-net退避用configの作成・保存」を削除。代わりに「差し替え先ポートと必要ケーブル長の確認」を追加\nこれも不要です。以前から代替回線として使っており、何度も切り替えています。その際に、総務・営業系のPCは再起動しています。",
+      "canonicalText": "> 事前準備から「So-net退避用configの作成・保存」を削除。代わりに「差し替え先ポートと必要ケーブル長の確認」を追加\nこれも不要です。以前から代替回線として使っており、何度も切り替えています。その際に、総務・営業系のPCは再起動しています。",
+      "context": {
+        "editorSelection": {
+          "notePath": "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
+          "mode": "selection",
+          "selectedText": "**So-net退避用configの作成・保存**",
+          "lineCount": 1,
+          "startLine": 28
+        }
+      },
+      "images": [],
+      "contentDigest": "90d18a945983b2bb294b338b308341804e870cc21c2c7e4d9c1f0473553276c8",
+      "providerUserMessageId": "47acfdbb-2b85-48d7-8c43-fc5dba47a0fe",
+      "providerAssistantMessageId": "2817007f-4377-4a44-b116-3717edc6a3fe"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787095922027-gn9fntn",
+      "userTurnOrdinal": 17,
+      "state": "accepted",
+      "localMessageId": "msg-1787095922009-17iww18",
+      "timestamp": 1787095922009,
+      "rawDisplayText": "・HGWのWIFI/LAN1-3は普段未使用、メンテナンス時のみLAN1-3を使用する。\n・RTX1300のLAN1の8ポートはこちらも保守用端末接続予定ですが、VLANは設定できるのですか？",
+      "canonicalText": "・HGWのWIFI/LAN1-3は普段未使用、メンテナンス時のみLAN1-3を使用する。\n・RTX1300のLAN1の8ポートはこちらも保守用端末接続予定ですが、VLANは設定できるのですか？",
+      "images": [],
+      "contentDigest": "8cb9aff50d0fbf06446f42aca4084a062b5d1aea052766d20b20f12b12d41e00",
+      "providerUserMessageId": "7ba968cf-af34-4610-826f-7ce3d5acc8b6",
+      "providerAssistantMessageId": "6a706385-94eb-4dcc-9574-b1cf87c6da51"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787096881695-darprdi",
+      "userTurnOrdinal": 18,
+      "state": "accepted",
+      "localMessageId": "msg-1787096881682-2en6lfb",
+      "timestamp": 1787096881682,
+      "rawDisplayText": "HGW/RTX1300/XS508TMのconfigを作成したいです。",
+      "canonicalText": "HGW/RTX1300/XS508TMのconfigを作成したいです。",
+      "images": [],
+      "contentDigest": "5225b41305e400af737711f123762f192bea0614da8d7eb016a97a79fe03343c",
+      "providerUserMessageId": "a530dd71-b776-428f-abec-56ee1027584c",
+      "providerAssistantMessageId": "359e8834-ea83-4e72-ab0a-9968374729f2"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787098742621-epvwlmo",
+      "userTurnOrdinal": 19,
+      "state": "accepted",
+      "localMessageId": "msg-1787098742611-xvpry3l",
+      "timestamp": 1787098742611,
+      "rawDisplayText": "configフォルダーを作り、configを移動しました。また、現行config = config_1200_OCN.txt を格納しました。ただし、このConfigは過去の不要な部分を多く含んでいることをご承知おきください。",
+      "canonicalText": "configフォルダーを作り、configを移動しました。また、現行config = config_1200_OCN.txt を格納しました。ただし、このConfigは過去の不要な部分を多く含んでいることをご承知おきください。",
+      "images": [],
+      "contentDigest": "62375fa8418361c6a753e2138e36562688e3e3786b747c440e82ad5b4a416f6f",
+      "providerUserMessageId": "1b18e9fb-52b1-48c3-9c95-aa406c11ef1b",
+      "providerAssistantMessageId": "5e29c6f7-3a8f-410b-adbd-87b0b8a63a83"
     }
   ]
 }

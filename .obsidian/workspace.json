@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "11439ea551ba7946",
+        "id": "a554c8199abeb5a8",
         "type": "tabs",
         "children": [
           {
-            "id": "7c052649bd01cafc",
+            "id": "21c1fa799da99758",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "01_Daily/2026-08-18.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "2026-08-18"
+              "title": "新規タブ"
             }
           }
         ]
@@ -157,7 +153,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "01_Daily/2026-08-18.md",
+                "file": "02_Note/社内ネットワーク更改/インターネット回線更改.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -201,7 +197,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 576.94921875
+    "width": 381.75
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -219,47 +215,47 @@
       "obdrawio:New diagram": false
     }
   },
-  "active": "583b51293f9e7bb1",
+  "active": "1e1e0945f6004838",
   "lastOpenFiles": [
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
-    "02_Note/社内ネットワーク更改/ネットワーク図.jpeg",
-    "02_Note/社内ネットワーク更改/ネットワーク図.png",
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.bak",
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.prefix",
-    "02_Note/社内ネットワーク更改/lan 1.drawio",
-    "02_Note/社内ネットワーク更改/lan 2.drawio",
-    "02_Note/社内ネットワーク更改/OCN_Hikari_Cross_RTX1300_Setup_Guide.md",
-    "02_Note/社内ネットワーク更改/conversations.md",
-    "02_Note/社内ネットワーク更改/lan.drawio.bak",
     "lan.drawio",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
+    "memo.md",
+    "02_Note/Coop/コープバッチ対応.md",
+    "01_Daily/2026-08-21.md",
+    "01_Daily/2026-08-20.md",
+    "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
+    "01_Daily/2026-08-19.md",
+    "02_Note/社内ネットワーク更改/インターネット回線更改.md",
+    "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
+    "02_Note/TaleScale/TailScale セットアップ.md",
+    "02_Note/社内ネットワーク更改/config/config_RTX1300.md",
+    "02_Note/社内ネットワーク更改/config/現行config棚卸し.md",
+    "02_Note/社内ネットワーク更改/config/config_1200_OCN.txt",
+    "02_Note/社内ネットワーク更改/config/config_XG-100NE.md",
+    "02_Note/社内ネットワーク更改/config",
+    "02_Note/社内ネットワーク更改/config_1200_OCN.txt",
+    "02_Note/社内ネットワーク更改/config/config_XS508TM.md",
+    "01_Daily/2026-08-18.md",
+    "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.vid123.bak",
     "02_Note/社内ネットワーク更改/社内LANネットワーク設定.md",
     "02_Note/社内ネットワーク更改/ネットワーク設計.pdf",
-    "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
-    "02_Note/社内ネットワーク更改/インターネット回線更改.md",
-    "01_Daily/2026-08-18.md",
-    "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
-    "02_Note/TaleScale/TailScale セットアップ.md",
-    "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
+    "02_Note/社内ネットワーク更改/ネットワーク図.png",
+    "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
+    "02_Note/社内ネットワーク更改/ネットワーク図.jpeg",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.bak",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.prefix",
+    "02_Note/社内ネットワーク更改/OCN_Hikari_Cross_RTX1300_Setup_Guide.md",
+    "02_Note/社内ネットワーク更改/conversations.md",
     "01_Daily/2026-08-17.md",
     "02_Note/社内システム/システム機密情報扱い標準化.md",
-    "memo.md",
-    "02_Note/社内システム",
     "02_Note/Coop/COOP説明.md",
     "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
-    "02_Note/Coop/コープバッチ対応.md",
     "02_Note/社内ネットワーク更改/ネットワーク図.md",
     "無題のファイル.canvas",
     "Pasted image 20260805093202.png",
     "Excel 2026-08-17 08.51.00.sheet.md",
     "01_Daily/2026-07-29.md",
-    "01_Daily/2026-08-14.md",
-    "01_Daily/2026-08-13.md",
-    "01_Daily/2026-08-12.md",
-    "01_Daily/2026-08-10.md",
-    "01_Daily/2026-08-06.md",
-    "01_Daily/2026-08-05.md",
-    "01_Daily/2026-08-04.md",
-    "Pasted image 20260804144133.png",
-    "().md"
+    "Pasted image 20260804144133.png"
   ]
 }
