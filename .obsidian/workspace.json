@@ -4,17 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "a554c8199abeb5a8",
+        "id": "4bb488a32c322fd6",
         "type": "tabs",
         "children": [
           {
-            "id": "21c1fa799da99758",
+            "id": "8d76d82b24e8bfa4",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "02_Note/Coop/コープバッチ対応.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "新規タブ"
+              "title": "コープバッチ対応"
             }
           }
         ]
@@ -215,13 +219,15 @@
       "obdrawio:New diagram": false
     }
   },
-  "active": "583b51293f9e7bb1",
+  "active": "8d76d82b24e8bfa4",
   "lastOpenFiles": [
+    "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
+    "02_Note/Coop/コープバッチ対応.md",
+    "02_Note/Coop/COOP説明.md",
+    "01_Daily/2026-08-21.md",
     "memo.md",
     "lan.drawio",
     "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
-    "02_Note/Coop/コープバッチ対応.md",
-    "01_Daily/2026-08-21.md",
     "01_Daily/2026-08-20.md",
     "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
     "01_Daily/2026-08-19.md",
@@ -249,8 +255,6 @@
     "02_Note/社内ネットワーク更改/conversations.md",
     "01_Daily/2026-08-17.md",
     "02_Note/社内システム/システム機密情報扱い標準化.md",
-    "02_Note/Coop/COOP説明.md",
-    "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
     "02_Note/社内ネットワーク更改/ネットワーク図.md",
     "無題のファイル.canvas",
     "Pasted image 20260805093202.png",
