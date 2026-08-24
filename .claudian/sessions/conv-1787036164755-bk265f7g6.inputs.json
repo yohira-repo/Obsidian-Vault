@@ -289,6 +289,62 @@
       "contentDigest": "62375fa8418361c6a753e2138e36562688e3e3786b747c440e82ad5b4a416f6f",
       "providerUserMessageId": "1b18e9fb-52b1-48c3-9c95-aa406c11ef1b",
       "providerAssistantMessageId": "5e29c6f7-3a8f-410b-adbd-87b0b8a63a83"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787529490836-zljr0ik",
+      "userTurnOrdinal": 18,
+      "state": "accepted",
+      "localMessageId": "msg-1787529490805-832ikug",
+      "timestamp": 1787529490805,
+      "rawDisplayText": ">1. AWS側の作り直しが必要です（事前作業）\nAWSへのルートは代替手段がありますので、事後ゆっくり取り組もうと考えています。\n\n>2. Web公開が設計から漏れていました\nこちらも、新しい環境で、それに合わせた環境を検討したいと考えています。\n\n>3. 固定IP機器の全数棚卸しが必要です\n2のサーバ機器を多く抱えていましたが、AWSに移行していますので、現時点でごくわずかです。\n現在の設計で問題ありません。\n\n>4. 現行のL2TPはトンネル5本に6ユーザー登録\nこちら自体が代替手段ですので、4本同時接続はあり得ますが、問題ありません。\n\n>お願い\n全般リニューアルしますので、ご心配なく。",
+      "canonicalText": ">1. AWS側の作り直しが必要です（事前作業）\nAWSへのルートは代替手段がありますので、事後ゆっくり取り組もうと考えています。\n\n>2. Web公開が設計から漏れていました\nこちらも、新しい環境で、それに合わせた環境を検討したいと考えています。\n\n>3. 固定IP機器の全数棚卸しが必要です\n2のサーバ機器を多く抱えていましたが、AWSに移行していますので、現時点でごくわずかです。\n現在の設計で問題ありません。\n\n>4. 現行のL2TPはトンネル5本に6ユーザー登録\nこちら自体が代替手段ですので、4本同時接続はあり得ますが、問題ありません。\n\n>お願い\n全般リニューアルしますので、ご心配なく。",
+      "images": [],
+      "contentDigest": "b795e6c7c1bcad45393f586ee131b5cfb98dca510faa412a856c763d37778c89",
+      "providerUserMessageId": "6e6a8595-42f8-4f3c-bcf0-393f93f3a820",
+      "providerAssistantMessageId": "99dd6c5c-f105-4ae3-8a5f-625e607c6ced"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787529897734-4equ1ll",
+      "userTurnOrdinal": 19,
+      "state": "accepted",
+      "localMessageId": "msg-1787529897715-2kn6jp5",
+      "timestamp": 1787529897715,
+      "rawDisplayText": "ネットワーク切れましたが、継続してますか？",
+      "canonicalText": "ネットワーク切れましたが、継続してますか？",
+      "images": [],
+      "contentDigest": "476db17338b1779529482f91c19f14b830100f1122872573cdcea839d0e50a20",
+      "providerUserMessageId": "b080cd5a-cb1a-4bb4-b905-8bf592bd190c",
+      "providerAssistantMessageId": "1959175c-164d-4d70-bb5c-d392a5a7886a"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787529972746-8uvfv5y",
+      "userTurnOrdinal": 20,
+      "state": "accepted",
+      "localMessageId": "msg-1787529972741-9ew828k",
+      "timestamp": 1787529972741,
+      "rawDisplayText": "お願いします。",
+      "canonicalText": "お願いします。",
+      "images": [],
+      "contentDigest": "6feedd872f1a076d023171f22363633dbe564ad7443acebc1e58025e8fe39fcb",
+      "providerUserMessageId": "4eee3da8-6f18-400b-bb3d-6797c33019b5",
+      "providerAssistantMessageId": "2fd6a90d-935a-4689-ba9c-c159424b2d08"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787531039338-7kdm3ft",
+      "userTurnOrdinal": 21,
+      "state": "accepted",
+      "localMessageId": "msg-1787531039321-amqka8r",
+      "timestamp": 1787531039321,
+      "rawDisplayText": "VPNユーザー6名の業務／開発区分\nyohira *** 業務\nyohiradev *** 開発\nt.kido *** 業務\nt.kidodev *** 開発\nmogik *** 業務\niizuka *** 業務\nとなります。1ユーザの接続で、業務、開発どちらとも接続は無理ですよね？\nと思い、2名分を別ユーザ登録しています。",
+      "canonicalText": "VPNユーザー6名の業務／開発区分\nyohira *** 業務\nyohiradev *** 開発\nt.kido *** 業務\nt.kidodev *** 開発\nmogik *** 業務\niizuka *** 業務\nとなります。1ユーザの接続で、業務、開発どちらとも接続は無理ですよね？\nと思い、2名分を別ユーザ登録しています。",
+      "images": [],
+      "contentDigest": "b6d3fa35446cb1152c79ef349de8f37faa7cffa6a5dab12eb0e23385cde975b4",
+      "providerUserMessageId": "c50f47ff-6476-4ccd-9354-97926b086d9c",
+      "providerAssistantMessageId": "822cba41-24b0-4cdb-ae1a-09fb8259c564"
     }
   ]
 }

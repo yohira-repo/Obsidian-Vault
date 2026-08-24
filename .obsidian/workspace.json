@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "4bb488a32c322fd6",
+        "id": "f409349ca0a8412f",
         "type": "tabs",
         "children": [
           {
-            "id": "8d76d82b24e8bfa4",
+            "id": "b57e0ac5593f4abf",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "02_Note/Coop/コープバッチ対応.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "コープバッチ対応"
+              "title": "新規タブ"
             }
           }
         ]
@@ -80,7 +76,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 305.6640625
+    "width": 230.390625
   },
   "right": {
     "id": "bedad412766ec935",
@@ -172,8 +168,8 @@
             "state": {
               "type": "calendar",
               "state": {},
-              "icon": "lucide-ghost",
-              "title": "calendar"
+              "icon": "calendar-with-checkmark",
+              "title": "Calendar"
             }
           },
           {
@@ -201,7 +197,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 381.75
+    "width": 200
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -219,35 +215,36 @@
       "obdrawio:New diagram": false
     }
   },
-  "active": "8d76d82b24e8bfa4",
+  "active": "b57e0ac5593f4abf",
   "lastOpenFiles": [
-    "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
     "02_Note/Coop/コープバッチ対応.md",
+    "02_Note/社内ネットワーク更改/config/config_XS508TM.md",
+    "02_Note/社内ネットワーク更改/config/config_XG-100NE.md",
+    "02_Note/社内ネットワーク更改/config/config_RTX1300.md",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
+    "02_Note/社内ネットワーク更改/config/現行config棚卸し.md",
+    "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
+    "02_Note/社内ネットワーク更改/インターネット回線更改.md",
+    "01_Daily/2026-08-24.md",
     "02_Note/Coop/COOP説明.md",
     "01_Daily/2026-08-21.md",
-    "memo.md",
-    "lan.drawio",
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
-    "01_Daily/2026-08-20.md",
+    "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
     "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
-    "01_Daily/2026-08-19.md",
-    "02_Note/社内ネットワーク更改/インターネット回線更改.md",
     "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
     "02_Note/TaleScale/TailScale セットアップ.md",
-    "02_Note/社内ネットワーク更改/config/config_RTX1300.md",
-    "02_Note/社内ネットワーク更改/config/現行config棚卸し.md",
+    "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
+    "memo.md",
+    "lan.drawio",
+    "01_Daily/2026-08-20.md",
+    "01_Daily/2026-08-19.md",
     "02_Note/社内ネットワーク更改/config/config_1200_OCN.txt",
-    "02_Note/社内ネットワーク更改/config/config_XG-100NE.md",
     "02_Note/社内ネットワーク更改/config",
     "02_Note/社内ネットワーク更改/config_1200_OCN.txt",
-    "02_Note/社内ネットワーク更改/config/config_XS508TM.md",
     "01_Daily/2026-08-18.md",
-    "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
     "02_Note/社内ネットワーク更改/ネットワーク図.drawio.vid123.bak",
     "02_Note/社内ネットワーク更改/社内LANネットワーク設定.md",
     "02_Note/社内ネットワーク更改/ネットワーク設計.pdf",
     "02_Note/社内ネットワーク更改/ネットワーク図.png",
-    "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
     "02_Note/社内ネットワーク更改/ネットワーク図.jpeg",
     "02_Note/社内ネットワーク更改/ネットワーク図.drawio.bak",
     "02_Note/社内ネットワーク更改/ネットワーク図.drawio.prefix",
@@ -259,7 +256,6 @@
     "無題のファイル.canvas",
     "Pasted image 20260805093202.png",
     "Excel 2026-08-17 08.51.00.sheet.md",
-    "01_Daily/2026-07-29.md",
     "Pasted image 20260804144133.png"
   ]
 }

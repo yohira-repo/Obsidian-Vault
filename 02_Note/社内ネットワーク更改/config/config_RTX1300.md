@@ -20,8 +20,7 @@
 | `<MAC_xx>` | DHCP予約対象PCのMACアドレス | 実機確認 |
 | `<L2TP_PSK>` | L2TP/IPsec 事前共有鍵 | 社内 |
 | `<VPN_USER_x>` / `<VPN_PASS_x>` | VPNユーザー名・パスワード | 社内 |
-| `<AWS_*>` | AWS VGW の対向IP・PSK・BGP情報 | **AWSコンソールの設定ファイル**（新CGW作成後に再取得） |
-| `<WEB_SRV>` | Web公開サーバのIP（移設後） | 社内決定。案：`192.168.128.10` |
+| `<AWS_*>` | AWS VGW の対向IP・PSK・BGP情報 | **今回のスコープ外**（→ 11章。事後対応） |
 
 ---
 
@@ -102,13 +101,13 @@ ip route default gateway tunnel 1
 nat descriptor type 1 masquerade
 nat descriptor address outer 1 <GLOBAL_IP>
 nat descriptor address inner 1 auto
-
-# --- Web公開（現行の 301/302 を移植） ---
-nat descriptor masquerade static 1 301 <WEB_SRV> tcp www
-nat descriptor masquerade static 1 302 <WEB_SRV> tcp https
 ```
 
-> **現行の `192.168.128.128` から移設が必要です。** 新設計では `.128` はDHCP予約範囲（`.100`〜`.149`）に当たるため、固定IP範囲 `.2`〜`.99` 内へ移してください。サーバIPの変更は社内DNS・証明書・監視設定に影響する場合があります（→ [[現行config棚卸し]] 3章）。
+> **Web公開（現行の `192.168.128.128` への www/https）は今回移植しません。** サーバ群はAWSへ移行済みで、公開環境は新構成に合わせて別途検討する方針です。必要になった時点で以下を追加します。
+> ```
+> nat descriptor masquerade static 1 301 <公開サーバIP> tcp www
+> nat descriptor masquerade static 1 302 <公開サーバIP> tcp https
+> ```
 
 ---
 
@@ -185,22 +184,20 @@ ip filter 200081 pass * <GLOBAL_IP> udp * 500
 ip filter 200082 pass * <GLOBAL_IP> udp * 4500
 ip filter 200083 pass * <GLOBAL_IP> udp * 1701
 
-# --- Web公開（宛先を移設後のIPへ変更） ---
-ip filter 200087 pass * <WEB_SRV> tcpflag=0x0002/0x0017 * www
-ip filter 200088 pass * <WEB_SRV> tcpflag=0x0002/0x0017 * https
+# --- Web公開（今回は投入しない。必要時に有効化） ---
+# ip filter 200087 pass * <公開サーバIP> tcpflag=0x0002/0x0017 * www
+# ip filter 200088 pass * <公開サーバIP> tcpflag=0x0002/0x0017 * https
 
 ip filter 200099 pass * * * * *
 ip filter 200100 reject * * * * *
 
 # --- 動的フィルタ ---
-ip filter dynamic 200    * <WEB_SRV> www
 ip filter dynamic 200080 * * ftp
 ip filter dynamic 200081 * * domain
 ip filter dynamic 200082 * * www
 ip filter dynamic 200083 * * smtp
 ip filter dynamic 200084 * * pop3
 ip filter dynamic 200085 * * ssh
-ip filter dynamic 200086 * <WEB_SRV> https
 ip filter dynamic 200098 * * tcp
 ip filter dynamic 200099 * * udp
 ```
@@ -209,11 +206,13 @@ ip filter dynamic 200099 * * udp
 
 ```
 tunnel select 1
- ip tunnel secure filter in  200003 200020 200021 200022 200023 200024 200025 200030 200032 200080 200081 200082 200083 200087 200088 200100 dynamic 200 200086
- ip tunnel secure filter out 200020 200021 200022 200023 200024 200025 200026 200027 200099 dynamic 200080 200081 200082 200083 200084 200085 200086 200098 200099
+ ip tunnel secure filter in  200003 200020 200021 200022 200023 200024 200025 200030 200032 200080 200081 200082 200083 200100
+ ip tunnel secure filter out 200020 200021 200022 200023 200024 200025 200026 200027 200099 dynamic 200080 200081 200082 200083 200084 200085 200098 200099
 ```
 
-> **現行から除外した項目**：SIP公開用の `200084`／`200085`／`200086`（静的、`192.168.50.150` 宛）は、IP電話コントローラの使用終了に伴い**移植しません**。
+> **現行から除外した項目**
+> - SIP公開用の静的フィルタ `200084`／`200085`／`200086`（`192.168.50.150` 宛）— IP電話コントローラの使用終了に伴い移植しません
+> - Web公開用の `200087`／`200088`、動的フィルタ `200`／`200086` — 公開環境を新構成で別途検討するため今回は投入しません
 > **要検証**：現行は `ipsec ike local address 192.168.128.1` ＋ NAT静的で自機宛IPsecを通していました。新構成は固定グローバルIPを直接保持するため、上記のとおり `<GLOBAL_IP>` 宛としています。**フィルタとNATの評価順序の関係で調整が必要な場合があります。**
 
 ---
@@ -235,50 +234,116 @@ tunnel select 1
 | VPN業務 `192.168.201.16/28` → VLAN 10 | TCP 3389／22 のみ許可 |
 | VPN開発 `192.168.201.32/28` → VLAN 20 | TCP 3389／22 のみ許可 |
 
-### 9-2. フィルタ定義（雛形）
+### 9-2. 動作原理（ヤマハ公式仕様の確認結果）
+
+確定版を作るうえで押さえるべき仕様は3点です。
+
+| # | 仕様 | 出典の要点 |
+|---:|---|---|
+| 1 | 動的フィルタは**最初から存在せず、トリガとなるコネクションを検出した時に生成**される。**最初のパケットには静的フィルタが適用**される | → **転送方向の静的フィルタに `pass` が必要**。ここで `reject` されるとセッションが生成されない |
+| 2 | 動的フィルタを `secure filter out` に指定すると、**そのセッションの戻りパケットは `in` 側の静的 `reject` に関わらず通過**する | → 公式例では `in` 側を `reject * *` にしても戻り通信が成立している |
+| 3 | 動的フィルタのプロトコルに **ICMP は指定できない**（tcp / udp / ftp / domain / www 等のニーモニック） | → **VLAN間の ping は別途対応が必要**（→ 9-5） |
+
+**構成の型**：制御は「**宛先側インターフェースの `in` で相手発の通信を拒否し、`out` に静的 `pass` ＋ `dynamic` を置く**」。これはヤマハ公式設定例「ローカルルーターで複数のLANを接続（片方向の通信）」と同じ構造です。
 
 ```
-# --- 静的フィルタ ---
-ip filter 2010 reject 192.168.128.20 192.168.64.0/24 * * *      # 複合機→VLAN20（最優先で拒否）
-ip filter 2020 reject * 192.168.128.0/24 * * *                  # →VLAN10 拒否
-ip filter 2021 reject * 192.168.64.0/24 * * *                   # →VLAN20 拒否
-ip filter 2022 reject * 192.168.192.0/24 * * *                  # →VLAN30 拒否
-ip filter 2023 reject * 192.168.200.0/24 * * *                  # →保守 拒否
-ip filter 2024 reject * 10.0.3.0/24 * * *                       # →AWS 拒否
-ip filter 2030 reject * 192.168.0.0/16 * * *                    # →プライベート全体 拒否
-ip filter 2031 reject * 10.0.0.0/8 * * *
-ip filter 2032 reject * 172.16.0.0/12 * * *
-ip filter 2099 pass * * * * *                                   # 上記以外は許可（インターネット向け）
-
-# --- 動的フィルタ（VLAN10 → VLAN20 の片方向許可） ---
-ip filter dynamic 3010 192.168.128.0/24 192.168.64.0/24 tcp
-ip filter dynamic 3011 192.168.128.0/24 192.168.64.0/24 udp
-ip filter dynamic 3012 192.168.128.0/24 192.168.64.0/24 icmp
-
-# --- 動的フィルタ（保守 → VLAN10・20） ---
-ip filter dynamic 3020 192.168.200.0/24 192.168.128.0/24 tcp
-ip filter dynamic 3021 192.168.200.0/24 192.168.128.0/24 udp
-ip filter dynamic 3022 192.168.200.0/24 192.168.128.0/24 icmp
-ip filter dynamic 3030 192.168.200.0/24 192.168.64.0/24 tcp
-ip filter dynamic 3031 192.168.200.0/24 192.168.64.0/24 udp
-ip filter dynamic 3032 192.168.200.0/24 192.168.64.0/24 icmp
+        VLAN10 (lan3/1)                      VLAN20 (lan3/2)
+             │                                     │
+   ①発信 ────┼──── in: pass ────▶ ルーティング ────┼──── out: 静的pass + dynamic ────▶ 宛先
+             │                                     │      （ここでセッション生成）
+   ④到達 ◀───┼──── out: フィルタなし ◀── ルーティング ◀──┼──── in: 動的フィルタが戻りを許可
+             │                                     │      （静的は reject でよい）
+                                                   │
+   ✗ 逆方向 ─────────────────────────────────────  ┼──── in: reject（VLAN20発は拒否）
 ```
 
-### 9-3. インターフェースへの適用（雛形）
+> **`lan3/1`（VLAN10）と `lan3/3`（VLAN30）には `secure filter out` を設定しません。** `out` に静的 `reject` を置くと、インターネットやVLAN20からの**戻りパケットまで落ちる**ためです。制御は各インターフェースの `in` と、`lan3/2` の `out` に集約します。
+
+### 9-3. フィルタ定義（確定版）
 
 ```
-ip lan3/1 secure filter in  2023 2099                    # VLAN10：保守宛のみ拒否
-ip lan3/2 secure filter in  2020 2022 2023 2024 2099     # VLAN20：VLAN10/30/保守/AWS宛を拒否
-ip lan3/3 secure filter in  2030 2031 2032 2099          # VLAN30：プライベート宛を全拒否
-ip lan3/2 secure filter out 2010 dynamic 3010 3011 3012 3030 3031 3032
+# ============================================================
+#  静的フィルタ：各VLAN発の通信制御（secure filter in 用）
+# ============================================================
+# --- VLAN20（開発）発 ---
+ip filter 2000 reject * 192.168.128.0/24 * * *        # → VLAN10 拒否
+ip filter 2001 reject * 192.168.192.0/24 * * *        # → VLAN30 拒否
+ip filter 2002 reject * 192.168.200.0/24 * * *        # → 保守 拒否
+ip filter 2003 reject * 192.168.201.0/24 * * *        # → VPN払出 拒否
+ip filter 2004 reject * 10.0.3.0/24 * * *             # → AWS 拒否
+ip filter 2009 pass   * * * * *                       # 以外（インターネット）許可
+
+# --- VLAN10（営業・総務）発 ---
+ip filter 2010 reject * 192.168.200.0/24 * * *        # → 保守 拒否
+ip filter 2011 reject * 192.168.201.0/24 * * *        # → VPN払出 拒否
+ip filter 2019 pass   * * * * *                       # 以外 許可（VLAN20・インターネット・AWS）
+
+# --- VLAN30（ゲスト）発：プライベート宛は全拒否 ---
+ip filter 2020 reject * 192.168.0.0/16 * * *
+ip filter 2021 reject * 10.0.0.0/8 * * *
+ip filter 2022 reject * 172.16.0.0/12 * * *
+ip filter 2029 pass   * * * * *                       # インターネットのみ許可
+
+# --- 保守セグメント発：制限なし ---
+ip filter 2039 pass   * * * * *
+
+# ============================================================
+#  静的フィルタ：VLAN20 への転送許可（lan3/2 の secure filter out 用）
+#  ★ 順序が重要：拒否を許可より前に置く
+# ============================================================
+ip filter 2100 reject 192.168.128.20   192.168.64.0/24 * * *          # 複合機 → VLAN20 拒否（例外）
+ip filter 2101 pass   192.168.128.0/24 192.168.64.0/24 * * *          # VLAN10 → VLAN20 許可
+ip filter 2102 pass   192.168.200.0/24 192.168.64.0/24 * * *          # 保守 → VLAN20 許可
+ip filter 2103 pass   192.168.201.32/28 192.168.64.0/24 tcp * 3389    # VPN開発 → RDP
+ip filter 2104 pass   192.168.201.32/28 192.168.64.0/24 tcp * 22      # VPN開発 → SSH
+
+# ============================================================
+#  動的フィルタ：戻り通信を許可（トリガ＝VLAN20方向への発信）
+#  ※ ICMPは指定できないため tcp / udp のみ
+# ============================================================
+ip filter dynamic 3000 192.168.128.0/24  192.168.64.0/24 tcp
+ip filter dynamic 3001 192.168.128.0/24  192.168.64.0/24 udp
+ip filter dynamic 3010 192.168.200.0/24  192.168.64.0/24 tcp
+ip filter dynamic 3011 192.168.200.0/24  192.168.64.0/24 udp
+ip filter dynamic 3020 192.168.201.32/28 192.168.64.0/24 tcp
 ```
 
-> ⚠️ **この 9-2／9-3 は雛形です。実装前に検証環境での動作確認が必要です。**
-> 「片方向許可」は **静的フィルタだけでは戻りパケットが落ちて通信不能**になります。ヤマハの動的フィルタは適用方向（`in`／`out`）と評価順序の解釈を誤りやすいため、以下を必ず実機で確認してください。
-> - VLAN10 → VLAN20 の通信が**双方向で成立**するか（戻りパケットが落ちていないか）
-> - VLAN20 → VLAN10 が**新規セッションとして拒否**されるか
-> - 複合機 `192.168.128.20` → VLAN20 が拒否されるか（静的拒否が動的許可より**前**に評価されているか）
-> - VLAN10・20からインターネットへの通信が阻害されていないか
+### 9-4. インターフェースへの適用（確定版）
+
+```
+ip lan3/1 secure filter in  2010 2011 2019
+ip lan3/2 secure filter in  2000 2001 2002 2003 2004 2009
+ip lan3/2 secure filter out 2100 2101 2102 2103 2104 dynamic 3000 3001 3010 3011 3020
+ip lan3/3 secure filter in  2020 2021 2022 2029
+ip lan1   secure filter in  2039
+```
+
+> `lan3/1`・`lan3/3`・`lan1` に `secure filter out` は設定しません（→ 9-2 の注記）。
+
+### 9-5. VLAN間の ping について
+
+**動的フィルタはICMPを扱えないため、上記の設定ではVLAN10からVLAN20への ping は通りません**（TCP/UDPは通ります）。対応は2案あります。
+
+| 案 | 設定 | 評価 |
+|---|---|---|
+| **A：pingを使わない**（推奨） | 追加設定なし | 分離が最も厳密。疎通確認は **TCPで実施**（例：VLAN10のPCからVLAN20のPCの3389/22へ接続、`Test-NetConnection -Port 3389`） |
+| B：ICMPを双方向許可 | `ip filter 2105 pass 192.168.128.0/24 192.168.64.0/24 icmp * *` を `lan3/2 out` の先頭付近へ、`ip filter 1999 pass 192.168.64.0/24 192.168.128.0/24 icmp * *` を `lan3/2 in` の先頭へ追加 | pingで確認できて運用は楽だが、**VLAN20からVLAN10へのping（＝ホスト存在調査）が可能になる**ため分離が緩む |
+
+> 本設計は **案A** を採用します。[[切替・障害切り分け手順]] の疎通確認もTCPベースで記載しています。
+
+### 9-6. 投入後に確認すること
+
+| # | 確認内容 | 期待結果 |
+|---:|---|---|
+| 1 | VLAN10のPCから VLAN20のPCの TCP 3389/22 へ接続 | **成功**（戻り通信が成立している） |
+| 2 | VLAN20のPCから VLAN10のPCの任意ポートへ接続 | **失敗**（新規セッション拒否） |
+| 3 | 複合機 `192.168.128.20` から VLAN20 へ接続 | **失敗**（静的拒否が動的許可より前に評価されている） |
+| 4 | VLAN10・VLAN20 からインターネットへ接続 | **成功**（`out` フィルタ未設定の影響が無いこと） |
+| 5 | VLAN30から VLAN10・20 へ接続 | **失敗** |
+| 6 | 保守セグメントから VLAN10・20 へ接続 | **成功** |
+| 7 | `show ip connection summary` | VLAN10→VLAN20 のセッションが登録されている |
+
+> 1がNGの場合は、`lan3/2 secure filter out` の静的 `pass`（2101）が動的フィルタより**前**にあるかを確認してください。静的に `pass` されないと動的フィルタのセッションが生成されません。
 
 ---
 
@@ -303,21 +368,23 @@ tunnel select 1000
  ip tunnel tcp mss limit auto
  tunnel enable 1000
 
-# 現行は5本のトンネルに6ユーザーを登録しており、6人目が同時接続できない状態でした。
-# 新構成では tunnel 1000〜1005（6本）以上を用意します。
+# 現行と同様に5本（tunnel 1000〜1004）を用意する。
+# リモートアクセスVPN自体が代替手段のため、同時接続は4名程度を想定（6名登録／5本で運用可）。
 ipsec transport 1000 1 udp 1701
-# tunnel 1001〜1005 も同様に定義（ipsec tunnel 番号・transport 番号を重複させないこと）
+# tunnel 1001〜1004 も同様に定義（ipsec tunnel 番号・transport 番号を重複させないこと）
 
 # --- PPP（anonymous） ---
 pp select anonymous
  pp bind tunnel1000-tunnel1004
  pp auth request mschap-v2
- pp auth username yohira       <PASS_yohira>       <IP>
- pp auth username t-yamashita  <PASS_t-yamashita>  <IP>
- pp auth username takebuchi    <PASS_takebuchi>    <IP>
- pp auth username t.kido       <PASS_t.kido>       <IP>
- pp auth username mogik        <PASS_mogik>        <IP>
- pp auth username iizukak      <PASS_iizukak>      <IP>
+ # --- 業務ユーザー（VLAN10へRDP/SSH） ---
+ pp auth username yohira     <PASS_yohira>     192.168.201.17
+ pp auth username t.kido     <PASS_t.kido>     192.168.201.18
+ pp auth username mogik      <PASS_mogik>      192.168.201.19
+ pp auth username iizuka     <PASS_iizuka>     192.168.201.20
+ # --- 開発ユーザー（VLAN20へRDP/SSH） ---
+ pp auth username yohiradev  <PASS_yohiradev>  192.168.201.33
+ pp auth username t.kidodev  <PASS_t.kidodev>  192.168.201.34
  ppp ipcp ipaddress on
  ppp ipcp msext on
  ppp ccp type none
@@ -332,19 +399,35 @@ ip filter 4021 pass 192.168.201.32/28 192.168.64.0/24  tcp * 22     # 開発→V
 ip filter 4099 reject * * * * *                                     # それ以外は拒否
 ```
 
-### ユーザーごとの払出IP（要記入）
+### ユーザーごとの払出IP（確定）
 
-| ユーザー名 | 区分 | 払出IP |
-|---|---|---|
-| yohira | **要記入**（業務／開発） | |
-| t-yamashita | **要記入** | |
-| takebuchi | **要記入** | |
-| t.kido | **要記入** | |
-| mogik | **要記入** | |
-| iizukak | **要記入** | |
+| ユーザー名 | 利用者 | 区分 | 払出IP | 到達範囲 |
+|---|---|---|---|---|
+| `yohira` | yohira | 業務 | `192.168.201.17` | VLAN 10（TCP 3389／22） |
+| `t.kido` | t.kido | 業務 | `192.168.201.18` | VLAN 10（TCP 3389／22） |
+| `mogik` | mogik | 業務 | `192.168.201.19` | VLAN 10（TCP 3389／22） |
+| `iizuka` | iizuka | 業務 | `192.168.201.20` | VLAN 10（TCP 3389／22） |
+| `yohiradev` | yohira | 開発 | `192.168.201.33` | VLAN 20（TCP 3389／22） |
+| `t.kidodev` | t.kido | 開発 | `192.168.201.34` | VLAN 20（TCP 3389／22） |
 
-- 業務ユーザー：`192.168.201.17`〜`.30`（VLAN 10へ RDP/SSH）
-- 開発ユーザー：`192.168.201.33`〜`.46`（VLAN 20へ RDP/SSH）
+- 業務レンジ：`192.168.201.16/28`（`.17`〜`.30`、14ユーザーまで）
+- 開発レンジ：`192.168.201.32/28`（`.33`〜`.46`、14ユーザーまで）
+- **利用者4名／アカウント6個**。業務と開発の両方へアクセスする2名（yohira・t.kido）は、**用途別に別アカウントで接続**します。
+
+> **1アカウントで業務・開発の両方に到達させることも技術的に可能です**（到達範囲はフィルタで決まるため）。その場合は「兼務レンジ」を追加し、VLAN 10・VLAN 20 の双方を許可するフィルタを定義します。本設計では**セッション単位の権限を最小に保つため、用途別のアカウント分離を採用**しています。
+
+#### 兼務レンジを使う場合（参考・今回は未使用）
+
+```
+# 兼務レンジ 192.168.201.48/28（.49〜.62）
+ip filter 4030 pass 192.168.201.48/28 192.168.128.0/24 tcp * 3389
+ip filter 4031 pass 192.168.201.48/28 192.168.128.0/24 tcp * 22
+ip filter 4032 pass 192.168.201.48/28 192.168.64.0/24  tcp * 3389
+ip filter 4033 pass 192.168.201.48/28 192.168.64.0/24  tcp * 22
+# lan3/2 secure filter out へ 192.168.201.48/28 → VLAN20 の pass と dynamic も追加が必要
+```
+
+> **現行configからのユーザー変更**：`t-yamashita`・`takebuchi` は新リストに無いため**登録しません**。`iizukak` は `iizuka` へ改称。新規に `yohiradev`・`t.kidodev` を追加します。
 
 > **`ip pp remote address pool` は設定しません。** 現行は `ip pp remote address pool dhcp` でLAN内のDHCPプール（`.10`〜`.60`）から払い出し、`ip lan1 proxyarp on` を併用していましたが、**新構成では専用セグメントの固定払出に変更**するため、プールとproxyarpはいずれも不要です。
 > プールを併用し、固定指定したIPがプール範囲と重複すると、プール側から別アドレスが払い出されフィルタが意図通りに効かなくなります。
@@ -354,8 +437,10 @@ ip filter 4099 reject * * * * *                                     # それ以�
 
 ## 11. AWS拠点間VPN（VGW）
 
-> **⚠️ グローバルIPが変わるため、AWS側の作り直しが必要です。**
-> 現行のCustomer Gatewayは `153.156.71.228`（PPPoE時代のIP）で登録されています。光クロス+固定IP1で**IPが変わる**ため、**新CGWの作成とVPN接続の張り直し**が必要です。これは切替当日ではなく**事前に着手**してください。
+> **⚠️ 本章は今回の切替スコープ外です（事後対応）。**
+> AWSへのルートには代替手段があるため、回線切替後に順次対応する方針です。**切替当日はAWS VPNを設定しません。**
+>
+> グローバルIPが `153.156.71.228`（PPPoE時代のIP）から変わるため、**新Customer Gatewayの作成とVPN接続の張り直し**が必要になります。
 >
 > | 項目 | 扱い |
 > |---|---|
@@ -412,7 +497,7 @@ bgp configure refresh
 | 6 | VLAN・DHCP（3-3、7章） | 各VLANでIP取得 |
 | 7 | フィルタ（8章） | VLAN間の可否を確認 |
 | 8 | L2TP/IPsec（9章） | 外部から接続テスト |
-| 9 | AWS VPN（10章） | `show ipsec sa` |
+| 9 | ~~AWS VPN~~ | **今回は対象外（事後対応）** |
 
 ```
 save
@@ -429,10 +514,10 @@ save
 | OCN開通情報（`<IF_ID>` `<TUNNEL_DST>` `<GLOBAL_IP>`） | **未入手** |
 | ファームウェアRev（Rev.23.00.17以降） | **未確認** |
 | DHCP予約対象PCのMACアドレス | **未収集** |
-| VLAN間フィルタ（8章）の動作 | **要検証**（動的フィルタの方向・評価順） |
-| AWS VPN設定 | **新CGW作成→設定ファイル再取得が必要**（事前作業） |
-| Web公開サーバの移設先IP | 未決定（案：`192.168.128.10`） |
-| `.61`〜`.254` の固定IP機器の棚卸し | **未実施**（新設計では `.2`〜`.99` へ移設が必要） |
-| VPNユーザー6名の業務／開発区分 | **未記入** |
+| VLAN間フィルタ（9章） | **確定**（ヤマハ公式仕様・設定例に準拠）。投入後に 9-6 の7項目を確認 |
+| AWS VPN設定 | **今回スコープ外**（事後対応。代替ルートあり） |
+| Web公開環境 | **今回スコープ外**（新構成に合わせて別途検討） |
+| 固定IP機器の割当 | サーバ群はAWS移行済みで少数。`.2`〜`.99` 内へ割当 |
+| VPNユーザーの業務／開発区分 | **確定**（4名／6アカウント。→ 10章） |
 | MAP-E／IPIP上でのIKE・ESP通過性 | OCNへ要確認 |
 | L2TP/IPsec 同時接続数の上限 | 機種仕様を要確認 |
