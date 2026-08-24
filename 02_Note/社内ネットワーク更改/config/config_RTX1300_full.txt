@@ -1,0 +1,286 @@
+# ============================================================================
+# YAMAHA RTX1300  統合コンフィグ（一発投入用）
+# 出典: config_RTX1300.md（設計の正）。本ファイルは全章を投入順に連結したもの。
+#
+# 【使い方】
+#   1. 下記プレースホルダ <...> をすべて実値へ置換してから投入すること。
+#   2. コンソール(SSH/シリアル)へブロック単位で貼り付けるのが安全。
+#      まとめて一括投入すると障害切り分けが困難（段階投入版=config_RTX1300_staged.txt 推奨）。
+#   3. 末尾の save を実行して確定。
+#
+# 【投入前に確定させるプレースホルダ】
+#   <LOGIN_PASS> <ADMIN_PASS>            : ログイン/管理者パスワード（社内）
+#   <IF_ID>                              : インターフェースID（OCN開通通知）
+#   <TUNNEL_DST>                         : Tunnel Destination 対向IPv6（OCN開通通知）
+#   <GLOBAL_IP>                          : 固定グローバルIPv4（OCN開通通知）
+#   <DNS1> <DNS2>                        : パブリックDNS（例 8.8.8.8 / 1.1.1.1）
+#   <MAC_01>..<MAC_12>                   : DHCP予約対象PCのMAC（実機確認）
+#   <L2TP_PSK>                           : L2TP/IPsec 事前共有鍵（社内）
+#   <PASS_xxx>                           : 各VPNユーザーのパスワード（社内）
+#   <AWS_*>                              : AWS VGW関連（★今回スコープ外・11章）
+#
+# 【最重要の注意】
+#   - LAN2 は必ず ra-prefix@lan2（RA方式）。dhcp-prefix@ にするとIPv4が通らない。
+#   - VLAN間フィルタは静的passが動的filterより前にある順序を厳守（8章/9章）。
+#   - AWS拠点間VPN(11章)は切替当日は投入しない（事後対応）。
+# ============================================================================
+
+
+# ============================================================
+# 1. 基本設定
+# ============================================================
+console character ascii
+console lines infinity
+login password <LOGIN_PASS>
+administrator password <ADMIN_PASS>
+timezone +09:00
+
+
+# ============================================================
+# 2. フレキシブルLAN/WANポート
+#   工場出荷割当(LAN1=物理1-8 / LAN2=物理9 / LAN3=物理10)をそのまま使用。
+#   コマンド投入不要。変更する場合のみ save+restart（切替当日は避ける）。
+# ============================================================
+
+
+# ============================================================
+# 3. インターフェース
+# ============================================================
+# --- 3-1. LAN1: 保守セグメント ---
+ip lan1 address 192.168.200.1/24
+
+# --- 3-2. LAN2: WAN（XG-100NE LAN4 と接続）---
+# ★ RA方式。dhcp-prefix@ にしないこと（HGW配下ではIPv4が全く通らなくなる）
+ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
+
+# --- 3-3. LAN3: コアスイッチ幹線（タグVLAN 10/20/30）---
+vlan lan3/1 802.1q vid=10
+vlan lan3/2 802.1q vid=20
+vlan lan3/3 802.1q vid=30
+ip lan3/1 address 192.168.128.1/24
+ip lan3/2 address 192.168.64.1/24
+ip lan3/3 address 192.168.192.1/24
+
+
+# ============================================================
+# 4. IPIPトンネル（OCNバーチャルコネクト 固定IP1）
+# ============================================================
+tunnel select 1
+ tunnel encapsulation ipip
+ tunnel endpoint address <TUNNEL_DST>
+ ip tunnel mtu 1460
+ ip tunnel tcp mss limit auto
+ ip tunnel nat descriptor 1
+ tunnel enable 1
+ip route default gateway tunnel 1
+
+
+# ============================================================
+# 5. NAT（固定グローバルIPでのNAPT）
+# ============================================================
+nat descriptor type 1 masquerade
+nat descriptor address outer 1 <GLOBAL_IP>
+nat descriptor address inner 1 auto
+# Web公開(www/https静的NAT)は今回移植しない。必要時に下記を追加:
+# nat descriptor masquerade static 1 301 <公開サーバIP> tcp www
+# nat descriptor masquerade static 1 302 <公開サーバIP> tcp https
+
+
+# ============================================================
+# 6. DNS
+# ============================================================
+# ★ "dhcp lan2" は使わない（HGWをDNS参照して名前解決失敗する既知事象の回避）
+dns server <DNS1> <DNS2>
+dns service recursive
+
+
+# ============================================================
+# 7. DHCP
+# ============================================================
+dhcp service server
+dhcp server rfc2131 compliant except remain-silent
+# VLAN 10（営業・総務管理）
+dhcp scope 10 192.168.128.100-192.168.128.199/24 gateway 192.168.128.1 expire 12
+dhcp scope option 10 dns=<DNS1>,<DNS2>
+# VLAN 20（社内開発・試験）
+dhcp scope 20 192.168.64.100-192.168.64.199/24 gateway 192.168.64.1 expire 12
+dhcp scope option 20 dns=<DNS1>,<DNS2>
+# VLAN 30（ゲスト）
+dhcp scope 30 192.168.192.100-192.168.192.199/24 gateway 192.168.192.1 expire 4
+dhcp scope option 30 dns=<DNS1>,<DNS2>
+# 保守セグメント
+dhcp scope 40 192.168.200.100-192.168.200.199/24 gateway 192.168.200.1 expire 12
+# DHCP予約（VPNで接続する対象PCのみ。.100〜.149 から割当）
+dhcp scope bind 10 192.168.128.101 <MAC_01>
+dhcp scope bind 10 192.168.128.102 <MAC_02>
+dhcp scope bind 20 192.168.64.101  <MAC_11>
+dhcp scope bind 20 192.168.64.102  <MAC_12>
+
+
+# ============================================================
+# 8. WAN側セキュリティフィルタ（現行RTX1200から移植・トンネルへ適用）
+# ============================================================
+# --- プライベートアドレス偽装の遮断 ---
+ip filter 200003 reject 192.168.0.0/16 * * * *
+# --- Windows系ポートの遮断 ---
+ip filter 200020 reject * * udp,tcp 135 *
+ip filter 200021 reject * * udp,tcp * 135
+ip filter 200022 reject * * udp,tcp netbios_ns-netbios_ssn *
+ip filter 200023 reject * * udp,tcp * netbios_ns-netbios_ssn
+ip filter 200024 reject * * udp,tcp 445 *
+ip filter 200025 reject * * udp,tcp * 445
+ip filter 200026 restrict * * tcpfin * www,21,nntp
+ip filter 200027 restrict * * tcprst * www,21,nntp
+# --- 内向き許可（最低限） ---
+ip filter 200030 pass * 192.168.0.0/16 icmp * *
+ip filter 200032 pass * 192.168.0.0/16 tcp * ident
+# --- VPN終端（自機宛） ---
+ip filter 200080 pass * <GLOBAL_IP> esp * *
+ip filter 200081 pass * <GLOBAL_IP> udp * 500
+ip filter 200082 pass * <GLOBAL_IP> udp * 4500
+ip filter 200083 pass * <GLOBAL_IP> udp * 1701
+# --- Web公開（今回は投入しない。必要時に有効化） ---
+# ip filter 200087 pass * <公開サーバIP> tcpflag=0x0002/0x0017 * www
+# ip filter 200088 pass * <公開サーバIP> tcpflag=0x0002/0x0017 * https
+ip filter 200099 pass * * * * *
+ip filter 200100 reject * * * * *
+# --- 動的フィルタ ---
+ip filter dynamic 200080 * * ftp
+ip filter dynamic 200081 * * domain
+ip filter dynamic 200082 * * www
+ip filter dynamic 200083 * * smtp
+ip filter dynamic 200084 * * pop3
+ip filter dynamic 200085 * * ssh
+ip filter dynamic 200098 * * tcp
+ip filter dynamic 200099 * * udp
+# --- 適用（トンネル1へ） ---
+tunnel select 1
+ ip tunnel secure filter in  200003 200020 200021 200022 200023 200024 200025 200030 200032 200080 200081 200082 200083 200100
+ ip tunnel secure filter out 200020 200021 200022 200023 200024 200025 200026 200027 200099 dynamic 200080 200081 200082 200083 200084 200085 200098 200099
+
+
+# ============================================================
+# 9. フィルタ（VLAN間アクセス制御）
+#   構成の型: 宛先側 in で相手発を拒否、out に静的pass + dynamic。
+#   ★ 静的passは動的filterより前（順序厳守）。
+# ============================================================
+# --- 各VLAN発の通信制御（secure filter in 用） ---
+# VLAN20（開発）発
+ip filter 2000 reject * 192.168.128.0/24 * * *
+ip filter 2001 reject * 192.168.192.0/24 * * *
+ip filter 2002 reject * 192.168.200.0/24 * * *
+ip filter 2003 reject * 192.168.201.0/24 * * *
+ip filter 2004 reject * 10.0.3.0/24 * * *
+ip filter 2009 pass   * * * * *
+# VLAN10（営業・総務）発
+ip filter 2010 reject * 192.168.200.0/24 * * *
+ip filter 2011 reject * 192.168.201.0/24 * * *
+ip filter 2019 pass   * * * * *
+# VLAN30（ゲスト）発: プライベート宛は全拒否
+ip filter 2020 reject * 192.168.0.0/16 * * *
+ip filter 2021 reject * 10.0.0.0/8 * * *
+ip filter 2022 reject * 172.16.0.0/12 * * *
+ip filter 2029 pass   * * * * *
+# 保守セグメント発: 制限なし
+ip filter 2039 pass   * * * * *
+# --- VLAN20 への転送許可（lan3/2 の secure filter out 用。拒否を許可より前に） ---
+ip filter 2100 reject 192.168.128.20   192.168.64.0/24 * * *
+ip filter 2101 pass   192.168.128.0/24 192.168.64.0/24 * * *
+ip filter 2102 pass   192.168.200.0/24 192.168.64.0/24 * * *
+ip filter 2103 pass   192.168.201.32/28 192.168.64.0/24 tcp * 3389
+ip filter 2104 pass   192.168.201.32/28 192.168.64.0/24 tcp * 22
+# --- 動的フィルタ（戻り通信許可。ICMP不可のため tcp/udp のみ） ---
+ip filter dynamic 3000 192.168.128.0/24  192.168.64.0/24 tcp
+ip filter dynamic 3001 192.168.128.0/24  192.168.64.0/24 udp
+ip filter dynamic 3010 192.168.200.0/24  192.168.64.0/24 tcp
+ip filter dynamic 3011 192.168.200.0/24  192.168.64.0/24 udp
+ip filter dynamic 3020 192.168.201.32/28 192.168.64.0/24 tcp
+# --- インターフェースへの適用 ---
+ip lan3/1 secure filter in  2010 2011 2019
+ip lan3/2 secure filter in  2000 2001 2002 2003 2004 2009
+ip lan3/2 secure filter out 2100 2101 2102 2103 2104 dynamic 3000 3001 3010 3011 3020
+ip lan3/3 secure filter in  2020 2021 2022 2029
+ip lan1   secure filter in  2039
+# ※ lan3/1・lan3/3・lan1 に secure filter out は設定しない（戻りパケットが落ちるため）
+# ※ VLAN間pingは通らない設計（案A）。疎通確認はTCP(3389/22)で実施。
+
+
+# ============================================================
+# 10. リモートアクセスVPN（L2TP/IPsec）
+#   ★ tunnel 1001〜1004 は下記1000をひな型に展開が必要（要確定）。
+#     ipsec tunnel 番号 / ipsec transport 番号を重複させないこと。
+# ============================================================
+ipsec auto refresh on
+ipsec transport 1 1 udp 1701
+tunnel select 1000
+ tunnel encapsulation l2tp
+ ipsec tunnel 1
+  ipsec sa policy 1 1 esp aes-cbc sha-hmac
+  ipsec ike keepalive use 1 off
+  ipsec ike local address 1 <GLOBAL_IP>
+  ipsec ike pre-shared-key 1 text <L2TP_PSK>
+  ipsec ike remote address 1 any
+ l2tp tunnel disconnect time off
+ l2tp keepalive use on 10 3
+ l2tp syslog on
+ ip tunnel tcp mss limit auto
+ tunnel enable 1000
+ipsec transport 1000 1 udp 1701
+# TODO: tunnel 1001〜1004 を同様に定義（同時接続4名想定/6アカウント/5本）
+# --- PPP（anonymous） ---
+pp select anonymous
+ pp bind tunnel1000-tunnel1004
+ pp auth request mschap-v2
+ # 業務ユーザー（VLAN10へRDP/SSH）
+ pp auth username yohira     <PASS_yohira>     192.168.201.17
+ pp auth username t.kido     <PASS_t.kido>     192.168.201.18
+ pp auth username mogik      <PASS_mogik>      192.168.201.19
+ pp auth username iizuka     <PASS_iizuka>     192.168.201.20
+ # 開発ユーザー（VLAN20へRDP/SSH）
+ pp auth username yohiradev  <PASS_yohiradev>  192.168.201.33
+ pp auth username t.kidodev  <PASS_t.kidodev>  192.168.201.34
+ ppp ipcp ipaddress on
+ ppp ipcp msext on
+ ppp ccp type none
+ ip pp secure filter in 4010 4011 4020 4021 4099
+ pp enable anonymous
+# --- VPN用フィルタ ---
+ip filter 4010 pass 192.168.201.16/28 192.168.128.0/24 tcp * 3389
+ip filter 4011 pass 192.168.201.16/28 192.168.128.0/24 tcp * 22
+ip filter 4020 pass 192.168.201.32/28 192.168.64.0/24  tcp * 3389
+ip filter 4021 pass 192.168.201.32/28 192.168.64.0/24  tcp * 22
+ip filter 4099 reject * * * * *
+
+
+# ============================================================
+# 11. AWS拠点間VPN（VGW）  ★★ 今回スコープ外・切替当日は投入しない ★★
+#   グローバルIP変更に伴い新CGW作成/VPN張り直しが必要。
+#   AWSコンソール「設定ファイルのダウンロード=Yamaha」の出力を正とすること。
+#   以下は構造の参考（そのまま投入しない）。
+# ============================================================
+# tunnel select 2001
+#  tunnel encapsulation ipsec
+#  ipsec tunnel 2001
+#   ipsec sa policy 2001 2001 esp aes-cbc sha-hmac
+#   ipsec ike version 2001 2
+#   ipsec ike local address 2001 <GLOBAL_IP>
+#   ipsec ike remote address 2001 <AWS_TUNNEL1_OUTSIDE_IP>
+#   ipsec ike pre-shared-key 2001 text <AWS_TUNNEL1_PSK>
+#  ip tunnel address <AWS_TUNNEL1_INSIDE_CGW_IP>
+#  ip tunnel remote address <AWS_TUNNEL1_INSIDE_VGW_IP>
+#  ip tunnel tcp mss limit auto
+#  tunnel enable 2001
+# tunnel select 2002  （トンネル1と同様に <AWS_TUNNEL2_*>）
+# bgp use on
+# bgp autonomous-system 65000
+# bgp neighbor 1 10124 <AWS_TUNNEL1_INSIDE_VGW_IP> hold-time=30 local-address=<AWS_TUNNEL1_INSIDE_CGW_IP>
+# bgp neighbor 2 10124 <AWS_TUNNEL2_INSIDE_VGW_IP> hold-time=30 local-address=<AWS_TUNNEL2_INSIDE_CGW_IP>
+# bgp import filter 1 equal 192.168.128.0/24
+# bgp import 10124 static filter 1
+# bgp configure refresh
+
+
+# ============================================================
+# 12. 保存
+# ============================================================
+save
