@@ -41,7 +41,8 @@
       "canonicalText": "Q1: 記載の通りお願いします。\nQ2: まとめて実行お願します。",
       "images": [],
       "contentDigest": "cb79a903b11dee14ea2233188cf993da3e0de7d162c99567b934b7f22a938511",
-      "providerUserMessageId": "b326be26-fcb6-4746-a337-1f2b48d14449"
+      "providerUserMessageId": "b326be26-fcb6-4746-a337-1f2b48d14449",
+      "providerAssistantMessageId": "e3478735-592b-4127-8a52-32a5fa630931"
     }
   ]
 }
