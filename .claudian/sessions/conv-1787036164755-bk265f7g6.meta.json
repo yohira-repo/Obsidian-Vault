@@ -10,7 +10,7 @@
   "providerState": {
     "providerSessionId": "5b1ee3e6-c4d3-49ae-a1a8-1a85aadafdb5"
   },
-  "currentNote": "02_Note/社内ネットワーク更改/社内LANネットワーク設定.md",
+  "linkedContentPath": "02_Note/社内ネットワーク更改/社内LANネットワーク設定.md",
   "usage": {
     "model": "opus",
     "inputTokens": 2,

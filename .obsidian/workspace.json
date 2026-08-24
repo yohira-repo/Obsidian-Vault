@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "f409349ca0a8412f",
+        "id": "58f84828e0088455",
         "type": "tabs",
         "children": [
           {
-            "id": "b57e0ac5593f4abf",
+            "id": "0d93ad06471feb95",
             "type": "leaf",
             "state": {
               "type": "empty",
@@ -76,7 +76,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 230.390625
+    "width": 304.5
   },
   "right": {
     "id": "bedad412766ec935",
@@ -153,7 +153,6 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "02_Note/社内ネットワーク更改/インターネット回線更改.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -183,11 +182,22 @@
             }
           },
           {
-            "id": "0dc9436631971ef2",
+            "id": "ba23da32c52bc400",
             "type": "leaf",
             "state": {
               "type": "claudian-view",
-              "state": {},
+              "state": {
+                "tabWorkspace": {
+                  "version": 1,
+                  "openTabs": [
+                    {
+                      "tabId": "tab-1787033347289-95y07ml",
+                      "conversationId": "conv-1787036164755-bk265f7g6"
+                    }
+                  ],
+                  "activeTabId": "tab-1787033347289-95y07ml"
+                }
+              },
               "icon": "bot",
               "title": "Claudian"
             }
@@ -197,10 +207,11 @@
       }
     ],
     "direction": "horizontal",
-    "width": 200
+    "width": 576.5
   },
   "left-ribbon": {
     "hiddenItems": {
+      "realclaudian:Open Claudian": false,
       "switcher:クイックスイッチャーを開く": false,
       "graph:グラフビューを開く": false,
       "canvas:新規キャンバスを作成": false,
@@ -210,52 +221,49 @@
       "bases:新規ベースを作成": false,
       "obsidian-git:Open Git source control": false,
       "obsidian-excalidraw-plugin:New drawing": false,
-      "excel:Create Excel File": false,
-      "realclaudian:Open Claudian": false,
-      "obdrawio:New diagram": false
+      "excel:Create Excel File": false
     }
   },
-  "active": "b57e0ac5593f4abf",
+  "active": "583b51293f9e7bb1",
   "lastOpenFiles": [
-    "02_Note/Coop/コープバッチ対応.md",
+    "02_Note/社内ネットワーク更改/config/現行config棚卸し.md",
     "02_Note/社内ネットワーク更改/config/config_XS508TM.md",
     "02_Note/社内ネットワーク更改/config/config_XG-100NE.md",
     "02_Note/社内ネットワーク更改/config/config_RTX1300.md",
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
-    "02_Note/社内ネットワーク更改/config/現行config棚卸し.md",
-    "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
-    "02_Note/社内ネットワーク更改/インターネット回線更改.md",
-    "01_Daily/2026-08-24.md",
-    "02_Note/Coop/COOP説明.md",
-    "01_Daily/2026-08-21.md",
-    "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
-    "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
-    "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
-    "02_Note/TaleScale/TailScale セットアップ.md",
-    "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
-    "memo.md",
-    "lan.drawio",
-    "01_Daily/2026-08-20.md",
-    "01_Daily/2026-08-19.md",
     "02_Note/社内ネットワーク更改/config/config_1200_OCN.txt",
-    "02_Note/社内ネットワーク更改/config",
-    "02_Note/社内ネットワーク更改/config_1200_OCN.txt",
-    "01_Daily/2026-08-18.md",
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.vid123.bak",
     "02_Note/社内ネットワーク更改/社内LANネットワーク設定.md",
+    "02_Note/社内ネットワーク更改/切替・障害切り分け手順.md",
     "02_Note/社内ネットワーク更改/ネットワーク設計.pdf",
+    "02_Note/社内ネットワーク更改/ネットワーク構築提案書.md",
     "02_Note/社内ネットワーク更改/ネットワーク図.png",
-    "02_Note/社内ネットワーク更改/ネットワーク図.jpeg",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.vid123.bak",
     "02_Note/社内ネットワーク更改/ネットワーク図.drawio.bak",
-    "02_Note/社内ネットワーク更改/ネットワーク図.drawio.prefix",
+    "02_Note/社内ネットワーク更改/ネットワーク図.drawio",
+    "02_Note/社内ネットワーク更改/インターネット回線更改.md",
     "02_Note/社内ネットワーク更改/OCN_Hikari_Cross_RTX1300_Setup_Guide.md",
     "02_Note/社内ネットワーク更改/conversations.md",
-    "01_Daily/2026-08-17.md",
+    "02_Note/社内ネットワーク更改/config",
     "02_Note/社内システム/システム機密情報扱い標準化.md",
-    "02_Note/社内ネットワーク更改/ネットワーク図.md",
-    "無題のファイル.canvas",
-    "Pasted image 20260805093202.png",
-    "Excel 2026-08-17 08.51.00.sheet.md",
-    "Pasted image 20260804144133.png"
+    "02_Note/TaleScale/Tailscale使い方ガイド.pdf",
+    "02_Note/TaleScale/Tailscale ノード共有（Node Sharing）運用ガイド.md",
+    "02_Note/TaleScale/TailScale セットアップ.md",
+    "02_Note/Coop/コープバッチ対応.md",
+    "02_Note/Coop/若林さん面談復職リハビリカリキュラム案.md",
+    "02_Note/Coop/COOP説明.md",
+    "02_Note/社内ネットワーク更改",
+    "02_Note/社内システム",
+    "02_Note/TaleScale",
+    "01_Daily/2026-08-24.md",
+    "01_Daily/2026-08-21.md",
+    "01_Daily/2026-08-20.md",
+    "01_Daily/2026-08-19.md",
+    "01_Daily/2026-08-18.md",
+    "01_Daily/2026-08-17.md",
+    "01_Daily/2026-08-14.md",
+    "01_Daily/2026-08-13.md",
+    "01_Daily/2026-08-12.md",
+    "01_Daily/2026-08-10.md",
+    "Pasted image 20260804144133.png",
+    "無題のファイル.canvas"
   ]
 }
