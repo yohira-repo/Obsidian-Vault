@@ -345,6 +345,20 @@
       "contentDigest": "b6d3fa35446cb1152c79ef349de8f37faa7cffa6a5dab12eb0e23385cde975b4",
       "providerUserMessageId": "c50f47ff-6476-4ccd-9354-97926b086d9c",
       "providerAssistantMessageId": "822cba41-24b0-4cdb-ae1a-09fb8259c564"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787534715540-86kddbw",
+      "userTurnOrdinal": 22,
+      "state": "accepted",
+      "localMessageId": "msg-1787534715521-cpslz9f",
+      "timestamp": 1787534715521,
+      "rawDisplayText": "別のPCで同期を取りたいので、ここまでのところをまとめて、mdファイルを作成してください。",
+      "canonicalText": "別のPCで同期を取りたいので、ここまでのところをまとめて、mdファイルを作成してください。",
+      "images": [],
+      "contentDigest": "d0ad74e02e0ce7d1d7cf9dae6162d5d7ac6223521c60957b4b1310a7bb4edff3",
+      "providerUserMessageId": "dc767f58-a075-48ca-90dc-8397db045705",
+      "providerAssistantMessageId": "ab90a1fd-d85f-4d0d-a40a-1cac4982475e"
     }
   ]
 }

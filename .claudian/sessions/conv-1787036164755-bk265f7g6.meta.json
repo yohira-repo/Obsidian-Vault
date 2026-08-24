@@ -4,7 +4,7 @@
   "title": "Summarize HGW integration change points",
   "titleGenerationStatus": "success",
   "createdAt": 1787036164780,
-  "lastActivityAt": 1787531150746,
+  "lastActivityAt": 1787534832091,
   "sessionId": "5b1ee3e6-c4d3-49ae-a1a8-1a85aadafdb5",
   "selectedModel": "opus",
   "providerState": {
@@ -14,10 +14,10 @@
   "usage": {
     "model": "opus",
     "inputTokens": 2,
-    "cacheCreationInputTokens": 2514,
-    "cacheReadInputTokens": 432671,
+    "cacheCreationInputTokens": 6849,
+    "cacheReadInputTokens": 436327,
     "contextWindow": 1000000,
-    "contextTokens": 435187,
+    "contextTokens": 443178,
     "percentage": 44,
     "contextWindowIsAuthoritative": true
   }
