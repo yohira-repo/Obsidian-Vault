@@ -43,6 +43,34 @@
       "contentDigest": "cb79a903b11dee14ea2233188cf993da3e0de7d162c99567b934b7f22a938511",
       "providerUserMessageId": "b326be26-fcb6-4746-a337-1f2b48d14449",
       "providerAssistantMessageId": "e3478735-592b-4127-8a52-32a5fa630931"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787546586004-39jbhrf",
+      "userTurnOrdinal": 4,
+      "state": "accepted",
+      "localMessageId": "msg-1787546586000-bfvcnh2",
+      "timestamp": 1787546586000,
+      "rawDisplayText": "RTX1300やXS508TMに一発適用できるスクリプトファイルは作成できないのでしょうか？",
+      "canonicalText": "RTX1300やXS508TMに一発適用できるスクリプトファイルは作成できないのでしょうか？",
+      "images": [],
+      "contentDigest": "20c7d588163eac4cb7ac37e5c12e3a0b3206757008ef704d68dc66cb04dcd06e",
+      "providerUserMessageId": "0b0e1feb-96ea-427a-8d2c-526956728f2d",
+      "providerAssistantMessageId": "ca5cd645-d204-4ce1-88f1-ba133c71b7d9"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787546784501-bmz1cas",
+      "userTurnOrdinal": 5,
+      "state": "accepted",
+      "localMessageId": "msg-1787546784497-7v7r20o",
+      "timestamp": 1787546784497,
+      "rawDisplayText": "mainブランチで結構です。1,2 両方ともほしいです。",
+      "canonicalText": "mainブランチで結構です。1,2 両方ともほしいです。",
+      "images": [],
+      "contentDigest": "182114a6f83e5cdd4702808938e49572d6df688733b903ece7b67ecd7eee616b",
+      "providerUserMessageId": "4f009522-368c-48da-881d-bd1b1d8371f7",
+      "providerAssistantMessageId": "1e4fb0b0-d071-49d2-8292-5744649a6b6d"
     }
   ]
 }

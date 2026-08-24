@@ -4,7 +4,7 @@
   "title": "Resolve Obsidian-git conflict files",
   "titleGenerationStatus": "success",
   "createdAt": 1787537098745,
-  "lastActivityAt": 1787537444298,
+  "lastActivityAt": 1787547228186,
   "sessionId": "82d23b37-66fd-43ab-b502-41406a278078",
   "selectedModel": "opus",
   "providerState": {
@@ -13,11 +13,11 @@
   "usage": {
     "model": "opus",
     "inputTokens": 2,
-    "cacheCreationInputTokens": 1027,
-    "cacheReadInputTokens": 80053,
+    "cacheCreationInputTokens": 985,
+    "cacheReadInputTokens": 139474,
     "contextWindow": 1000000,
-    "contextTokens": 81082,
-    "percentage": 8,
+    "contextTokens": 140461,
+    "percentage": 14,
     "contextWindowIsAuthoritative": true
   }
 }
