@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1787537098723-belefduxv",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787537099551-e2luhez",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1787537098721-vli5qya",
+      "timestamp": 1787537098721,
+      "rawDisplayText": "ルートに conflict-files-obsidian-git　ができていました。どのように対処可能ですか？",
+      "canonicalText": "ルートに conflict-files-obsidian-git　ができていました。どのように対処可能ですか？",
+      "images": [],
+      "contentDigest": "e02eb817682ad0a0ab74745f696d35541da9bcd62de6f4f74d0170d320b213ab",
+      "providerUserMessageId": "688d8f18-f798-4a3a-8f08-eea9cc5c44bd",
+      "providerAssistantMessageId": "84396c14-2239-4fcd-a154-b2a2955d858b"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787537227663-wjvpqbk",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1787537227660-28hmifc",
+      "timestamp": 1787537227660,
+      "rawDisplayText": ".obsidian/workspace.json は、git 保存対象外にしていたはずですが？",
+      "canonicalText": ".obsidian/workspace.json は、git 保存対象外にしていたはずですが？",
+      "images": [],
+      "contentDigest": "6e7a3e613a808f1f3720c13f10271378206b366ed490ffd69988da573386c972",
+      "providerUserMessageId": "69607fad-fbb7-42b9-a01a-bb4b2fbcfb34",
+      "providerAssistantMessageId": "aa9843b6-22bf-44a5-bea0-027cd8429848"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1787537324893-82ybcey",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1787537324890-i3abdsb",
+      "timestamp": 1787537324890,
+      "rawDisplayText": "Q1: 記載の通りお願いします。\nQ2: まとめて実行お願します。",
+      "canonicalText": "Q1: 記載の通りお願いします。\nQ2: まとめて実行お願します。",
+      "images": [],
+      "contentDigest": "cb79a903b11dee14ea2233188cf993da3e0de7d162c99567b934b7f22a938511",
+      "providerUserMessageId": "b326be26-fcb6-4746-a337-1f2b48d14449"
+    }
+  ]
+}
