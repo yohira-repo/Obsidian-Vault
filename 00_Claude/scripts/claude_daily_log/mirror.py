@@ -24,7 +24,12 @@ def _index(lines: List[str]) -> Dict[Tuple[str, str], Tuple[int, int]]:
 
 
 def update_mirror(vault: str, source_id: str, entries: List) -> Tuple[int, int]:
-    """未収録セクションを追記し、本文が変化したセクションは置換する。"""
+    """未収録セクションを追記し、本文が変化したセクションは置換する。
+
+    Invariant: Each entry's body must not contain lines starting with '## '.
+    This is guaranteed by sections.parse_sections, which always terminates
+    a section's body before the next '## ' heading marker.
+    """
     if not entries:
         return (0, 0)
 

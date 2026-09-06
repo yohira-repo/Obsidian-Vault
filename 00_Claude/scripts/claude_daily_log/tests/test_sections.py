@@ -154,6 +154,47 @@ class InvalidStartDateTest(unittest.TestCase):
         )
 
 
+class BodyInvariantTest(unittest.TestCase):
+    def test_body_never_contains_line_starting_with_heading_marker(self):
+        """Invariant: parse_sections never returns a Section whose body contains
+        a line starting with '## '. This is critical for mirror.py's idempotency."""
+        text = """# ログ
+
+## 2026-09-01 セッション1
+
+最初のセクション。
+
+## 未日付セクション
+
+日付なしのセクション。
+
+## 2026-09-02 セッション2
+
+コードフェンスを含む：
+
+```python
+# これはコメント
+## コメント行
+def example():
+    pass
+```
+
+セクションの本文。
+
+## 2026-09-03 セッション3
+
+最後のセクション。
+"""
+        parsed, undated = sections.parse_sections(text)
+        # Verify that no section body contains a line starting with '## '
+        for section in parsed:
+            for line in section.body.split("\n"):
+                self.assertFalse(
+                    line.startswith("## "),
+                    f"Found '## ' line in body of section '{section.title}': {line}",
+                )
+
+
 class TitleTest(unittest.TestCase):
     def test_normalize_strips_spaces_and_trailing_colon(self):
         self.assertEqual(sections.normalize_title("  タイトル :  "), "タイトル")
