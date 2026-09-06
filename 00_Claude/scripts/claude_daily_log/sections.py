@@ -33,29 +33,45 @@ def sanitize_title(title: str) -> str:
 
 
 def _resolve_range_end(start: date, end_raw: str) -> Optional[str]:
-    """範囲見出しの終了日を解決する。終了日が不正なら None を返す。"""
+    """範囲見出しの終了日を解決する。終了日が不正なら None を返す。
+
+    終了日の指定形式によって、開始日より前になった場合の繰り上げ単位が異なる。
+    - 年月日がすべて指定された場合: 繰り上げなし（そのまま採用）。
+    - 月日のみ指定された場合（年は開始日から補う）: 年を繰り上げる。
+    - 日のみ指定された場合（年月は開始日から補う）: 月を繰り上げる
+      （12月なら翌年の1月になる）。
+    """
     start_y = start.year
 
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_raw):
         end_y, end_m, end_d = (int(part) for part in end_raw.split("-"))
-        adjust_year = False
+        rollover = "none"
     elif re.fullmatch(r"\d{2}-\d{2}", end_raw):
         end_m, end_d = (int(part) for part in end_raw.split("-"))
         end_y = start_y
-        adjust_year = True
+        rollover = "year"
     else:
         end_d = int(end_raw)
         end_m = start.month
         end_y = start_y
-        adjust_year = True
+        rollover = "month"
 
     try:
         end = date(end_y, end_m, end_d)
     except ValueError:
         return None
 
-    if adjust_year and end < start:
+    if rollover == "year" and end < start:
         end_y += 1
+        try:
+            end = date(end_y, end_m, end_d)
+        except ValueError:
+            return None
+    elif rollover == "month" and end < start:
+        end_m += 1
+        if end_m > 12:
+            end_m = 1
+            end_y += 1
         try:
             end = date(end_y, end_m, end_d)
         except ValueError:

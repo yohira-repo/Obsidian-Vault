@@ -116,6 +116,27 @@ class RangeHeadingTest(unittest.TestCase):
             [(0, "2026-08-31", "タイトル")],
         )
 
+    def test_day_only_end_before_start_rolls_over_to_next_month(self):
+        lines = ["## 2026-08-31〜01 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-09-01", "タイトル")],
+        )
+
+    def test_day_only_end_before_start_rolls_over_december_to_january(self):
+        lines = ["## 2026-12-31〜02 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2027-01-02", "タイトル")],
+        )
+
+    def test_day_only_rolled_month_with_invalid_date_falls_back_to_start_date(self):
+        lines = ["## 2026-01-31〜30 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-01-31", "タイトル")],
+        )
+
 
 class InvalidStartDateTest(unittest.TestCase):
     def test_plain_heading_with_invalid_calendar_date_is_treated_as_undated(self):
