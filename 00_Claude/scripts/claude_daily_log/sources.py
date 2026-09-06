@@ -127,15 +127,24 @@ def collect_entries(repo: str, repo_name: str, target_date: str) -> Tuple[List[E
     return entries, warnings
 
 
-def _rank(entry: Entry) -> Tuple[int, str]:
-    return (1 if entry.origin == "local" else 0, entry.commit_date)
+def _rank(entry: Entry) -> Tuple[int, str, int]:
+    # 第3要素の order は、origin とコミット日時が同点になったときのタイブレーク用（item J）。
+    # 同一ファイル内の2セクションが同点になるのはまさにこのケースで、order はその
+    # ファイル内での出現順そのものなので「後に出現した方を残す」が実現できる。
+    return (1 if entry.origin == "local" else 0, entry.commit_date, entry.order)
 
 
 def dedupe(entries: List[Entry]) -> List[Entry]:
-    """(ソース識別子, 日付, タイトル) で重複を排除し、ローカル優先・新しいコミット優先で残す。"""
+    """(ソース識別子, 日付, サニタイズ後のタイトル) で重複を排除する。
+
+    優先順位はローカル優先・コミット日時が新しい方優先。それも同点なら、
+    ファイル内で後に出現した方（order が大きい方）を残す（item J）。
+    タイトルはサニタイズ後の文字列をキーにする（item M）ので、サニタイズで
+    同じ文字列になる表記ゆれ（例: \"A#B\" と \"A＃B\"）はここで一意に解決される。
+    """
     best: Dict[Tuple[str, str, str], Entry] = {}
     for entry in entries:
-        key = (entry.source_id, entry.date, entry.title)
+        key = (entry.source_id, entry.date, sections_module.sanitize_title(entry.title))
         current = best.get(key)
         if current is None or _rank(entry) > _rank(current):
             best[key] = entry

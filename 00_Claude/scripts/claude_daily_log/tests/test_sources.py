@@ -127,5 +127,49 @@ class CollectEntriesTest(unittest.TestCase):
             sources.collect_entries(broken, "broken", "2026-09-06")
 
 
+def _local_entry(title, body, order):
+    return sources.Entry(
+        source_id="coopinf", date="2026-09-06", title=title, body=body,
+        origin="local", commit_date="", order=order,
+    )
+
+
+class DedupeTieBreakTest(unittest.TestCase):
+    """item J: rank が同点の場合、ファイル内で後に出現した方（order が大きい方）を残す。"""
+
+    def test_tie_on_rank_prefers_later_order_not_silently_dropping_it(self):
+        entries = [
+            _local_entry("T", "先に出てくる本文", order=0),
+            _local_entry("T", "後から出てくる本文", order=1),
+        ]
+        result = sources.dedupe(entries)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].body, "後から出てくる本文")
+
+    def test_tie_is_order_independent_of_input_list_order(self):
+        # 入力の並びを逆にしても、常に order の大きい方（ファイル内で後）が勝つ
+        entries = [
+            _local_entry("T", "後から出てくる本文", order=1),
+            _local_entry("T", "先に出てくる本文", order=0),
+        ]
+        result = sources.dedupe(entries)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].body, "後から出てくる本文")
+
+
+class DedupeSanitizedTitleKeyTest(unittest.TestCase):
+    """item M: サニタイズ後のタイトルで重複排除する（表記ゆれの取りこぼしを防ぐ）。"""
+
+    def test_titles_that_sanitize_to_same_string_are_deduped(self):
+        entries = [
+            _local_entry("A#B", "旧本文", order=0),
+            _local_entry("A＃B", "新本文", order=1),
+        ]
+        result = sources.dedupe(entries)
+        self.assertEqual(len(result), 1, "サニタイズ後に同じ文字列になるタイトルは重複排除されるべき")
+        # J のタイブレークにより、同点なら order の大きい方（後の方）が残る
+        self.assertEqual(result[0].body, "新本文")
+
+
 if __name__ == "__main__":
     unittest.main()
