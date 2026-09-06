@@ -138,6 +138,82 @@ class RangeHeadingTest(unittest.TestCase):
         )
 
 
+class FenceAwareScanHeadingsTest(unittest.TestCase):
+    """item G: フェンスコードブロック内の `## ` はセクション見出しとして扱わない。"""
+
+    def test_heading_like_line_inside_backtick_fence_is_ignored(self):
+        lines = [
+            "## 2026-09-06 タイトル",
+            "",
+            "```",
+            "## これはコードの中の見出し風テキスト",
+            "```",
+            "",
+            "本文の続き",
+        ]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-09-06", "タイトル")],
+        )
+
+    def test_heading_like_line_inside_tilde_fence_is_ignored(self):
+        lines = [
+            "## 2026-09-06 タイトル",
+            "~~~",
+            "## フェンス内の見出し風",
+            "~~~",
+        ]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-09-06", "タイトル")],
+        )
+
+    def test_fence_with_info_string_is_recognized_as_opening(self):
+        lines = [
+            "## 2026-09-06 タイトル",
+            "```python",
+            "## コメント",
+            "```",
+        ]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-09-06", "タイトル")],
+        )
+
+    def test_shorter_inner_fence_does_not_close_longer_outer_fence(self):
+        lines = [
+            "## 2026-09-06 タイトル",
+            "````",
+            "```",
+            "## まだフェンスの中",
+            "```",
+            "````",
+            "## 2026-09-05 次の見出し",
+        ]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-09-06", "タイトル"), (6, "2026-09-05", "次の見出し")],
+        )
+
+    def test_parse_sections_keeps_fenced_heading_like_line_in_body(self):
+        text = (
+            "## 2026-09-06 タイトル\n"
+            "\n"
+            "本文開始。\n"
+            "\n"
+            "```\n"
+            "## フェンス内\n"
+            "```\n"
+            "\n"
+            "本文終わり。\n"
+        )
+        parsed, undated = sections.parse_sections(text)
+        self.assertEqual(undated, 0)
+        self.assertEqual(len(parsed), 1)
+        self.assertIn("## フェンス内", parsed[0].body)
+        self.assertIn("本文終わり。", parsed[0].body)
+
+
 class InvalidStartDateTest(unittest.TestCase):
     def test_plain_heading_with_invalid_calendar_date_is_treated_as_undated(self):
         lines = ["## 2026-13-45 タイトル"]
@@ -155,9 +231,14 @@ class InvalidStartDateTest(unittest.TestCase):
 
 
 class BodyInvariantTest(unittest.TestCase):
-    def test_body_never_contains_line_starting_with_heading_marker(self):
-        """Invariant: parse_sections never returns a Section whose body contains
-        a line starting with '## '. This is critical for mirror.py's idempotency."""
+    def test_fenced_heading_like_line_stays_in_body_without_false_split(self):
+        """Invariant (revised for item G): a section body may contain a line
+        starting with '## ' when — and only when — it sits inside a fenced
+        code block that opens and closes within that same body (scan_headings
+        is fence-aware). This is what keeps mirror.py's scan_headings-based
+        indexing consistent: re-scanning the body in isolation must find no
+        heading at all, so the fenced line is never mistaken for a section
+        boundary when the body is written back out."""
         text = """# ログ
 
 ## 2026-09-01 セッション1
@@ -186,13 +267,20 @@ def example():
 最後のセクション。
 """
         parsed, undated = sections.parse_sections(text)
-        # Verify that no section body contains a line starting with '## '
+        session2 = next(section for section in parsed if section.title == "セッション2")
+        # フェンス内の見出し風の行は本文にそのまま残る（打ち切られない）
+        self.assertIn("## コメント行", session2.body)
+        self.assertIn("セクションの本文。", session2.body)
+
+        # ただし、その本文だけを単独で再スキャンしても見出しとしては検出されない
+        # （mirror.py がこの本文をファイルへ書き戻した後、再度 scan_headings で
+        # インデックスを作り直しても、フェンス内の行を見出しと誤認しない）。
         for section in parsed:
-            for line in section.body.split("\n"):
-                self.assertFalse(
-                    line.startswith("## "),
-                    f"Found '## ' line in body of section '{section.title}': {line}",
-                )
+            heads_in_body = sections.scan_headings(section.body.split("\n"))
+            self.assertEqual(
+                heads_in_body, [],
+                f"section '{section.title}' の本文を単独スキャンすると見出しが検出された: {heads_in_body}",
+            )
 
 
 class TitleTest(unittest.TestCase):

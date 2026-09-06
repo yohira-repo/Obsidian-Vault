@@ -5,6 +5,7 @@ from datetime import date
 from typing import List, Optional, Tuple
 
 ANY_H2_RE = re.compile(r"^##\s+(.*)$")
+FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 DATED_H2_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*(?:[:：\-—–]\s*)?(.+?)\s*$")
 RANGE_H2_RE = re.compile(
     r"^##\s+(\d{4})-(\d{2})-(\d{2})[〜~](\d{4}-\d{2}-\d{2}|\d{2}-\d{2}|\d{2})"
@@ -93,9 +94,32 @@ def scan_headings(lines: List[str]) -> List[Tuple[int, Optional[str], Optional[s
 
     開始日がカレンダー上実在しない場合（例: 2026-13-45）は、同期処理を
     決して例外で落とさないため、日付なし見出しとして扱う。
+
+    ``` / ~~~ のフェンスコードブロック内にある `## ` 始まりの行は見出しと
+    みなさない（開始フェンスの記号種別・長さを閉じフェンスと照合し、
+    情報文字列（```python 等）も許容する）。
     """
     heads = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
     for index, line in enumerate(lines):
+        if in_fence:
+            closing = FENCE_RE.match(line)
+            if closing:
+                fence, info = closing.groups()
+                if fence[0] == fence_char and len(fence) >= fence_len and info.strip() == "":
+                    in_fence = False
+            continue
+
+        opening = FENCE_RE.match(line)
+        if opening:
+            fence, _info = opening.groups()
+            in_fence = True
+            fence_char = fence[0]
+            fence_len = len(fence)
+            continue
+
         if not ANY_H2_RE.match(line):
             continue
         range_matched = RANGE_H2_RE.match(line)
