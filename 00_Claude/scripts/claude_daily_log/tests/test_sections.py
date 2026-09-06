@@ -1,0 +1,89 @@
+import unittest
+
+import sections
+
+
+SAMPLE = """# 会話ログ
+
+## 2026-07-22 CSVバッチ処理のログ出力見直し（提案）
+
+空白区切りの本文。
+
+## 2026-08-20: gas_bill 埋め戻し
+
+コロン区切りの本文。
+2行目。
+
+## 2026-08-12 — 営業メールの可視化
+
+em ダッシュ区切りの本文。
+
+## 経営層向け説明資料の作成
+
+日付なしの本文。
+
+## 2026-09-06 まとめ
+
+最後の本文。
+"""
+
+
+class ParseSectionsTest(unittest.TestCase):
+    def test_three_heading_formats_are_parsed(self):
+        parsed, _ = sections.parse_sections(SAMPLE)
+        self.assertEqual(
+            [(s.date, s.title) for s in parsed],
+            [
+                ("2026-07-22", "CSVバッチ処理のログ出力見直し（提案）"),
+                ("2026-08-20", "gas_bill 埋め戻し"),
+                ("2026-08-12", "営業メールの可視化"),
+                ("2026-09-06", "まとめ"),
+            ],
+        )
+
+    def test_undated_heading_is_counted_and_skipped(self):
+        parsed, undated = sections.parse_sections(SAMPLE)
+        self.assertEqual(undated, 1)
+        self.assertNotIn("経営層向け説明資料の作成", [s.title for s in parsed])
+
+    def test_body_stops_before_next_heading(self):
+        parsed, _ = sections.parse_sections(SAMPLE)
+        self.assertEqual(parsed[1].body, "コロン区切りの本文。\n2行目。")
+
+    def test_last_body_reaches_end_of_text(self):
+        parsed, _ = sections.parse_sections(SAMPLE)
+        self.assertEqual(parsed[3].body, "最後の本文。")
+
+    def test_order_is_assigned_to_dated_sections_only(self):
+        parsed, _ = sections.parse_sections(SAMPLE)
+        self.assertEqual([s.order for s in parsed], [0, 1, 2, 3])
+
+    def test_no_heading_returns_empty(self):
+        parsed, undated = sections.parse_sections("本文だけのファイル\n")
+        self.assertEqual(parsed, [])
+        self.assertEqual(undated, 0)
+
+
+class ScanHeadingsTest(unittest.TestCase):
+    def test_returns_line_numbers_with_date_and_title(self):
+        lines = ["# タイトル", "## 2026-09-06 A", "本文", "## 日付なし", "本文"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(1, "2026-09-06", "A"), (3, None, None)],
+        )
+
+
+class TitleTest(unittest.TestCase):
+    def test_normalize_strips_spaces_and_trailing_colon(self):
+        self.assertEqual(sections.normalize_title("  タイトル :  "), "タイトル")
+        self.assertEqual(sections.normalize_title("タイトル："), "タイトル")
+
+    def test_sanitize_replaces_link_breaking_characters(self):
+        self.assertEqual(
+            sections.sanitize_title("A#B|C[D]E"),
+            "A＃B｜C［D］E",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
