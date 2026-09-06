@@ -293,6 +293,16 @@ def main(argv=None) -> int:
     setup_logging()
     date = args.date or datetime.date.today().isoformat()
 
+    if args.date is not None:
+        try:
+            datetime.date.fromisoformat(args.date)
+        except ValueError:
+            # item L: 不正な --date（書式違反やパストラバーサルの試み）は何も書かずに終了する
+            logging.warning("不正な --date 値です: %s", args.date)
+            if args.report:
+                print("不正な --date 値です（YYYY-MM-DD 形式で指定してください）: %s" % args.date)
+            return 0
+
     lock = acquire_lock()
     if lock is None:
         # 具体的な理由（ロック競合 / ファイルシステムエラー）は acquire_lock() 側でログ済み。
@@ -304,7 +314,12 @@ def main(argv=None) -> int:
         if args.command == "fetch" or (args.command == "auto" and (args.force_fetch or _fetch_due())):
             try:
                 fetch_report = gitsync_module.run_fetch(args.git_root)
-                _touch_stamp()
+                succeeded = fetch_report["fetched"] + fetch_report["cloned"]
+                # item N: 30分クロックは「成功した fetch」から起算する。対象が存在するのに
+                # 1件も成功しなかった場合（オフライン等）はスタンプを更新せず、次回すぐ再試行できるようにする。
+                # 対象が0件（warnings も無い）の場合は「何も失敗していない」ので更新する。
+                if succeeded > 0 or not fetch_report["warnings"]:
+                    _touch_stamp()
                 logging.info(
                     "fetch fetched=%d cloned=%d warnings=%d",
                     fetch_report["fetched"], fetch_report["cloned"], len(fetch_report["warnings"]),

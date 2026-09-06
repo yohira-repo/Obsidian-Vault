@@ -188,5 +188,78 @@ class DiscoveryFailureTest(unittest.TestCase):
         self.assertIn("スキップ", text)
 
 
+class DateValidationTest(unittest.TestCase):
+    """item L: --date は datetime.date.fromisoformat で検証し、不正なら何も書かず exit 0。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.git_root = os.path.join(self.tmp.name, "git")
+        self.vault = os.path.join(self.tmp.name, "vault")
+        os.makedirs(os.path.join(self.git_root, "alphasystem"))
+        os.makedirs(self.vault)
+        with open(os.path.join(self.git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write(TABLE)
+        origin = helpers.init_repo(os.path.join(self.tmp.name, "origin_a"), {"conversations.md": CONV})
+        helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+
+        self._orig_lock_path = cli.LOCK_PATH
+        self._orig_log_path = cli.LOG_PATH
+        self._orig_stamp_path = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
+    def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock_path
+        cli.LOG_PATH = self._orig_log_path
+        cli.STAMP_PATH = self._orig_stamp_path
+        self.tmp.cleanup()
+
+    def test_non_date_string_is_rejected_without_writing_anything(self):
+        code = cli.main([
+            "sync", "--date", "not-a-date",
+            "--vault", self.vault, "--git-root", self.git_root, "--report",
+        ])
+        self.assertEqual(code, 0)
+        self.assertFalse(
+            os.path.exists(os.path.join(self.vault, "01_Daily", "not-a-date.md")),
+        )
+        # Vault 配下に一切ファイルが作られていないこと（01_Daily ディレクトリすら作られない）
+        self.assertFalse(os.path.exists(os.path.join(self.vault, "01_Daily")))
+
+    def test_path_traversal_like_date_is_rejected(self):
+        code = cli.main([
+            "sync", "--date", "../../foo",
+            "--vault", self.vault, "--git-root", self.git_root, "--report",
+        ])
+        self.assertEqual(code, 0)
+        escaped = os.path.normpath(os.path.join(self.vault, "01_Daily", "../../foo.md"))
+        self.assertFalse(os.path.exists(escaped))
+
+    def test_invalid_date_is_reported_when_report_flag_set(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli.main([
+                "sync", "--date", "not-a-date",
+                "--vault", self.vault, "--git-root", self.git_root, "--report",
+            ])
+        self.assertIn("--date", buf.getvalue())
+
+    def test_valid_date_still_works(self):
+        code = cli.main([
+            "sync", "--date", "2026-09-06",
+            "--vault", self.vault, "--git-root", self.git_root,
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("当日のまとめ", self.read_daily())
+
+    def read_daily(self, date="2026-09-06"):
+        path = os.path.join(self.vault, "01_Daily", date + ".md")
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+
 if __name__ == "__main__":
     unittest.main()

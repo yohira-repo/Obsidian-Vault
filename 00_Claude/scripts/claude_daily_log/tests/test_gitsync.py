@@ -132,6 +132,76 @@ class FetchIsolationTest(unittest.TestCase):
         self.assertIn("network exploded", buf.getvalue())
 
 
+class FetchStampOnSuccessOnlyTest(unittest.TestCase):
+    """item N: 30分クロックは成功した fetch からのみ起算する。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.git_root = os.path.join(self.tmp.name, "git")
+        self.vault = os.path.join(self.tmp.name, "vault")
+        os.makedirs(os.path.join(self.git_root, "alphasystem"))
+        os.makedirs(self.vault)
+        with open(os.path.join(self.git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write("| repo_a | ../repo_a | test |\n")
+        origin = helpers.init_repo(
+            os.path.join(self.tmp.name, "origin_a"),
+            {"conversations.md": "## 2026-09-06 まとめ\n\n本文。\n"},
+        )
+        helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+
+        self._orig_lock = cli.LOCK_PATH
+        self._orig_log = cli.LOG_PATH
+        self._orig_stamp = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
+    def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock
+        cli.LOG_PATH = self._orig_log
+        cli.STAMP_PATH = self._orig_stamp
+        self.tmp.cleanup()
+
+    def test_stamp_is_not_touched_when_every_fetch_fails(self):
+        original_fetch = cli.gitsync_module.run_fetch
+
+        def all_fail(*args, **kwargs):
+            return {"fetched": 0, "cloned": 0, "warnings": ["repo_a: fetch に失敗しました (offline)"]}
+
+        cli.gitsync_module.run_fetch = all_fail
+        try:
+            cli.main([
+                "auto", "--force-fetch",
+                "--vault", self.vault, "--git-root", self.git_root,
+                "--date", "2026-09-06",
+            ])
+        finally:
+            cli.gitsync_module.run_fetch = original_fetch
+
+        self.assertFalse(
+            os.path.exists(cli.STAMP_PATH),
+            "全件失敗しているのにスタンプが更新されている（30分リトライ抑制が働いてしまう）",
+        )
+
+    def test_stamp_is_touched_when_at_least_one_fetch_succeeds(self):
+        original_fetch = cli.gitsync_module.run_fetch
+
+        def partial_success(*args, **kwargs):
+            return {"fetched": 1, "cloned": 0, "warnings": ["other_repo: fetch に失敗しました (offline)"]}
+
+        cli.gitsync_module.run_fetch = partial_success
+        try:
+            cli.main([
+                "auto", "--force-fetch",
+                "--vault", self.vault, "--git-root", self.git_root,
+                "--date", "2026-09-06",
+            ])
+        finally:
+            cli.gitsync_module.run_fetch = original_fetch
+
+        self.assertTrue(os.path.exists(cli.STAMP_PATH))
+
+
 class MainAlwaysReturnsZeroTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
