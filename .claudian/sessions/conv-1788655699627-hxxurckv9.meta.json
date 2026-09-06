@@ -4,7 +4,7 @@
   "title": "Sync Claude Code summaries to Daily page",
   "titleGenerationStatus": "success",
   "createdAt": 1788655699658,
-  "lastActivityAt": 1788691499588,
+  "lastActivityAt": 1788692250436,
   "sessionId": "80507486-37c7-460a-9d42-d5cafc82b7fb",
   "selectedModel": "opus",
   "providerState": {
@@ -6999,10 +6999,10 @@
   "usage": {
     "model": "opus",
     "inputTokens": 2,
-    "cacheCreationInputTokens": 2624,
-    "cacheReadInputTokens": 530108,
+    "cacheCreationInputTokens": 997,
+    "cacheReadInputTokens": 533650,
     "contextWindow": 1000000,
-    "contextTokens": 532734,
+    "contextTokens": 534649,
     "percentage": 53,
     "contextWindowIsAuthoritative": true
   }
