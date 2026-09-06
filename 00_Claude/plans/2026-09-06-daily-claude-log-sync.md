@@ -63,6 +63,7 @@ python3 -m unittest discover \
   - `Section(date: str, title: str, body: str, order: int)`（frozen dataclass）
   - `normalize_title(title: str) -> str`
   - `sanitize_title(title: str) -> str`
+  - `scan_headings(lines: List[str]) -> List[Tuple[int, Optional[str], Optional[str]]]`（`(行番号, 日付 or None, 正規化タイトル or None)`。mirror.py と共用する）
   - `parse_sections(text: str) -> Tuple[List[Section], int]`（第2要素は日付なし見出しの件数）
 
 - [ ] **Step 1: ディレクトリと空の `tests/__init__.py` を作る**
@@ -143,6 +144,15 @@ class ParseSectionsTest(unittest.TestCase):
         self.assertEqual(undated, 0)
 
 
+class ScanHeadingsTest(unittest.TestCase):
+    def test_returns_line_numbers_with_date_and_title(self):
+        lines = ["# タイトル", "## 2026-09-06 A", "本文", "## 日付なし", "本文"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(1, "2026-09-06", "A"), (3, None, None)],
+        )
+
+
 class TitleTest(unittest.TestCase):
     def test_normalize_strips_spaces_and_trailing_colon(self):
         self.assertEqual(sections.normalize_title("  タイトル :  "), "タイトル")
@@ -179,7 +189,7 @@ Expected: `ModuleNotFoundError: No module named 'sections'`
 """conversations.md の見出し・セクション解析。"""
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 ANY_H2_RE = re.compile(r"^##\s+(.*)$")
 DATED_H2_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*(?:[:：\-—–]\s*)?(.+?)\s*$")
@@ -205,9 +215,8 @@ def sanitize_title(title: str) -> str:
     return "".join(_SANITIZE_MAP.get(char, char) for char in title)
 
 
-def parse_sections(text: str) -> Tuple[List[Section], int]:
-    """日付付き `## ` セクションの一覧と、日付なし `## ` 見出しの件数を返す。"""
-    lines = text.splitlines()
+def scan_headings(lines: List[str]) -> List[Tuple[int, Optional[str], Optional[str]]]:
+    """`## ` 見出しを (行番号, 日付 or None, 正規化タイトル or None) の一覧にする。"""
     heads = []
     for index, line in enumerate(lines):
         if not ANY_H2_RE.match(line):
@@ -217,6 +226,13 @@ def parse_sections(text: str) -> Tuple[List[Section], int]:
             heads.append((index, matched.group(1), normalize_title(matched.group(2))))
         else:
             heads.append((index, None, None))
+    return heads
+
+
+def parse_sections(text: str) -> Tuple[List[Section], int]:
+    """日付付き `## ` セクションの一覧と、日付なし `## ` 見出しの件数を返す。"""
+    lines = text.splitlines()
+    heads = scan_headings(lines)
 
     parsed = []
     undated = 0
@@ -235,7 +251,7 @@ def parse_sections(text: str) -> Tuple[List[Section], int]:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: 上と同じ discover コマンド
-Expected: `OK`（8 tests）
+Expected: `OK`（9 tests）
 
 - [ ] **Step 6: コミットする**
 
@@ -404,7 +420,7 @@ def list_projects(git_root: str, config_files: Sequence[str] = DEFAULT_CONFIG_FI
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（16 tests）
+Expected: `OK`（17 tests）
 
 - [ ] **Step 5: 実データでパース結果を目視確認する**
 
@@ -794,7 +810,7 @@ def dedupe(entries: List[Entry]) -> List[Entry]:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（27 tests）
+Expected: `OK`（28 tests）
 
 - [ ] **Step 6: 実データで収集結果を確認する**
 
@@ -835,7 +851,7 @@ git commit -m "feat(daily-log): git からの conversations.md 収集を追加"
 - Create: `00_Claude/scripts/claude_daily_log/mirror.py`
 
 **Interfaces:**
-- Consumes: `sections.ANY_H2_RE`, `sections.DATED_H2_RE`, `sections.normalize_title`, `sections.sanitize_title`, `sources.Entry`
+- Consumes: `sections.scan_headings`, `sections.sanitize_title`, `sources.Entry`
 - Produces:
   - `MIRROR_DIR: str` = `"00_Claude/projects"`
   - `mirror_relpath(source_id: str) -> str`
@@ -956,15 +972,7 @@ def mirror_relpath(source_id: str) -> str:
 
 def _index(lines: List[str]) -> Dict[Tuple[str, str], Tuple[int, int]]:
     """既存の日付付き見出しを {(日付, タイトル): (見出し行, 終端行)} に索引化する。"""
-    heads = []
-    for index, line in enumerate(lines):
-        if not sections_module.ANY_H2_RE.match(line):
-            continue
-        matched = sections_module.DATED_H2_RE.match(line)
-        if matched:
-            heads.append((index, matched.group(1), sections_module.normalize_title(matched.group(2))))
-        else:
-            heads.append((index, None, None))
+    heads = sections_module.scan_headings(lines)
 
     result = {}
     for position, (index, date, title) in enumerate(heads):
@@ -1020,7 +1028,7 @@ def update_mirror(vault: str, source_id: str, entries: List) -> Tuple[int, int]:
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（34 tests）
+Expected: `OK`（35 tests）
 
 - [ ] **Step 5: コミットする**
 
@@ -1232,7 +1240,7 @@ def update_daily(vault: str, date: str, entries: List) -> bool:
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（42 tests）
+Expected: `OK`（43 tests）
 
 - [ ] **Step 5: コミットする**
 
@@ -1532,7 +1540,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（49 tests）
+Expected: `OK`（50 tests）
 
 - [ ] **Step 5: 実 Vault に対して dry run 相当の確認をする（コミット前に diff を見る）**
 
@@ -1796,7 +1804,7 @@ def _touch_stamp() -> None:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（56 tests）
+Expected: `OK`（57 tests）
 
 - [ ] **Step 6: 実データで auto を実行し、所要時間と差分を確認する**
 
@@ -1953,7 +1961,7 @@ python3 -m unittest discover \
 - [ ] **Step 7: 全テストを再実行する**
 
 Run: discover コマンド
-Expected: `OK`（56 tests）
+Expected: `OK`（57 tests）
 
 - [ ] **Step 8: コミットする**
 
@@ -1981,7 +1989,7 @@ Expected: 管理ブロックに当日分のリンクが並ぶ。Obsidian で Dai
 
 ## 完了条件
 
-- 全 56 テストが green。
+- 全 57 テストが green。
 - `01_Daily/2026-09-06.md` に手書き部分を保ったまま `## Claude作業ログ` ブロックが生成される。
 - `00_Claude/projects/*.md` のリンクが Obsidian 上で該当見出しへ遷移する。
 - 別プロジェクトのセッション終了で Daily が自動更新される。
