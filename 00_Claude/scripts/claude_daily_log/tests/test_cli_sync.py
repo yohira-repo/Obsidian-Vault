@@ -83,5 +83,89 @@ class RunSyncTest(unittest.TestCase):
         self.assertIn("1", text)
 
 
+class DiscoveryFailureTest(unittest.TestCase):
+    """スキャン自体が失敗した場合は Daily を一切書き換えない（ブロッカー A）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = os.path.join(self.tmp.name, "vault")
+        os.makedirs(os.path.join(self.vault, "01_Daily"))
+        self.daily_path = os.path.join(self.vault, "01_Daily", "2026-09-06.md")
+        self.handwritten = (
+            "## Claude作業ログ\n\n<!-- claude-log:start -->\n"
+            "- **coopinf** — [[00_Claude/projects/coopinf#2026-09-06 まとめ|まとめ]]\n"
+            "<!-- claude-log:end -->\n"
+        )
+        with open(self.daily_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(self.handwritten)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read_daily(self):
+        with open(self.daily_path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_no_claude_md_at_all_skips_daily_untouched(self):
+        # git_root に CLAUDE.md が一つも無い（対象プロジェクトが 0 件）
+        empty_git_root = os.path.join(self.tmp.name, "git_no_claude_md")
+        os.makedirs(empty_git_root)
+        report = cli.run_sync(self.vault, empty_git_root, "2026-09-06")
+        self.assertTrue(report["daily_skipped"])
+        self.assertFalse(report["daily_changed"])
+        self.assertEqual(self.read_daily(), self.handwritten)
+        self.assertTrue(report["warnings"])
+
+    def test_no_cloned_project_skips_daily_untouched(self):
+        # CLAUDE.md はあるが、対象プロジェクトが 1 つも clone されていない
+        git_root = os.path.join(self.tmp.name, "git_uncloned")
+        os.makedirs(os.path.join(git_root, "alphasystem"))
+        with open(os.path.join(git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write(TABLE)
+        report = cli.run_sync(self.vault, git_root, "2026-09-06")
+        self.assertTrue(report["daily_skipped"])
+        self.assertFalse(report["daily_changed"])
+        self.assertEqual(self.read_daily(), self.handwritten)
+        self.assertTrue(report["warnings"])
+
+    def test_every_existing_project_raising_skips_daily_untouched(self):
+        # プロジェクトは clone 済み（.git は存在する）が、収集が必ず失敗する壊れたリポジトリ
+        git_root = os.path.join(self.tmp.name, "git_broken")
+        os.makedirs(os.path.join(git_root, "alphasystem"))
+        with open(os.path.join(git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write(TABLE)
+        broken = os.path.join(git_root, "repo_a")
+        os.makedirs(os.path.join(broken, ".git"))  # .git はディレクトリだが git リポジトリとして壊れている
+        report = cli.run_sync(self.vault, git_root, "2026-09-06")
+        self.assertTrue(report["daily_skipped"])
+        self.assertFalse(report["daily_changed"])
+        self.assertEqual(self.read_daily(), self.handwritten)
+        self.assertTrue(any("収集に失敗" in warning for warning in report["warnings"]))
+
+    def test_successful_scan_with_zero_entries_still_clears_block(self):
+        # 少なくとも 1 件は正常にスキャンできたが、対象日の該当が 0 件 → 従来通り空にする（回帰させない）
+        git_root = os.path.join(self.tmp.name, "git_ok")
+        os.makedirs(os.path.join(git_root, "alphasystem"))
+        with open(os.path.join(git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write(TABLE)
+        origin = helpers.init_repo(
+            os.path.join(self.tmp.name, "origin_ok"),
+            {"conversations.md": "## 2026-01-01 昔のまとめ\n\n昔の本文。\n"},
+        )
+        helpers.clone_repo(origin, os.path.join(git_root, "repo_a"))
+        report = cli.run_sync(self.vault, git_root, "2026-09-06")
+        self.assertFalse(report["daily_skipped"])
+        self.assertTrue(report["daily_changed"])
+        text = self.read_daily()
+        self.assertIn("<!-- claude-log:start -->\n<!-- claude-log:end -->", text)
+
+    def test_format_report_surfaces_daily_skipped(self):
+        empty_git_root = os.path.join(self.tmp.name, "git_no_claude_md2")
+        os.makedirs(empty_git_root)
+        report = cli.run_sync(self.vault, empty_git_root, "2026-09-06")
+        text = cli.format_report(report)
+        self.assertIn("スキップ", text)
+
+
 if __name__ == "__main__":
     unittest.main()

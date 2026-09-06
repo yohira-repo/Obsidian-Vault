@@ -79,21 +79,25 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
         "mirror_added": 0,
         "mirror_replaced": 0,
         "daily_changed": False,
+        "daily_skipped": False,
         "warnings": [],
     }
     if not os.path.isdir(vault):
         report["warnings"].append("Vault が見つかりません: %s" % vault)
         return report
 
+    all_projects = projects_module.list_projects(git_root)
+    existing_projects = [project for project in all_projects if project.exists]
+
     collected: List = []
-    for project in projects_module.list_projects(git_root):
-        if not project.exists:
-            continue
+    scanned_ok = 0
+    for project in existing_projects:
         try:
             entries, warnings = sources_module.collect_entries(project.path, project.name, date)
         except Exception as error:  # git 失敗も含めてスキップする
             report["warnings"].append("%s: 収集に失敗しました (%s)" % (project.name, error))
             continue
+        scanned_ok += 1
         collected.extend(entries)
         report["warnings"].extend(warnings)
 
@@ -111,19 +115,35 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
         report["mirror_added"] += added
         report["mirror_replaced"] += replaced
 
-    try:
-        report["daily_changed"] = daily_module.update_daily(vault, date, entries)
-    except daily_module.DailyMarkerError as error:
-        report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
-    except OSError as error:
-        report["warnings"].append("Daily 更新に失敗しました (%s)" % error)
+    if not all_projects:
+        report["daily_skipped"] = True
+        report["warnings"].append(
+            "対象プロジェクトが見つかりません（CLAUDE.md を読めません）。Daily は更新しません"
+        )
+    elif not existing_projects:
+        report["daily_skipped"] = True
+        report["warnings"].append(
+            "clone 済みの対象プロジェクトが 1 件もありません。Daily は更新しません"
+        )
+    elif scanned_ok == 0:
+        report["daily_skipped"] = True
+        report["warnings"].append(
+            "すべてのプロジェクトで収集に失敗しました。Daily は更新しません"
+        )
+    else:
+        try:
+            report["daily_changed"] = daily_module.update_daily(vault, date, entries)
+        except daily_module.DailyMarkerError as error:
+            report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
+        except OSError as error:
+            report["warnings"].append("Daily 更新に失敗しました (%s)" % error)
 
     report["sources"] = len(by_source)
     report["entries"] = len(entries)
     logging.info(
-        "sync date=%s sources=%d entries=%d added=%d replaced=%d daily_changed=%s warnings=%d",
+        "sync date=%s sources=%d entries=%d added=%d replaced=%d daily_changed=%s daily_skipped=%s warnings=%d",
         date, report["sources"], report["entries"], report["mirror_added"],
-        report["mirror_replaced"], report["daily_changed"], len(report["warnings"]),
+        report["mirror_replaced"], report["daily_changed"], report["daily_skipped"], len(report["warnings"]),
     )
     return report
 
@@ -133,7 +153,10 @@ def format_report(report: Dict) -> str:
         "対象日: %s" % report["date"],
         "プロジェクト %d 件 / エントリ %d 件" % (report["sources"], report["entries"]),
         "ミラー: 追加 %d / 置換 %d" % (report["mirror_added"], report["mirror_replaced"]),
-        "Daily: %s" % ("更新しました" if report["daily_changed"] else "変更なし"),
+        "Daily: %s" % (
+            "スキップしました（走査失敗のため）" if report.get("daily_skipped")
+            else "更新しました" if report["daily_changed"] else "変更なし"
+        ),
     ]
     if report.get("fetched") is not None:
         lines.insert(1, "GitHub 同期: fetch %d / clone %d" % (report.get("fetched", 0), report.get("cloned", 0)))
