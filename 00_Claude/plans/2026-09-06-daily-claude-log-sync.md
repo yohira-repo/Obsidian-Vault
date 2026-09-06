@@ -1050,6 +1050,7 @@ git commit -m "feat(daily-log): ミラーノートへの追記・置換を追加
 - Consumes: `sections.sanitize_title`, `sources.Entry`
 - Produces:
   - `DAILY_DIR`, `SECTION_HEADING`, `START_MARKER`, `END_MARKER`（str 定数）
+  - `DailyMarkerError(RuntimeError)`（マーカーが壊れている Daily を検出したときに送出。cli 側で警告に変換する）
   - `daily_relpath(date: str) -> str`
   - `render_lines(entries: List[Entry]) -> List[str]`
   - `update_daily(vault: str, date: str, entries: List[Entry]) -> bool`（書き換えたら True）
@@ -1240,7 +1241,7 @@ def update_daily(vault: str, date: str, entries: List) -> bool:
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（54 tests）
+Expected: `OK`（58 tests）
 
 - [ ] **Step 5: コミットする**
 
@@ -1471,6 +1472,8 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
 
     try:
         report["daily_changed"] = daily_module.update_daily(vault, date, entries)
+    except daily_module.DailyMarkerError as error:
+        report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
     except OSError as error:
         report["warnings"].append("Daily 更新に失敗しました (%s)" % error)
 
@@ -1540,7 +1543,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（61 tests）
+Expected: `OK`（65 tests）
 
 - [ ] **Step 5: 実 Vault に対して dry run 相当の確認をする（コミット前に diff を見る）**
 
@@ -1804,7 +1807,7 @@ def _touch_stamp() -> None:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（68 tests）
+Expected: `OK`（72 tests）
 
 - [ ] **Step 6: 実データで auto を実行し、所要時間と差分を確認する**
 
@@ -1961,7 +1964,7 @@ python3 -m unittest discover \
 - [ ] **Step 7: 全テストを再実行する**
 
 Run: discover コマンド
-Expected: `OK`（68 tests）
+Expected: `OK`（72 tests）
 
 - [ ] **Step 8: コミットする**
 
@@ -1989,7 +1992,7 @@ Expected: 管理ブロックに当日分のリンクが並ぶ。Obsidian で Dai
 
 ## 完了条件
 
-- 全 68 テストが green。
+- 全 72 テストが green。
 - `01_Daily/2026-09-06.md` に手書き部分を保ったまま `## Claude作業ログ` ブロックが生成される。
 - `00_Claude/projects/*.md` のリンクが Obsidian 上で該当見出しへ遷移する。
 - 別プロジェクトのセッション終了で Daily が自動更新される。
