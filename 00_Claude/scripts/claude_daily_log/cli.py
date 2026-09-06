@@ -6,11 +6,13 @@ import fcntl
 import logging
 import os
 import sys
+import time
 from typing import Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import daily as daily_module
+import gitsync as gitsync_module
 import mirror as mirror_module
 import projects as projects_module
 import sources as sources_module
@@ -51,6 +53,22 @@ def acquire_lock() -> Optional[object]:
         handle.close()
         return None
     return handle
+
+
+def _fetch_due() -> bool:
+    try:
+        return (time.time() - os.path.getmtime(STAMP_PATH)) >= FETCH_INTERVAL_SECONDS
+    except OSError:
+        return True
+
+
+def _touch_stamp() -> None:
+    try:
+        os.makedirs(os.path.dirname(STAMP_PATH), exist_ok=True)
+        with open(STAMP_PATH, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(datetime.datetime.now().isoformat())
+    except OSError:
+        pass
 
 
 def run_sync(vault: str, git_root: str, date: str) -> Dict:
@@ -127,7 +145,8 @@ def format_report(report: Dict) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Claude Code の会話まとめを Obsidian に同期する")
-    parser.add_argument("command", choices=["sync"])
+    parser.add_argument("command", choices=["sync", "fetch", "auto"])
+    parser.add_argument("--force-fetch", action="store_true", help="auto でも必ず fetch する")
     parser.add_argument("--date", default=None, help="対象日 (YYYY-MM-DD)。既定は今日")
     parser.add_argument("--vault", default=os.environ.get("CLAUDE_DAILY_LOG_VAULT", DEFAULT_VAULT))
     parser.add_argument("--git-root", default=os.environ.get("CLAUDE_DAILY_LOG_GIT_ROOT", DEFAULT_GIT_ROOT))
@@ -147,9 +166,23 @@ def main(argv=None) -> int:
             print("他プロセスが実行中のためスキップしました")
         return 0
     try:
+        fetch_report = None
+        if args.command == "fetch" or (args.command == "auto" and (args.force_fetch or _fetch_due())):
+            fetch_report = gitsync_module.run_fetch(args.git_root)
+            _touch_stamp()
+            logging.info(
+                "fetch fetched=%d cloned=%d warnings=%d",
+                fetch_report["fetched"], fetch_report["cloned"], len(fetch_report["warnings"]),
+            )
         report = run_sync(args.vault, args.git_root, date)
+        if fetch_report is not None:
+            report["fetched"] = fetch_report["fetched"]
+            report["cloned"] = fetch_report["cloned"]
+            report["warnings"] = fetch_report["warnings"] + report["warnings"]
         if args.report:
             print(format_report(report))
+    except Exception:  # hook から呼ばれるため、想定外の例外でも 0 を返す
+        logging.exception("予期しないエラー")
     finally:
         lock.close()
     return 0
