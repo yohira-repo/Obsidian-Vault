@@ -73,6 +73,50 @@ class ScanHeadingsTest(unittest.TestCase):
         )
 
 
+class RangeHeadingTest(unittest.TestCase):
+    def test_day_only_end_is_resolved_within_same_month(self):
+        lines = ["## 2026-08-28〜31 ステージング環境の作り直しと、そこで見つかった10件の不具合"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-08-31", "ステージング環境の作り直しと、そこで見つかった10件の不具合")],
+        )
+
+    def test_month_day_end_is_resolved_across_month_boundary(self):
+        lines = ["## 2026-08-31〜09-01 現行システムからのデータ移行（ステージングで完走）"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-09-01", "現行システムからのデータ移行（ステージングで完走）")],
+        )
+
+    def test_month_day_end_before_start_rolls_over_to_next_year(self):
+        lines = ["## 2026-12-30〜01-02 年末年始の作業"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2027-01-02", "年末年始の作業")],
+        )
+
+    def test_fully_specified_end_date_with_year_is_accepted(self):
+        lines = ["## 2026-12-30〜2027-01-02 年末年始の作業"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2027-01-02", "年末年始の作業")],
+        )
+
+    def test_invalid_end_date_falls_back_to_start_date(self):
+        lines = ["## 2026-08-28〜99 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-08-28", "タイトル")],
+        )
+
+    def test_half_width_tilde_separator_is_accepted(self):
+        lines = ["## 2026-08-28~31 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, "2026-08-31", "タイトル")],
+        )
+
+
 class TitleTest(unittest.TestCase):
     def test_normalize_strips_spaces_and_trailing_colon(self):
         self.assertEqual(sections.normalize_title("  タイトル :  "), "タイトル")
