@@ -117,6 +117,22 @@ class RangeHeadingTest(unittest.TestCase):
         )
 
 
+class InvalidStartDateTest(unittest.TestCase):
+    def test_plain_heading_with_invalid_calendar_date_is_treated_as_undated(self):
+        lines = ["## 2026-13-45 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, None, None)],
+        )
+
+    def test_range_heading_with_invalid_start_date_is_treated_as_undated(self):
+        lines = ["## 2026-02-30〜31 タイトル"]
+        self.assertEqual(
+            sections.scan_headings(lines),
+            [(0, None, None)],
+        )
+
+
 class TitleTest(unittest.TestCase):
     def test_normalize_strips_spaces_and_trailing_colon(self):
         self.assertEqual(sections.normalize_title("  タイトル :  "), "タイトル")
