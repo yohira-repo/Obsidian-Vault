@@ -98,5 +98,56 @@ class UpdateDailyTest(unittest.TestCase):
         self.assertEqual(self.read(), before)
 
 
+class MalformedMarkerTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+        os.makedirs(os.path.join(self.vault, daily.DAILY_DIR))
+        self.path = os.path.join(self.vault, daily.daily_relpath("2026-09-06"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        with open(self.path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def write(self, text):
+        with open(self.path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+
+    def test_end_before_start_raises_error_without_modifying_file(self):
+        malformed = "some text\n<!-- claude-log:end -->\n<!-- claude-log:start -->\nmore text\n"
+        self.write(malformed)
+        before = self.read()
+        with self.assertRaises(daily.DailyMarkerError):
+            daily.update_daily(self.vault, "2026-09-06", [entry()])
+        self.assertEqual(self.read(), before)
+
+    def test_only_start_marker_raises_error_without_modifying_file(self):
+        malformed = "some text\n<!-- claude-log:start -->\nmore text\n"
+        self.write(malformed)
+        before = self.read()
+        with self.assertRaises(daily.DailyMarkerError):
+            daily.update_daily(self.vault, "2026-09-06", [entry()])
+        self.assertEqual(self.read(), before)
+
+    def test_only_end_marker_raises_error_without_modifying_file(self):
+        malformed = "some text\n<!-- claude-log:end -->\nmore text\n"
+        self.write(malformed)
+        before = self.read()
+        with self.assertRaises(daily.DailyMarkerError):
+            daily.update_daily(self.vault, "2026-09-06", [entry()])
+        self.assertEqual(self.read(), before)
+
+    def test_duplicated_start_marker_raises_error_without_modifying_file(self):
+        malformed = "<!-- claude-log:start -->\ntext\n<!-- claude-log:start -->\n<!-- claude-log:end -->\n"
+        self.write(malformed)
+        before = self.read()
+        with self.assertRaises(daily.DailyMarkerError):
+            daily.update_daily(self.vault, "2026-09-06", [entry()])
+        self.assertEqual(self.read(), before)
+
+
 if __name__ == "__main__":
     unittest.main()

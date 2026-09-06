@@ -10,6 +10,11 @@ START_MARKER = "<!-- claude-log:start -->"
 END_MARKER = "<!-- claude-log:end -->"
 
 
+class DailyMarkerError(RuntimeError):
+    """Daily note has malformed markers."""
+    pass
+
+
 def daily_relpath(date: str) -> str:
     return os.path.join(DAILY_DIR, date + ".md")
 
@@ -41,16 +46,36 @@ def update_daily(vault: str, date: str, entries: List) -> bool:
         original = None
         lines = []
 
-    block = [START_MARKER] + render_lines(entries) + [END_MARKER]
-    if START_MARKER in lines and END_MARKER in lines:
-        start = lines.index(START_MARKER)
-        end = lines.index(END_MARKER, start)
-        new_lines = lines[:start] + block + lines[end + 1:]
-    else:
+    # Validate marker state before modifying anything
+    start_count = lines.count(START_MARKER)
+    end_count = lines.count(END_MARKER)
+
+    if start_count == 1 and end_count == 1:
+        # Exactly one of each: check that START comes before END
+        start_idx = lines.index(START_MARKER)
+        end_idx = lines.index(END_MARKER)
+        if end_idx < start_idx:
+            # END before START: malformed
+            relpath = daily_relpath(date)
+            raise DailyMarkerError(
+                "%s: 開始マーカー %d 個 / 終了マーカー %d 個" % (relpath, start_count, end_count)
+            )
+        # Valid: replace block between markers
+        block = [START_MARKER] + render_lines(entries) + [END_MARKER]
+        new_lines = lines[:start_idx] + block + lines[end_idx + 1:]
+    elif start_count == 0 and end_count == 0:
+        # Zero markers: append block at end
+        block = [START_MARKER] + render_lines(entries) + [END_MARKER]
         while lines and lines[-1].strip() == "":
             lines.pop()
         prefix = lines + [""] if lines else []
         new_lines = prefix + [SECTION_HEADING, ""] + block
+    else:
+        # Malformed: any other combination
+        relpath = daily_relpath(date)
+        raise DailyMarkerError(
+            "%s: 開始マーカー %d 個 / 終了マーカー %d 個" % (relpath, start_count, end_count)
+        )
 
     new_text = "\n".join(new_lines).rstrip("\n") + "\n"
     if original == new_text:
