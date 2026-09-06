@@ -9,9 +9,7 @@ DAILY_DIR = "01_Daily"
 SECTION_HEADING = "## Claude作業ログ"
 START_MARKER = "<!-- claude-log:start -->"
 END_MARKER = "<!-- claude-log:end -->"
-TODAY_HEADING = "### この日の作業"
-LATEST_HEADING = "### 各プロジェクトの最新"
-NO_TODAY_ENTRIES_LINE = "- （この日の記録はありません）"
+NO_ENTRIES_LINE = "- （記録がありません）"
 
 # システム単位のグループ化: alpha* → coop* → その他、の順に並べ、グループ間は
 # 空行1行で区切る。各グループの傘プロジェクト（umbrella）は、そのグループの
@@ -116,38 +114,8 @@ def _grouped_lines(items: List[Dict]) -> List[str]:
     return result
 
 
-def render_lines(entries: List) -> List[str]:
-    rendered = []
-    for entry in entries:
-        note = entry.source_id.replace("/", "-")
-        title = sections_module.sanitize_title(entry.title)
-        rendered.append(
-            "- **%s** — [[00_Claude/projects/%s#%s %s|%s]]"
-            % (entry.source_id, note, entry.date, title, title)
-        )
-    return rendered
-
-
-def render_today_lines(entries: List) -> List[str]:
-    """「この日の作業」サブセクションの本文。0件なら固定の1行を返す。
-
-    複数のシステム（alpha* / coop* / その他）にまたがる場合は、システム単位で
-    グループ化し（各グループの傘プロジェクトを先頭に固定）、グループ間に
-    空行を1行挟む（詳細は _grouped_lines）。通常は対象日に動きがあった
-    システムが1つだけなのでグループは1つしか現れない。
-    """
-    if not entries:
-        return [NO_TODAY_ENTRIES_LINE]
-    lines = render_lines(entries)
-    items = [
-        {"name": entry.source_id, "has_record": True, "date": entry.date, "line": line}
-        for entry, line in zip(entries, lines)
-    ]
-    return _grouped_lines(items)
-
-
-def render_latest_lines(latest_entries: Dict[str, object], project_names: List[str]) -> List[str]:
-    """「各プロジェクトの最新」サブセクションの本文。
+def render_project_lines(latest_entries: Dict[str, object], project_names: List[str]) -> List[str]:
+    """管理ブロックの本文（プロジェクトごとに1行）。
 
     latest_entries は {source_id: Entry}（各ソースの最新1件）。project_names は
     CLAUDE.md 構成テーブル由来の全プロジェクト名（対象外リポジトリ含む）。
@@ -175,40 +143,34 @@ def render_latest_lines(latest_entries: Dict[str, object], project_names: List[s
             continue
         items.append({"name": name, "has_record": False, "date": "", "line": "- **%s** — 記録なし" % name})
 
-    return _grouped_lines(items)
+    lines = _grouped_lines(items)
+    return lines if lines else [NO_ENTRIES_LINE]
 
 
 def update_daily(
     vault: str,
     date: str,
-    today_entries: List,
-    latest_entries: Optional[Dict[str, object]] = None,
+    latest_entries: Dict[str, object],
     project_names: Optional[List[str]] = None,
 ) -> bool:
     """管理ブロックだけを再生成する。書き換えが発生したら True を返す。
 
-    latest_entries が None の場合（過去日の --date 実行など）は「各プロジェクトの
-    最新」サブセクションを一切出力しない（過去の Daily に未来の情報を持ち込まないため）。
-    latest_entries を渡す場合（対象日＝実際の今日の場合のみ呼び出し側が渡す）は、
-    today_entries が空でもファイルを作成する（最新サブセクションには常に意味のある
-    内容があるため）。
+    管理ブロックの中身はプロジェクトごとの1行リストだけ（`latest_entries` は
+    {source_id: Entry}＝対象日以前で最新の1件）。日付は各行に入るため、朝に開けば
+    前日以前の最新が並び、その日のセッションで記録ができればその行が当日日付に変わる。
+
+    Daily ノートが存在しない場合は**何も作らない**（利用者が毎朝テンプレートから
+    作成する運用を壊さないため）。呼び出し側は事前に存在を確認して報告すること。
     """
     path = os.path.join(vault, daily_relpath(date))
-    exists = os.path.exists(path)
-    if not exists and not today_entries and latest_entries is None:
+    if not os.path.exists(path):
         return False
 
-    block_body = [TODAY_HEADING] + render_today_lines(today_entries)
-    if latest_entries is not None:
-        block_body += [""] + [LATEST_HEADING] + render_latest_lines(latest_entries, project_names or [])
+    block_body = render_project_lines(latest_entries, project_names or [])
 
-    if exists:
-        with open(path, encoding="utf-8") as handle:
-            original = handle.read()
-        lines = original.splitlines()
-    else:
-        original = None
-        lines = []
+    with open(path, encoding="utf-8") as handle:
+        original = handle.read()
+    lines = original.splitlines()
 
     # Validate marker state before modifying anything（末尾空白は無視して検出する: item K）
     start_indices = _marker_indices(lines, START_MARKER)
@@ -229,7 +191,7 @@ def update_daily(
         block = [START_MARKER] + block_body + [END_MARKER]
         new_lines = lines[:start_idx] + block + lines[end_idx + 1:]
     elif start_count == 0 and end_count == 0:
-        # Zero markers: append block at end
+        # Zero markers: append block at end（ファイルは必ず存在する）
         block = [START_MARKER] + block_body + [END_MARKER]
         while lines and lines[-1].strip() == "":
             lines.pop()

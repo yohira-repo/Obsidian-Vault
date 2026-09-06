@@ -23,6 +23,15 @@ TABLE = """| プロジェクト名 | 相対フォルダー | 内容 |
 """
 
 
+def make_daily(vault, date, body="- [ ] 手書きタスク\n"):
+    """ツールは Daily を新規作成しないので、テスト側で「利用者が朝作った」状態を用意する。"""
+    path = os.path.join(vault, "01_Daily", date + ".md")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(body)
+    return path
+
+
 class RunSyncTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -34,6 +43,8 @@ class RunSyncTest(unittest.TestCase):
             handle.write(TABLE)
         origin = helpers.init_repo(os.path.join(self.tmp.name, "origin_a"), {"conversations.md": CONV})
         helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+        make_daily(self.vault, "2026-09-06")
+        make_daily(self.vault, "2026-09-05")
 
         # ブロッカー E: cli.main() が実ユーザーの ~/.claude を触らないよう、
         # ロック・ログ・スタンプのパスを一時ディレクトリへ差し替える。
@@ -118,6 +129,8 @@ class LatestListSyncTest(unittest.TestCase):
         origin = helpers.init_repo(os.path.join(self.tmp.name, "origin_a"), {"conversations.md": CONV})
         helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
         # repo_b は TABLE 上にあるが未 clone のまま（記録なし想定）
+        make_daily(self.vault, "2026-09-06")
+        make_daily(self.vault, "2026-09-05")
 
         self._orig_lock_path = cli.LOCK_PATH
         self._orig_log_path = cli.LOG_PATH
@@ -142,25 +155,26 @@ class LatestListSyncTest(unittest.TestCase):
         with open(path, encoding="utf-8") as handle:
             return handle.read()
 
-    def test_latest_section_present_when_target_date_is_today(self):
-        cli.run_sync(self.vault, self.git_root, "2026-09-06", today="2026-09-06")
+    def test_each_project_gets_one_line_with_its_latest_entry(self):
+        cli.run_sync(self.vault, self.git_root, "2026-09-06")
         text = self.read_daily("2026-09-06")
-        self.assertIn("### 各プロジェクトの最新", text)
         self.assertIn(
             "- **repo_a** — 2026-09-06 "
             "[[00_Claude/projects/repo_a#2026-09-06 当日のまとめ|当日のまとめ]]",
             text,
         )
         self.assertIn("- **repo_b** — 記録なし", text)
+        # 日別のサブセクションは廃止済み
+        self.assertNotIn("### ", text)
 
-    def test_latest_section_absent_for_past_date(self):
-        cli.run_sync(self.vault, self.git_root, "2026-09-05", today="2026-09-06")
+    def test_past_date_shows_state_as_of_that_day(self):
+        cli.run_sync(self.vault, self.git_root, "2026-09-05")
         text = self.read_daily("2026-09-05")
-        self.assertNotIn("各プロジェクトの最新", text)
-        self.assertIn("前日のまとめ", text)
+        self.assertIn("- **repo_a** — 2026-09-05 ", text)
+        self.assertNotIn("当日のまとめ", text)
 
     def test_mirror_receives_full_history_not_only_target_date(self):
-        cli.run_sync(self.vault, self.git_root, "2026-09-06", today="2026-09-06")
+        cli.run_sync(self.vault, self.git_root, "2026-09-06")
         text = self.read_mirror()
         self.assertIn("前日のまとめ", text)
         self.assertIn("当日のまとめ", text)
@@ -170,7 +184,7 @@ class LatestListSyncTest(unittest.TestCase):
         os.makedirs(os.path.dirname(mirror_path))
         with open(mirror_path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("# repo_a 作業ログ\n\n## 2026-09-06 当日のまとめ\n\n当日の本文。\n")
-        cli.run_sync(self.vault, self.git_root, "2026-09-06", today="2026-09-06")
+        cli.run_sync(self.vault, self.git_root, "2026-09-06")
         text = self.read_mirror()
         self.assertLess(text.index("## 2026-09-05"), text.index("## 2026-09-06"))
 
@@ -234,8 +248,8 @@ class DiscoveryFailureTest(unittest.TestCase):
         self.assertEqual(self.read_daily(), self.handwritten)
         self.assertTrue(any("収集に失敗" in warning for warning in report["warnings"]))
 
-    def test_successful_scan_with_zero_entries_still_clears_block(self):
-        # 少なくとも 1 件は正常にスキャンできたが、対象日の該当が 0 件 → 従来通り空にする（回帰させない）
+    def test_successful_scan_with_no_recent_entry_shows_latest_as_of_date(self):
+        # 走査は成功。対象日当日の記録は無いが、過去の記録を as-of で表示する
         git_root = os.path.join(self.tmp.name, "git_ok")
         os.makedirs(os.path.join(git_root, "alphasystem"))
         with open(os.path.join(git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
@@ -245,15 +259,36 @@ class DiscoveryFailureTest(unittest.TestCase):
             {"conversations.md": "## 2026-01-01 昔のまとめ\n\n昔の本文。\n"},
         )
         helpers.clone_repo(origin, os.path.join(git_root, "repo_a"))
-        report = cli.run_sync(self.vault, git_root, "2026-09-06", today="2026-09-06")
+        report = cli.run_sync(self.vault, git_root, "2026-09-06")
         self.assertFalse(report["daily_skipped"])
         self.assertTrue(report["daily_changed"])
         text = self.read_daily()
-        self.assertIn(
-            "<!-- claude-log:start -->\n### この日の作業\n"
-            "- （この日の記録はありません）\n\n### 各プロジェクトの最新",
-            text,
+        self.assertIn("- **repo_a** — 2026-01-01 ", text)
+
+    def test_missing_daily_is_not_created(self):
+        git_root = os.path.join(self.tmp.name, "git_ok2")
+        os.makedirs(os.path.join(git_root, "alphasystem"))
+        with open(os.path.join(git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write(TABLE)
+        origin = helpers.init_repo(
+            os.path.join(self.tmp.name, "origin_ok2"),
+            {"conversations.md": "## 2026-09-06 まとめ\n\n本文。\n"},
         )
+        helpers.clone_repo(origin, os.path.join(git_root, "repo_a"))
+        report = cli.run_sync(self.vault, git_root, "2026-09-07")  # その日の Daily は未作成
+        self.assertTrue(report["daily_missing"])
+        self.assertFalse(report["daily_changed"])
+        self.assertFalse(os.path.exists(os.path.join(self.vault, "01_Daily", "2026-09-07.md")))
+        self.assertEqual(report["warnings"], [])
+
+    def test_format_report_surfaces_daily_missing(self):
+        text = cli.format_report({
+            "date": "2026-09-07", "sources": 1, "entries": 1,
+            "mirror_added": 0, "mirror_replaced": 0,
+            "daily_changed": False, "daily_skipped": False, "daily_missing": True,
+            "warnings": [],
+        })
+        self.assertIn("ノートが未作成", text)
 
     def test_format_report_surfaces_daily_skipped(self):
         empty_git_root = os.path.join(self.tmp.name, "git_no_claude_md2")
@@ -276,6 +311,7 @@ class DateValidationTest(unittest.TestCase):
             handle.write(TABLE)
         origin = helpers.init_repo(os.path.join(self.tmp.name, "origin_a"), {"conversations.md": CONV})
         helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+        make_daily(self.vault, "2026-09-06")
 
         self._orig_lock_path = cli.LOCK_PATH
         self._orig_log_path = cli.LOG_PATH
@@ -299,8 +335,9 @@ class DateValidationTest(unittest.TestCase):
         self.assertFalse(
             os.path.exists(os.path.join(self.vault, "01_Daily", "not-a-date.md")),
         )
-        # Vault 配下に一切ファイルが作られていないこと（01_Daily ディレクトリすら作られない）
-        self.assertFalse(os.path.exists(os.path.join(self.vault, "01_Daily")))
+        # 事前に用意した Daily 以外は一切増えていないこと（ミラーも作られない）
+        self.assertEqual(sorted(os.listdir(os.path.join(self.vault, "01_Daily"))), ["2026-09-06.md"])
+        self.assertFalse(os.path.exists(os.path.join(self.vault, "00_Claude")))
 
     def test_path_traversal_like_date_is_rejected(self):
         code = cli.main([

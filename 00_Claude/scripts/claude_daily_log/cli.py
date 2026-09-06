@@ -182,19 +182,14 @@ def _touch_stamp() -> None:
         pass
 
 
-def run_sync(vault: str, git_root: str, date: str, today: Optional[str] = None) -> Dict:
-    """`date` の Daily/ミラーを再生成する。
+def run_sync(vault: str, git_root: str, date: str) -> Dict:
+    """`date` 時点の Daily/ミラーを再生成する。
 
-    `today` は「各プロジェクトの最新」サブセクションを出力するかどうかの判定に使う
-    実際の今日の日付（省略時は `datetime.date.today()`）。テストから明示的に渡せる
-    ようにするため、壁時計に直接依存しない引数として切り出している。
-    `date == today` のときだけ最新サブセクションを出力する（過去日の --date 実行では
-    未来の情報を Daily に持ち込まないため、常に省略する）。
+    Daily の管理ブロックはプロジェクトごとの1行リストのみで、各行には
+    「対象日以前で最新のエントリ」の日付とリンクが入る。過去日を --date で
+    再生成しても、その日より後の記録は出さない（as-of 表示）。
+    Daily ノートが存在しない日は何も作らず、`daily_missing` として報告する。
     """
-    if today is None:
-        today = datetime.date.today().isoformat()
-    is_today = (date == today)
-
     report = {
         "date": date,
         "sources": 0,
@@ -203,6 +198,7 @@ def run_sync(vault: str, git_root: str, date: str, today: Optional[str] = None) 
         "mirror_replaced": 0,
         "daily_changed": False,
         "daily_skipped": False,
+        "daily_missing": False,
         "warnings": [],
     }
     if not os.path.isdir(vault):
@@ -225,7 +221,6 @@ def run_sync(vault: str, git_root: str, date: str, today: Optional[str] = None) 
         report["warnings"].extend(warnings)
 
     all_entries = sources_module.dedupe(collected)
-    today_entries = [entry for entry in all_entries if entry.date == date]
 
     by_source: Dict[str, List] = {}
     for entry in all_entries:
@@ -240,9 +235,12 @@ def run_sync(vault: str, git_root: str, date: str, today: Optional[str] = None) 
         report["mirror_added"] += added
         report["mirror_replaced"] += replaced
 
-    # プロジェクト毎の「最新」: ソースごとに (date, order) が最大のエントリ（全履歴から）。
+    # プロジェクト毎の「最新」: ソースごとに (date, order) が最大のエントリ。
+    # 対象日より後のエントリは除外する（過去日の再生成で未来の情報を出さないため）。
     latest_by_source: Dict[str, object] = {}
     for entry in all_entries:
+        if entry.date > date:
+            continue
         current = latest_by_source.get(entry.source_id)
         if current is None or (entry.date, entry.order) > (current.date, current.order):
             latest_by_source[entry.source_id] = entry
@@ -262,27 +260,27 @@ def run_sync(vault: str, git_root: str, date: str, today: Optional[str] = None) 
         report["warnings"].append(
             "すべてのプロジェクトで収集に失敗しました。Daily は更新しません"
         )
+    elif not os.path.exists(os.path.join(vault, daily_module.daily_relpath(date))):
+        # 利用者が毎朝テンプレートから作成する運用のため、ツール側からは作らない。
+        report["daily_missing"] = True
     else:
         try:
-            if is_today:
-                project_names = [project.name for project in all_projects]
-                report["daily_changed"] = daily_module.update_daily(
-                    vault, date, today_entries,
-                    latest_entries=latest_by_source, project_names=project_names,
-                )
-            else:
-                report["daily_changed"] = daily_module.update_daily(vault, date, today_entries)
+            project_names = [project.name for project in all_projects]
+            report["daily_changed"] = daily_module.update_daily(
+                vault, date, latest_by_source, project_names=project_names,
+            )
         except daily_module.DailyMarkerError as error:
             report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
         except OSError as error:
             report["warnings"].append("Daily 更新に失敗しました (%s)" % error)
 
     report["sources"] = len(by_source)
-    report["entries"] = len(today_entries)
+    report["entries"] = len(latest_by_source)
     logging.info(
-        "sync date=%s sources=%d entries=%d added=%d replaced=%d daily_changed=%s daily_skipped=%s warnings=%d",
+        "sync date=%s sources=%d entries=%d added=%d replaced=%d daily_changed=%s daily_skipped=%s daily_missing=%s warnings=%d",
         date, report["sources"], report["entries"], report["mirror_added"],
-        report["mirror_replaced"], report["daily_changed"], report["daily_skipped"], len(report["warnings"]),
+        report["mirror_replaced"], report["daily_changed"], report["daily_skipped"],
+        report["daily_missing"], len(report["warnings"]),
     )
     return report
 
@@ -290,10 +288,11 @@ def run_sync(vault: str, git_root: str, date: str, today: Optional[str] = None) 
 def format_report(report: Dict) -> str:
     lines = [
         "対象日: %s" % report["date"],
-        "プロジェクト %d 件 / エントリ %d 件" % (report["sources"], report["entries"]),
+        "プロジェクト %d 件 / 記録のあるソース %d 件" % (report["sources"], report["entries"]),
         "ミラー: 追加 %d / 置換 %d" % (report["mirror_added"], report["mirror_replaced"]),
         "Daily: %s" % (
             "スキップしました（走査失敗のため）" if report.get("daily_skipped")
+            else "ノートが未作成のためスキップしました" if report.get("daily_missing")
             else "更新しました" if report["daily_changed"] else "変更なし"
         ),
     ]

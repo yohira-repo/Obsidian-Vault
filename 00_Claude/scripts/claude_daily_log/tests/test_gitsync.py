@@ -73,6 +73,10 @@ class FetchIsolationTest(unittest.TestCase):
             {"conversations.md": "## 2026-09-06 まとめ\n\n本文。\n"},
         )
         helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+        daily_path = os.path.join(self.vault, "01_Daily", "2026-09-06.md")
+        os.makedirs(os.path.dirname(daily_path), exist_ok=True)
+        with open(daily_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("- [ ] 手書きタスク\n")
 
         self._orig_lock = cli.LOCK_PATH
         self._orig_log = cli.LOG_PATH
@@ -148,6 +152,10 @@ class FetchStampOnSuccessOnlyTest(unittest.TestCase):
             {"conversations.md": "## 2026-09-06 まとめ\n\n本文。\n"},
         )
         helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+        daily_path = os.path.join(self.vault, "01_Daily", "2026-09-06.md")
+        os.makedirs(os.path.dirname(daily_path), exist_ok=True)
+        with open(daily_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("- [ ] 手書きタスク\n")
 
         self._orig_lock = cli.LOCK_PATH
         self._orig_log = cli.LOG_PATH
