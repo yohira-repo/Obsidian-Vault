@@ -2,12 +2,16 @@
 """Claude Code の会話まとめを Obsidian の Daily ノートへ同期する。"""
 import argparse
 import datetime
-import fcntl
 import logging
 import os
 import sys
 import time
 from typing import Dict, List, Optional
+
+try:
+    import fcntl  # POSIX 専用。Windows には存在しない
+except ImportError:  # pragma: no cover - このリポジトリの CI は POSIX のみ
+    fcntl = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -24,6 +28,9 @@ STAMP_PATH = os.path.expanduser("~/.claude/cache/claude_daily_log.fetch_stamp")
 LOG_PATH = os.path.expanduser("~/.claude/logs/claude_daily_log.log")
 LOG_MAX_BYTES = 1024 * 1024
 FETCH_INTERVAL_SECONDS = 30 * 60
+LOCK_RETRY_ATTEMPTS = 5
+LOCK_RETRY_DELAY_SECONDS = 0.5  # 4 回分の待ち = 合計 約2秒
+STALE_LOCK_SECONDS = 6 * 60 * 60  # フォールバックロックのみ: 6 時間以上前なら残留とみなす
 
 
 def setup_logging() -> None:
@@ -40,19 +47,123 @@ def setup_logging() -> None:
         logging.basicConfig(level=logging.CRITICAL)
 
 
-def acquire_lock() -> Optional[object]:
-    """取得できたらファイルオブジェクト、他プロセスが実行中なら None を返す。"""
+class _LockFsError(Exception):
+    """ロックファイル自体の作成・オープンに失敗した（ディスクフル・権限不足等）。"""
+
+    def __init__(self, original: BaseException):
+        super().__init__(str(original))
+        self.original = original
+
+
+class _LockContended(Exception):
+    """ロックは正常に取り扱えたが、他プロセスが保持している。"""
+
+    def __init__(self, original: BaseException):
+        super().__init__(str(original))
+        self.original = original
+
+
+class _PortableLockHandle:
+    """fcntl が無い環境（Windows）向け: O_CREAT|O_EXCL によるロックファイル。
+
+    close() でファイルディスクリプタを閉じたうえでロックファイル自体を
+    削除する（次回実行が取得できるようにするため）。
+    """
+
+    def __init__(self, fd: int):
+        self._fd = fd
+
+    def close(self) -> None:
+        try:
+            os.close(self._fd)
+        finally:
+            try:
+                os.remove(LOCK_PATH)
+            except OSError:
+                pass
+
+
+def _acquire_posix_lock():
+    """fcntl.flock によるロック取得。取得できなければ例外を送出する。"""
     try:
         os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
         handle = open(LOCK_PATH, "w")
-    except OSError:
-        return None
+    except OSError as error:
+        raise _LockFsError(error)
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except OSError as error:
         handle.close()
-        return None
+        raise _LockContended(error)
     return handle
+
+
+def _acquire_portable_lock():
+    """fcntl が無い環境向けのフォールバック: O_CREAT|O_EXCL による排他。
+
+    Windows では fcntl.flock が使えないため、代わりにロックファイルの
+    排他的新規作成で同時実行を防ぐ。プロセスが異常終了してファイルが
+    残った場合に永久にロックされたままにならないよう、
+    STALE_LOCK_SECONDS より古いロックファイルは残留とみなして削除し、
+    再取得を試みる。
+    """
+    try:
+        os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+    except OSError as error:
+        raise _LockFsError(error)
+
+    def _create():
+        return os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+
+    try:
+        fd = _create()
+    except FileExistsError as error:
+        try:
+            age = time.time() - os.path.getmtime(LOCK_PATH)
+        except OSError:
+            age = None
+        if age is not None and age > STALE_LOCK_SECONDS:
+            try:
+                os.remove(LOCK_PATH)
+                fd = _create()
+            except OSError as remove_error:
+                raise _LockContended(remove_error)
+        else:
+            raise _LockContended(error)
+    except OSError as error:
+        raise _LockFsError(error)
+
+    try:
+        os.write(fd, str(os.getpid()).encode("utf-8"))
+    except OSError:
+        pass
+    return _PortableLockHandle(fd)
+
+
+def acquire_lock() -> Optional[object]:
+    """取得できたらロックオブジェクト、取得できなければ None を返す。
+
+    - POSIX では fcntl.flock、Windows（fcntl が無い環境）では
+      O_CREAT|O_EXCL ロックファイルにフォールバックする（D）。
+    - 他プロセスが実行中で取得できない場合は、短い間隔で数回
+      リトライしてから諦める（合計 約2秒。F）。
+    - ファイルシステムエラー（ディスクフル・権限不足等）とロック競合
+      を、ログ上で区別する（I）。
+    """
+    acquire_once = _acquire_posix_lock if fcntl is not None else _acquire_portable_lock
+    for attempt in range(LOCK_RETRY_ATTEMPTS):
+        try:
+            return acquire_once()
+        except _LockFsError as error:
+            logging.warning("ロックファイルの操作に失敗しました（ファイルシステムエラー）: %s", error.original)
+            return None
+        except _LockContended as error:
+            if attempt < LOCK_RETRY_ATTEMPTS - 1:
+                time.sleep(LOCK_RETRY_DELAY_SECONDS)
+                continue
+            logging.info("他プロセスが実行中のため終了します（ロック競合）: %s", error.original)
+            return None
+    return None
 
 
 def _fetch_due() -> bool:
@@ -184,7 +295,7 @@ def main(argv=None) -> int:
 
     lock = acquire_lock()
     if lock is None:
-        logging.info("他プロセスが実行中のため終了します")
+        # 具体的な理由（ロック競合 / ファイルシステムエラー）は acquire_lock() 側でログ済み。
         if args.report:
             print("他プロセスが実行中のためスキップしました")
         return 0
