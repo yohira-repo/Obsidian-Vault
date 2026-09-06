@@ -59,7 +59,7 @@ python3 -m unittest discover \
 **Interfaces:**
 - Consumes: なし
 - Produces:
-  - `ANY_H2_RE`, `DATED_H2_RE`（`re.Pattern`）
+  - `ANY_H2_RE`, `DATED_H2_RE`, `RANGE_H2_RE`（`re.Pattern`）
   - `Section(date: str, title: str, body: str, order: int)`（frozen dataclass）
   - `normalize_title(title: str) -> str`
   - `sanitize_title(title: str) -> str`
@@ -251,7 +251,7 @@ def parse_sections(text: str) -> Tuple[List[Section], int]:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: 上と同じ discover コマンド
-Expected: `OK`（9 tests）
+Expected: `OK`（13 tests）
 
 - [ ] **Step 6: コミットする**
 
@@ -420,7 +420,7 @@ def list_projects(git_root: str, config_files: Sequence[str] = DEFAULT_CONFIG_FI
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（17 tests）
+Expected: `OK`（21 tests）
 
 - [ ] **Step 5: 実データでパース結果を目視確認する**
 
@@ -810,7 +810,7 @@ def dedupe(entries: List[Entry]) -> List[Entry]:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（28 tests）
+Expected: `OK`（32 tests）
 
 - [ ] **Step 6: 実データで収集結果を確認する**
 
@@ -1028,7 +1028,7 @@ def update_mirror(vault: str, source_id: str, entries: List) -> Tuple[int, int]:
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（35 tests）
+Expected: `OK`（39 tests）
 
 - [ ] **Step 5: コミットする**
 
@@ -1240,7 +1240,7 @@ def update_daily(vault: str, date: str, entries: List) -> bool:
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（43 tests）
+Expected: `OK`（47 tests）
 
 - [ ] **Step 5: コミットする**
 
@@ -1540,7 +1540,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（50 tests）
+Expected: `OK`（54 tests）
 
 - [ ] **Step 5: 実 Vault に対して dry run 相当の確認をする（コミット前に diff を見る）**
 
@@ -1804,7 +1804,7 @@ def _touch_stamp() -> None:
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（57 tests）
+Expected: `OK`（61 tests）
 
 - [ ] **Step 6: 実データで auto を実行し、所要時間と差分を確認する**
 
@@ -1961,7 +1961,7 @@ python3 -m unittest discover \
 - [ ] **Step 7: 全テストを再実行する**
 
 Run: discover コマンド
-Expected: `OK`（57 tests）
+Expected: `OK`（61 tests）
 
 - [ ] **Step 8: コミットする**
 
@@ -1989,7 +1989,7 @@ Expected: 管理ブロックに当日分のリンクが並ぶ。Obsidian で Dai
 
 ## 完了条件
 
-- 全 57 テストが green。
+- 全 61 テストが green。
 - `01_Daily/2026-09-06.md` に手書き部分を保ったまま `## Claude作業ログ` ブロックが生成される。
 - `00_Claude/projects/*.md` のリンクが Obsidian 上で該当見出しへ遷移する。
 - 別プロジェクトのセッション終了で Daily が自動更新される。
