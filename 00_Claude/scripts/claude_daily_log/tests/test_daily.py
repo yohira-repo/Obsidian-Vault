@@ -58,6 +58,7 @@ class UpdateDailyTest(unittest.TestCase):
         self.assertEqual(
             self.read(),
             "## Claude作業ログ\n\n<!-- claude-log:start -->\n"
+            "### この日の作業\n"
             "- **coopinf** — [[00_Claude/projects/coopinf#2026-09-06 まとめ|まとめ]]\n"
             "<!-- claude-log:end -->\n",
         )
@@ -84,19 +85,112 @@ class UpdateDailyTest(unittest.TestCase):
         self.assertIn("新", text)
         self.assertEqual(text.count("<!-- claude-log:start -->"), 1)
 
-    def test_empty_entries_clears_block_but_keeps_markers(self):
+    def test_empty_entries_clears_block_but_keeps_this_day_heading(self):
         self.write(HANDWRITTEN)
         daily.update_daily(self.vault, "2026-09-06", [entry()])
         daily.update_daily(self.vault, "2026-09-06", [])
         text = self.read()
         self.assertIn("## Claude作業ログ", text)
-        self.assertIn("<!-- claude-log:start -->\n<!-- claude-log:end -->", text)
+        self.assertIn(
+            "<!-- claude-log:start -->\n### この日の作業\n"
+            "- （この日の記録はありません）\n<!-- claude-log:end -->",
+            text,
+        )
 
     def test_second_run_with_same_entries_reports_no_change(self):
         daily.update_daily(self.vault, "2026-09-06", [entry()])
         before = self.read()
         self.assertFalse(daily.update_daily(self.vault, "2026-09-06", [entry()]))
         self.assertEqual(self.read(), before)
+
+
+class LatestSectionTest(unittest.TestCase):
+    """各プロジェクトの最新: today モード（latest_entries を渡した場合）のみ出力される。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+        os.makedirs(os.path.join(self.vault, daily.DAILY_DIR))
+        self.path = os.path.join(self.vault, daily.daily_relpath("2026-09-06"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        with open(self.path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_omitted_when_latest_entries_not_passed(self):
+        daily.update_daily(self.vault, "2026-09-06", [entry()])
+        text = self.read()
+        self.assertNotIn("各プロジェクトの最新", text)
+
+    def test_created_even_with_zero_today_entries_when_latest_entries_given(self):
+        created = daily.update_daily(
+            self.vault, "2026-09-06", [],
+            latest_entries={}, project_names=["coopinf"],
+        )
+        self.assertTrue(created)
+        self.assertEqual(
+            self.read(),
+            "## Claude作業ログ\n\n<!-- claude-log:start -->\n"
+            "### この日の作業\n"
+            "- （この日の記録はありません）\n\n"
+            "### 各プロジェクトの最新\n"
+            "- **coopinf** — 記録なし\n"
+            "<!-- claude-log:end -->\n",
+        )
+
+    def test_records_come_first_ordered_by_date_desc_then_source_id_asc(self):
+        latest_entries = {
+            "coopinf": entry(source_id="coopinf", title="コop最新", date="2026-09-06"),
+            "coopbatch": entry(source_id="coopbatch", title="バッチ最新", date="2026-09-02"),
+            "alphasystem": entry(source_id="alphasystem", title="アルファ最新", date="2026-09-06"),
+        }
+        daily.update_daily(
+            self.vault, "2026-09-06", [],
+            latest_entries=latest_entries,
+            project_names=["coopinf", "coopbatch", "alphasystem", "coopcdeweb"],
+        )
+        text = self.read()
+        lines = text.splitlines()
+        start = lines.index("### 各プロジェクトの最新") + 1
+        latest_lines = []
+        for line in lines[start:]:
+            if line.strip() == daily.END_MARKER:
+                break
+            latest_lines.append(line)
+        self.assertEqual(
+            latest_lines,
+            [
+                "- **alphasystem** — 2026-09-06 "
+                "[[00_Claude/projects/alphasystem#2026-09-06 アルファ最新|アルファ最新]]",
+                "- **coopinf** — 2026-09-06 [[00_Claude/projects/coopinf#2026-09-06 コop最新|コop最新]]",
+                "- **coopbatch** — 2026-09-02 "
+                "[[00_Claude/projects/coopbatch#2026-09-02 バッチ最新|バッチ最新]]",
+                "- **coopcdeweb** — 記録なし",
+            ],
+        )
+
+    def test_project_with_no_records_at_all_shows_no_record_line(self):
+        daily.update_daily(
+            self.vault, "2026-09-06", [],
+            latest_entries={"coopinf": entry(source_id="coopinf")},
+            project_names=["coopinf", "coopcdeweb"],
+        )
+        text = self.read()
+        self.assertIn("- **coopcdeweb** — 記録なし", text)
+
+    def test_project_with_a_source_under_it_is_not_marked_no_record(self):
+        # alphasystem/alphabsmail という別ソースがあれば、alphasystem 自体は「記録なし」にならない
+        daily.update_daily(
+            self.vault, "2026-09-06", [],
+            latest_entries={"alphasystem/alphabsmail": entry(source_id="alphasystem/alphabsmail")},
+            project_names=["alphasystem"],
+        )
+        text = self.read()
+        self.assertNotIn("alphasystem** — 記録なし", text)
+        self.assertIn("**alphasystem/alphabsmail** —", text)
 
 
 class AtomicWriteTest(unittest.TestCase):

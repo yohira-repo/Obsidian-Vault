@@ -104,6 +104,77 @@ class RunSyncTest(unittest.TestCase):
         self.assertIn("1", text)
 
 
+class LatestListSyncTest(unittest.TestCase):
+    """プロジェクト毎の最新リンク（各プロジェクトの最新）の end-to-end 挙動。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.git_root = os.path.join(self.tmp.name, "git")
+        self.vault = os.path.join(self.tmp.name, "vault")
+        os.makedirs(os.path.join(self.git_root, "alphasystem"))
+        os.makedirs(self.vault)
+        with open(os.path.join(self.git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write(TABLE)
+        origin = helpers.init_repo(os.path.join(self.tmp.name, "origin_a"), {"conversations.md": CONV})
+        helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+        # repo_b は TABLE 上にあるが未 clone のまま（記録なし想定）
+
+        self._orig_lock_path = cli.LOCK_PATH
+        self._orig_log_path = cli.LOG_PATH
+        self._orig_stamp_path = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
+    def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock_path
+        cli.LOG_PATH = self._orig_log_path
+        cli.STAMP_PATH = self._orig_stamp_path
+        self.tmp.cleanup()
+
+    def read_daily(self, date):
+        path = os.path.join(self.vault, "01_Daily", date + ".md")
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def read_mirror(self, name="repo_a"):
+        path = os.path.join(self.vault, "00_Claude", "projects", name + ".md")
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_latest_section_present_when_target_date_is_today(self):
+        cli.run_sync(self.vault, self.git_root, "2026-09-06", today="2026-09-06")
+        text = self.read_daily("2026-09-06")
+        self.assertIn("### 各プロジェクトの最新", text)
+        self.assertIn(
+            "- **repo_a** — 2026-09-06 "
+            "[[00_Claude/projects/repo_a#2026-09-06 当日のまとめ|当日のまとめ]]",
+            text,
+        )
+        self.assertIn("- **repo_b** — 記録なし", text)
+
+    def test_latest_section_absent_for_past_date(self):
+        cli.run_sync(self.vault, self.git_root, "2026-09-05", today="2026-09-06")
+        text = self.read_daily("2026-09-05")
+        self.assertNotIn("各プロジェクトの最新", text)
+        self.assertIn("前日のまとめ", text)
+
+    def test_mirror_receives_full_history_not_only_target_date(self):
+        cli.run_sync(self.vault, self.git_root, "2026-09-06", today="2026-09-06")
+        text = self.read_mirror()
+        self.assertIn("前日のまとめ", text)
+        self.assertIn("当日のまとめ", text)
+
+    def test_backfill_inserts_older_sections_before_existing_newer_mirror_section(self):
+        mirror_path = os.path.join(self.vault, "00_Claude", "projects", "repo_a.md")
+        os.makedirs(os.path.dirname(mirror_path))
+        with open(mirror_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("# repo_a 作業ログ\n\n## 2026-09-06 当日のまとめ\n\n当日の本文。\n")
+        cli.run_sync(self.vault, self.git_root, "2026-09-06", today="2026-09-06")
+        text = self.read_mirror()
+        self.assertLess(text.index("## 2026-09-05"), text.index("## 2026-09-06"))
+
+
 class DiscoveryFailureTest(unittest.TestCase):
     """スキャン自体が失敗した場合は Daily を一切書き換えない（ブロッカー A）。"""
 
@@ -174,11 +245,15 @@ class DiscoveryFailureTest(unittest.TestCase):
             {"conversations.md": "## 2026-01-01 昔のまとめ\n\n昔の本文。\n"},
         )
         helpers.clone_repo(origin, os.path.join(git_root, "repo_a"))
-        report = cli.run_sync(self.vault, git_root, "2026-09-06")
+        report = cli.run_sync(self.vault, git_root, "2026-09-06", today="2026-09-06")
         self.assertFalse(report["daily_skipped"])
         self.assertTrue(report["daily_changed"])
         text = self.read_daily()
-        self.assertIn("<!-- claude-log:start -->\n<!-- claude-log:end -->", text)
+        self.assertIn(
+            "<!-- claude-log:start -->\n### この日の作業\n"
+            "- （この日の記録はありません）\n\n### 各プロジェクトの最新",
+            text,
+        )
 
     def test_format_report_surfaces_daily_skipped(self):
         empty_git_root = os.path.join(self.tmp.name, "git_no_claude_md2")

@@ -2,7 +2,7 @@
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import sections as sections_module
 
@@ -90,11 +90,18 @@ def _to_entries(text, repo_name, rel_path, origin, commit_date, target_date, war
             order=section.order,
         )
         for section in parsed
-        if section.date == target_date
+        if target_date is None or section.date == target_date
     ]
 
 
-def collect_entries(repo: str, repo_name: str, target_date: str) -> Tuple[List[Entry], List[str]]:
+def collect_entries(
+    repo: str, repo_name: str, target_date: Optional[str] = None
+) -> Tuple[List[Entry], List[str]]:
+    """conversations.md を収集する。
+
+    target_date が None の場合は日付を持つ全セクションを返す（全履歴）。
+    文字列が渡された場合は従来通りその日付のセクションのみに絞り込む。
+    """
     entries: List[Entry] = []
     warnings: List[str] = []
 

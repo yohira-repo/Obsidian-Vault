@@ -84,6 +84,23 @@ class CollectEntriesTest(unittest.TestCase):
         entries, _ = sources.collect_entries(self.repo, "alphasystem", "2026-09-05")
         self.assertEqual([entry.title for entry in sources.dedupe(entries)], ["前日のまとめ"])
 
+    def test_none_target_date_returns_every_dated_entry(self):
+        entries, _ = sources.collect_entries(self.repo, "alphasystem", target_date=None)
+        titles = sorted(entry.title for entry in sources.dedupe(entries))
+        self.assertEqual(
+            titles,
+            sorted(["docs 配下のまとめ", "前日のまとめ", "直下のまとめ", "サブプロジェクトのまとめ"]),
+        )
+
+    def test_default_target_date_is_none(self):
+        # 引数省略時も全期間を返す（target_date のデフォルトは None）
+        entries_default, _ = sources.collect_entries(self.repo, "alphasystem")
+        entries_explicit, _ = sources.collect_entries(self.repo, "alphasystem", None)
+        self.assertEqual(
+            sorted(e.title for e in entries_default),
+            sorted(e.title for e in entries_explicit),
+        )
+
     def test_undated_heading_is_reported_once(self):
         _, warnings = sources.collect_entries(self.repo, "alphasystem", "2026-09-06")
         matched = [w for w in warnings if "日付なし見出し" in w]

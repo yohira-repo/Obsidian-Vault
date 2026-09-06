@@ -80,6 +80,80 @@ class UpdateMirrorTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.vault, mirror.mirror_relpath("coopinf"))))
 
 
+class ChronologicalInsertTest(unittest.TestCase):
+    """全履歴ミラー: 過去日のセクションは既存の新しい日付のセクションより前に挿入する。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self, source_id="coopinf"):
+        with open(os.path.join(self.vault, mirror.mirror_relpath(source_id)), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_older_entry_is_inserted_before_existing_newer_section(self):
+        # 実際の vault と同じ状況: 既存ファイルには 2026-09-06 だけがある
+        mirror.update_mirror(self.vault, "coopinf", [entry(date="2026-09-06", title="新しい方")])
+        added, replaced = mirror.update_mirror(
+            self.vault, "coopinf", [entry(date="2026-08-01", title="古い方", body="古い本文。", order=0)]
+        )
+        self.assertEqual((added, replaced), (1, 0))
+        self.assertEqual(
+            self.read(),
+            "# coopinf 作業ログ\n\n"
+            "## 2026-08-01 古い方\n\n古い本文。\n\n"
+            "## 2026-09-06 新しい方\n\n本文。\n",
+        )
+
+    def test_same_date_new_entry_is_inserted_after_existing_one(self):
+        mirror.update_mirror(self.vault, "coopinf", [entry(date="2026-09-06", title="A", body="Aの本文。")])
+        mirror.update_mirror(
+            self.vault, "coopinf", [entry(date="2026-09-06", title="B", body="Bの本文。", order=1)]
+        )
+        self.assertEqual(
+            self.read(),
+            "# coopinf 作業ログ\n\n"
+            "## 2026-09-06 A\n\nAの本文。\n\n"
+            "## 2026-09-06 B\n\nBの本文。\n",
+        )
+
+    def test_out_of_order_backfill_entries_end_up_chronological(self):
+        mirror.update_mirror(self.vault, "coopinf", [entry(date="2026-09-06", title="現在", body="現在の本文。")])
+        # わざと新しい→古いの順で渡しても、結果はチェックロジカル順になること
+        mirror.update_mirror(
+            self.vault,
+            "coopinf",
+            [
+                entry(date="2026-08-20", title="中間", body="中間の本文。", order=1),
+                entry(date="2026-08-01", title="最古", body="最古の本文。", order=0),
+            ],
+        )
+        self.assertEqual(
+            self.read(),
+            "# coopinf 作業ログ\n\n"
+            "## 2026-08-01 最古\n\n最古の本文。\n\n"
+            "## 2026-08-20 中間\n\n中間の本文。\n\n"
+            "## 2026-09-06 現在\n\n現在の本文。\n",
+        )
+
+    def test_backfill_then_rerun_is_idempotent_and_byte_identical(self):
+        mirror.update_mirror(self.vault, "coopinf", [entry(date="2026-09-06", title="現在", body="現在の本文。")])
+        entries = [
+            entry(date="2026-08-20", title="中間", body="中間の本文。", order=1),
+            entry(date="2026-08-01", title="最古", body="最古の本文。", order=0),
+        ]
+        mirror.update_mirror(self.vault, "coopinf", entries)
+        before = self.read()
+        added, replaced = mirror.update_mirror(
+            self.vault, "coopinf", [entry(date="2026-09-06", title="現在", body="現在の本文。")] + entries
+        )
+        self.assertEqual((added, replaced), (0, 0))
+        self.assertEqual(self.read(), before)
+
+
 class AtomicWriteTest(unittest.TestCase):
     """ブロッカー B: 書き込み失敗時に既存ミラーファイルを空・破損状態にしない。"""
 

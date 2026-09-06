@@ -24,6 +24,20 @@ def _index(lines: List[str]) -> Dict[Tuple[str, str], Tuple[int, int]]:
     return result
 
 
+def _insertion_index(lines: List[str], entry_date: str) -> int:
+    """entry_date の見出しを挿入すべき行番号を返す（チェックロジカル順序を保つ）。
+
+    entry_date より日付が新しい最初の見出しの行番号を返す。見つからなければ
+    末尾（len(lines)）を返す（＝追記）。同日の既存見出しがあっても前進を止めない
+    （＝同日の場合は既存の後ろに挿入される）。
+    """
+    heads = sections_module.scan_headings(lines)
+    for index, date, _title in heads:
+        if date is not None and date > entry_date:
+            return index
+    return len(lines)
+
+
 def update_mirror(vault: str, source_id: str, entries: List) -> Tuple[int, int]:
     """未収録セクションを追記し、本文が変化したセクションは置換する。
 
@@ -62,9 +76,16 @@ def update_mirror(vault: str, source_id: str, entries: List) -> Tuple[int, int]:
             lines[head_index + 1:end_index] = [""] + body_lines + [""]
             replaced += 1
         else:
-            while lines and lines[-1].strip() == "":
-                lines.pop()
-            lines.extend(["", "## %s %s" % (entry.date, title), ""] + body_lines)
+            insertion_index = _insertion_index(lines, entry.date)
+            if insertion_index >= len(lines):
+                while lines and lines[-1].strip() == "":
+                    lines.pop()
+                lines.extend(["", "## %s %s" % (entry.date, title), ""] + body_lines)
+            else:
+                block = ["## %s %s" % (entry.date, title), ""] + body_lines + [""]
+                if insertion_index > 0 and lines[insertion_index - 1].strip() != "":
+                    block = [""] + block
+                lines[insertion_index:insertion_index] = block
             added += 1
 
     if added == 0 and replaced == 0 and os.path.exists(path):
