@@ -1,3 +1,4 @@
+import glob
 import os
 import tempfile
 import unittest
@@ -77,6 +78,45 @@ class UpdateMirrorTest(unittest.TestCase):
         added, replaced = mirror.update_mirror(self.vault, "coopinf", [])
         self.assertEqual((added, replaced), (0, 0))
         self.assertFalse(os.path.exists(os.path.join(self.vault, mirror.mirror_relpath("coopinf"))))
+
+
+class AtomicWriteTest(unittest.TestCase):
+    """ブロッカー B: 書き込み失敗時に既存ミラーファイルを空・破損状態にしない。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self, source_id="coopinf"):
+        with open(os.path.join(self.vault, mirror.mirror_relpath(source_id)), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_replace_failure_leaves_existing_file_untouched(self):
+        mirror.update_mirror(self.vault, "coopinf", [entry(title="A")])
+        before = self.read()
+        self.assertTrue(before)
+
+        real_replace = os.replace
+
+        def boom(src, dst):
+            raise OSError("simulated crash during replace")
+
+        os.replace = boom
+        try:
+            with self.assertRaises(OSError):
+                mirror.update_mirror(self.vault, "coopinf", [entry(title="B", order=1)])
+        finally:
+            os.replace = real_replace
+
+        self.assertEqual(self.read(), before)
+
+    def test_no_temp_file_left_behind_after_successful_write(self):
+        mirror.update_mirror(self.vault, "coopinf", [entry()])
+        leftovers = glob.glob(os.path.join(self.vault, mirror.MIRROR_DIR, ".tmp-*"))
+        self.assertEqual(leftovers, [])
 
 
 if __name__ == "__main__":

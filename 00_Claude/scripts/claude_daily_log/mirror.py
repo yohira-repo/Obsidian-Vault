@@ -2,6 +2,7 @@
 import os
 from typing import Dict, List, Tuple
 
+import atomicio
 import sections as sections_module
 
 MIRROR_DIR = os.path.join("00_Claude", "projects")
@@ -66,6 +67,5 @@ def update_mirror(vault: str, source_id: str, entries: List) -> Tuple[int, int]:
         return (0, 0)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write("\n".join(lines).rstrip("\n") + "\n")
+    atomicio.write_text_atomic(path, "\n".join(lines).rstrip("\n") + "\n")
     return (added, replaced)

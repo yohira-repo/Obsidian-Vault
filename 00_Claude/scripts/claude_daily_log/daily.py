@@ -2,6 +2,7 @@
 import os
 from typing import List
 
+import atomicio
 import sections as sections_module
 
 DAILY_DIR = "01_Daily"
@@ -82,6 +83,5 @@ def update_daily(vault: str, date: str, entries: List) -> bool:
         return False
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(new_text)
+    atomicio.write_text_atomic(path, new_text)
     return True

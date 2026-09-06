@@ -1,3 +1,4 @@
+import glob
 import os
 import tempfile
 import unittest
@@ -96,6 +97,48 @@ class UpdateDailyTest(unittest.TestCase):
         before = self.read()
         self.assertFalse(daily.update_daily(self.vault, "2026-09-06", [entry()]))
         self.assertEqual(self.read(), before)
+
+
+class AtomicWriteTest(unittest.TestCase):
+    """ブロッカー B: 書き込み失敗時に既存ファイルを空・破損状態にしない。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+        os.makedirs(os.path.join(self.vault, daily.DAILY_DIR))
+        self.path = os.path.join(self.vault, daily.daily_relpath("2026-09-06"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        with open(self.path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_replace_failure_leaves_existing_file_untouched(self):
+        daily.update_daily(self.vault, "2026-09-06", [entry(title="旧")])
+        before = self.read()
+        self.assertTrue(before)  # 前提: 何か書かれている
+
+        real_replace = os.replace
+
+        def boom(src, dst):
+            raise OSError("simulated crash during replace")
+
+        os.replace = boom
+        try:
+            with self.assertRaises(OSError):
+                daily.update_daily(self.vault, "2026-09-06", [entry(title="新")])
+        finally:
+            os.replace = real_replace
+
+        # 既存の内容が失われていない（空になったり途中で切れたりしない）こと
+        self.assertEqual(self.read(), before)
+
+    def test_no_temp_file_left_behind_after_successful_write(self):
+        daily.update_daily(self.vault, "2026-09-06", [entry()])
+        leftovers = glob.glob(os.path.join(self.vault, daily.DAILY_DIR, ".tmp-*"))
+        self.assertEqual(leftovers, [])
 
 
 class MalformedMarkerTest(unittest.TestCase):
