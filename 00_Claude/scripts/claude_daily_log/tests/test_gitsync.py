@@ -133,6 +133,21 @@ class FetchIsolationTest(unittest.TestCase):
 
 
 class MainAlwaysReturnsZeroTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self._orig_lock = cli.LOCK_PATH
+        self._orig_log = cli.LOG_PATH
+        self._orig_stamp = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
+    def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock
+        cli.LOG_PATH = self._orig_log
+        cli.STAMP_PATH = self._orig_stamp
+        self.tmp.cleanup()
+
     def test_unexpected_error_still_returns_zero(self):
         original = cli.run_sync
 

@@ -35,7 +35,19 @@ class RunSyncTest(unittest.TestCase):
         origin = helpers.init_repo(os.path.join(self.tmp.name, "origin_a"), {"conversations.md": CONV})
         helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
 
+        # ブロッカー E: cli.main() が実ユーザーの ~/.claude を触らないよう、
+        # ロック・ログ・スタンプのパスを一時ディレクトリへ差し替える。
+        self._orig_lock_path = cli.LOCK_PATH
+        self._orig_log_path = cli.LOG_PATH
+        self._orig_stamp_path = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
     def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock_path
+        cli.LOG_PATH = self._orig_log_path
+        cli.STAMP_PATH = self._orig_stamp_path
         self.tmp.cleanup()
 
     def read_daily(self, date="2026-09-06"):
@@ -75,6 +87,15 @@ class RunSyncTest(unittest.TestCase):
         code = cli.main(["sync", "--date", "2026-09-06", "--vault", self.vault, "--git-root", self.git_root])
         self.assertEqual(code, 0)
         self.assertIn("当日のまとめ", self.read_daily())
+
+    def test_main_uses_patched_lock_and_log_paths_not_real_home(self):
+        # ブロッカー E: 実ユーザーの ~/.claude/cache や ~/.claude/logs を触っていないことの確認。
+        real_default_lock = os.path.expanduser("~/.claude/cache/claude_daily_log.lock")
+        self.assertNotEqual(cli.LOCK_PATH, real_default_lock)
+        cli.main(["sync", "--date", "2026-09-06", "--vault", self.vault, "--git-root", self.git_root])
+        self.assertTrue(os.path.exists(cli.LOCK_PATH))
+        self.assertTrue(cli.LOCK_PATH.startswith(self.tmp.name))
+        self.assertTrue(cli.LOG_PATH.startswith(self.tmp.name))
 
     def test_report_option_prints_summary(self):
         report = cli.run_sync(self.vault, self.git_root, "2026-09-06")
