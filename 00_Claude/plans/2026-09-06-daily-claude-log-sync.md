@@ -1578,7 +1578,7 @@ git commit -m "feat(daily-log): sync サブコマンドと排他ロック・ロ�
   - `CLONE_URL_TEMPLATE: str` = `"https://github.com/alphacmc/%s.git"`
   - `MAX_WORKERS: int` = 8
   - `run_fetch(git_root: str, items: Optional[List[Project]] = None) -> Dict`（キー: `fetched`, `cloned`, `warnings`）
-  - cli 側: `main` が `sync` / `fetch` / `auto` を受け付ける。`auto` は前回 fetch から 30 分以上経過、または `--force-fetch` 指定時のみ fetch してから sync する。
+  - cli 側: `main` が `sync` / `fetch` / `auto` を受け付け、想定外の例外を内部で受け止めて必ず 0 を返す。`auto` は前回 fetch から 30 分以上経過、または `--force-fetch` 指定時のみ fetch してから sync する。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -1642,6 +1642,21 @@ class RunFetchTest(unittest.TestCase):
         self.assertEqual(report["cloned"], 0)
         self.assertEqual(len(report["warnings"]), 1)
         self.assertIn("ghost", report["warnings"][0])
+
+
+class MainAlwaysReturnsZeroTest(unittest.TestCase):
+    def test_unexpected_error_still_returns_zero(self):
+        original = cli.run_sync
+
+        def explode(*args, **kwargs):
+            raise ValueError("boom")
+
+        cli.run_sync = explode
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(cli.main(["sync", "--vault", tmp, "--git-root", tmp]), 0)
+        finally:
+            cli.run_sync = original
 
 
 class FetchDueTest(unittest.TestCase):
@@ -1781,9 +1796,20 @@ def _touch_stamp() -> None:
         pass
 ```
 
-`main` の `try:` ブロックを次に差し替える:
+`main` 全体を次に差し替える（想定外の例外でも必ず 0 を返すよう、外側で受け止める）:
 
 ```python
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    setup_logging()
+    date = args.date or datetime.date.today().isoformat()
+
+    lock = acquire_lock()
+    if lock is None:
+        logging.info("他プロセスが実行中のため終了します")
+        if args.report:
+            print("他プロセスが実行中のためスキップしました")
+        return 0
     try:
         fetch_report = None
         if args.command == "fetch" or (args.command == "auto" and (args.force_fetch or _fetch_due())):
@@ -1800,14 +1826,17 @@ def _touch_stamp() -> None:
             report["warnings"] = fetch_report["warnings"] + report["warnings"]
         if args.report:
             print(format_report(report))
+    except Exception:  # hook から呼ばれるため、想定外の例外でも 0 を返す
+        logging.exception("予期しないエラー")
     finally:
         lock.close()
+    return 0
 ```
 
 - [ ] **Step 5: テストが通ることを確認する**
 
 Run: discover コマンド
-Expected: `OK`（72 tests）
+Expected: `OK`（73 tests）
 
 - [ ] **Step 6: 実データで auto を実行し、所要時間と差分を確認する**
 
@@ -1964,7 +1993,7 @@ python3 -m unittest discover \
 - [ ] **Step 7: 全テストを再実行する**
 
 Run: discover コマンド
-Expected: `OK`（72 tests）
+Expected: `OK`（73 tests）
 
 - [ ] **Step 8: コミットする**
 
@@ -1992,7 +2021,7 @@ Expected: 管理ブロックに当日分のリンクが並ぶ。Obsidian で Dai
 
 ## 完了条件
 
-- 全 72 テストが green。
+- 全 73 テストが green。
 - `01_Daily/2026-09-06.md` に手書き部分を保ったまま `## Claude作業ログ` ブロックが生成される。
 - `00_Claude/projects/*.md` のリンクが Obsidian 上で該当見出しへ遷移する。
 - 別プロジェクトのセッション終了で Daily が自動更新される。
