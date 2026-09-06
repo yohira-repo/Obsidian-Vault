@@ -163,33 +163,79 @@ class MalformedMarkerTest(unittest.TestCase):
         malformed = "some text\n<!-- claude-log:end -->\n<!-- claude-log:start -->\nmore text\n"
         self.write(malformed)
         before = self.read()
-        with self.assertRaises(daily.DailyMarkerError):
+        with self.assertRaises(daily.DailyMarkerError) as ctx:
             daily.update_daily(self.vault, "2026-09-06", [entry()])
         self.assertEqual(self.read(), before)
+        # item H: 「マーカーの個数」だけでは正常に見えてしまうため、順序が逆であることを明示する
+        message = str(ctx.exception)
+        self.assertIn("順序", message)
+        self.assertNotIn("重複", message)
 
     def test_only_start_marker_raises_error_without_modifying_file(self):
         malformed = "some text\n<!-- claude-log:start -->\nmore text\n"
         self.write(malformed)
         before = self.read()
-        with self.assertRaises(daily.DailyMarkerError):
+        with self.assertRaises(daily.DailyMarkerError) as ctx:
             daily.update_daily(self.vault, "2026-09-06", [entry()])
         self.assertEqual(self.read(), before)
+        message = str(ctx.exception)
+        self.assertIn("終了マーカーがありません", message)
 
     def test_only_end_marker_raises_error_without_modifying_file(self):
         malformed = "some text\n<!-- claude-log:end -->\nmore text\n"
         self.write(malformed)
         before = self.read()
-        with self.assertRaises(daily.DailyMarkerError):
+        with self.assertRaises(daily.DailyMarkerError) as ctx:
             daily.update_daily(self.vault, "2026-09-06", [entry()])
         self.assertEqual(self.read(), before)
+        message = str(ctx.exception)
+        self.assertIn("開始マーカーがありません", message)
 
     def test_duplicated_start_marker_raises_error_without_modifying_file(self):
         malformed = "<!-- claude-log:start -->\ntext\n<!-- claude-log:start -->\n<!-- claude-log:end -->\n"
         self.write(malformed)
         before = self.read()
-        with self.assertRaises(daily.DailyMarkerError):
+        with self.assertRaises(daily.DailyMarkerError) as ctx:
             daily.update_daily(self.vault, "2026-09-06", [entry()])
         self.assertEqual(self.read(), before)
+        message = str(ctx.exception)
+        self.assertIn("重複", message)
+
+
+class MarkerWhitespaceTest(unittest.TestCase):
+    """item K: 末尾に空白が付いたマーカーも正常なマーカーとして認識する。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+        os.makedirs(os.path.join(self.vault, daily.DAILY_DIR))
+        self.path = os.path.join(self.vault, daily.daily_relpath("2026-09-06"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        with open(self.path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def write(self, text):
+        with open(self.path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+
+    def test_trailing_whitespace_markers_are_recognized_and_replaced_in_place(self):
+        self.write(
+            "## Claude作業ログ\n\n<!-- claude-log:start --> \n"
+            "- 旧い行\n"
+            "<!-- claude-log:end --> \n"
+        )
+        daily.update_daily(self.vault, "2026-09-06", [entry(title="新")])
+        text = self.read()
+        # 新しい 1 つのブロックだけが残り、重複ブロックが追記されていないこと
+        self.assertEqual(text.count("claude-log:start"), 1)
+        self.assertEqual(text.count("claude-log:end"), 1)
+        self.assertEqual(text.count("## Claude作業ログ"), 1)
+        self.assertNotIn("旧い行", text)
+        self.assertIn("新", text)
 
 
 if __name__ == "__main__":
