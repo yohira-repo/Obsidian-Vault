@@ -57,6 +57,81 @@ class RunFetchTest(unittest.TestCase):
         self.assertIn("ghost", report["warnings"][0])
 
 
+class FetchIsolationTest(unittest.TestCase):
+    """ブロッカー C: fetch が例外を投げても sync はスキップされない。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.git_root = os.path.join(self.tmp.name, "git")
+        self.vault = os.path.join(self.tmp.name, "vault")
+        os.makedirs(os.path.join(self.git_root, "alphasystem"))
+        os.makedirs(self.vault)
+        with open(os.path.join(self.git_root, "alphasystem", "CLAUDE.md"), "w", encoding="utf-8") as handle:
+            handle.write("| repo_a | ../repo_a | test |\n")
+        origin = helpers.init_repo(
+            os.path.join(self.tmp.name, "origin_a"),
+            {"conversations.md": "## 2026-09-06 まとめ\n\n本文。\n"},
+        )
+        helpers.clone_repo(origin, os.path.join(self.git_root, "repo_a"))
+
+        self._orig_lock = cli.LOCK_PATH
+        self._orig_log = cli.LOG_PATH
+        self._orig_stamp = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
+    def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock
+        cli.LOG_PATH = self._orig_log
+        cli.STAMP_PATH = self._orig_stamp
+        self.tmp.cleanup()
+
+    def test_fetch_exception_does_not_block_sync(self):
+        original_fetch = cli.gitsync_module.run_fetch
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("network exploded")
+
+        cli.gitsync_module.run_fetch = explode
+        try:
+            code = cli.main([
+                "auto", "--force-fetch",
+                "--vault", self.vault, "--git-root", self.git_root,
+                "--date", "2026-09-06", "--report",
+            ])
+        finally:
+            cli.gitsync_module.run_fetch = original_fetch
+
+        self.assertEqual(code, 0)
+        daily_path = os.path.join(self.vault, "01_Daily", "2026-09-06.md")
+        self.assertTrue(os.path.exists(daily_path), "fetch が例外を投げると sync が実行されていない")
+        with open(daily_path, encoding="utf-8") as handle:
+            self.assertIn("まとめ", handle.read())
+
+    def test_fetch_exception_is_reported_as_warning(self):
+        original_fetch = cli.gitsync_module.run_fetch
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("network exploded")
+
+        cli.gitsync_module.run_fetch = explode
+        try:
+            report = None
+            import io
+            import contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli.main([
+                    "auto", "--force-fetch",
+                    "--vault", self.vault, "--git-root", self.git_root,
+                    "--date", "2026-09-06", "--report",
+                ])
+        finally:
+            cli.gitsync_module.run_fetch = original_fetch
+        self.assertIn("network exploded", buf.getvalue())
+
+
 class MainAlwaysReturnsZeroTest(unittest.TestCase):
     def test_unexpected_error_still_returns_zero(self):
         original = cli.run_sync

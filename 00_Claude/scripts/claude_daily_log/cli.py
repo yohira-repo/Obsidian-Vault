@@ -191,12 +191,20 @@ def main(argv=None) -> int:
     try:
         fetch_report = None
         if args.command == "fetch" or (args.command == "auto" and (args.force_fetch or _fetch_due())):
-            fetch_report = gitsync_module.run_fetch(args.git_root)
-            _touch_stamp()
-            logging.info(
-                "fetch fetched=%d cloned=%d warnings=%d",
-                fetch_report["fetched"], fetch_report["cloned"], len(fetch_report["warnings"]),
-            )
+            try:
+                fetch_report = gitsync_module.run_fetch(args.git_root)
+                _touch_stamp()
+                logging.info(
+                    "fetch fetched=%d cloned=%d warnings=%d",
+                    fetch_report["fetched"], fetch_report["cloned"], len(fetch_report["warnings"]),
+                )
+            except Exception as error:  # fetch の失敗は該当分のみスキップし、sync は必ず実行する
+                logging.exception("fetch 処理で予期しないエラー")
+                fetch_report = {
+                    "fetched": 0,
+                    "cloned": 0,
+                    "warnings": ["fetch 処理で予期しないエラー (%s)" % error],
+                }
         report = run_sync(args.vault, args.git_root, date)
         if fetch_report is not None:
             report["fetched"] = fetch_report["fetched"]
