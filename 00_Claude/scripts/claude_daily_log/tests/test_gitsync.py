@@ -98,7 +98,7 @@ class FetchIsolationTest(unittest.TestCase):
             code = cli.main([
                 "auto", "--force-fetch",
                 "--vault", self.vault, "--git-root", self.git_root,
-                "--date", "2026-09-06", "--report",
+                "--date", "2026-09-06",
             ])
         finally:
             cli.gitsync_module.run_fetch = original_fetch

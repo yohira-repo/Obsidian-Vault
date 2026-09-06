@@ -218,7 +218,7 @@ class DateValidationTest(unittest.TestCase):
     def test_non_date_string_is_rejected_without_writing_anything(self):
         code = cli.main([
             "sync", "--date", "not-a-date",
-            "--vault", self.vault, "--git-root", self.git_root, "--report",
+            "--vault", self.vault, "--git-root", self.git_root,
         ])
         self.assertEqual(code, 0)
         self.assertFalse(
@@ -230,7 +230,7 @@ class DateValidationTest(unittest.TestCase):
     def test_path_traversal_like_date_is_rejected(self):
         code = cli.main([
             "sync", "--date", "../../foo",
-            "--vault", self.vault, "--git-root", self.git_root, "--report",
+            "--vault", self.vault, "--git-root", self.git_root,
         ])
         self.assertEqual(code, 0)
         escaped = os.path.normpath(os.path.join(self.vault, "01_Daily", "../../foo.md"))
