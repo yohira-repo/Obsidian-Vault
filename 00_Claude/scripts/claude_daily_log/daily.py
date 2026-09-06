@@ -13,6 +13,13 @@ TODAY_HEADING = "### この日の作業"
 LATEST_HEADING = "### 各プロジェクトの最新"
 NO_TODAY_ENTRIES_LINE = "- （この日の記録はありません）"
 
+# システム単位のグループ化: alpha* → coop* → その他、の順に並べ、グループ間は
+# 空行1行で区切る。各グループの傘プロジェクト（umbrella）は、そのグループの
+# 先頭に固定表示する（記録が無くても「記録なし」として表示する）。
+ALPHA_UMBRELLA = "alphasystem"
+COOP_UMBRELLA = "coop"
+_GROUP_UMBRELLAS = (ALPHA_UMBRELLA, COOP_UMBRELLA, None)  # index: 0=alpha, 1=coop, 2=その他
+
 
 class DailyMarkerError(RuntimeError):
     """Daily note has malformed markers."""
@@ -43,6 +50,72 @@ def _marker_error_message(relpath: str, start_count: int, end_count: int, order_
     return "%s: %s（開始マーカー %d 個 / 終了マーカー %d 個）" % (relpath, detail, start_count, end_count)
 
 
+def _group_index(name: str) -> int:
+    """id/プロジェクト名の先頭要素から所属グループを判定する（0=alpha, 1=coop, 2=その他）。"""
+    top = name.split("/")[0]
+    if top.startswith("alpha"):
+        return 0
+    if top.startswith("coop"):
+        return 1
+    return 2
+
+
+def _order_group_items(group_items: List[Dict], umbrella: Optional[str]) -> List[Dict]:
+    """1グループ内の並び順を決める。
+
+    1) 傘プロジェクト（name == umbrella）を常に先頭に置く（記録なしでも）。
+    2) 傘プロジェクトのサブソース（name が "umbrella/" で始まる、記録ありのみ発生）を id 昇順で。
+    3) 残りの記録ありエントリを日付降順、同日は id 昇順で。
+    4) 記録なしエントリを名前昇順で。
+    """
+    tier0 = []
+    tier1 = []
+    tier2 = []
+    tier3 = []
+    for item in group_items:
+        name = item["name"]
+        has_record = item["has_record"]
+        if umbrella is not None and name == umbrella:
+            tier0.append(item)
+        elif has_record and umbrella is not None and name.startswith(umbrella + "/"):
+            tier1.append(item)
+        elif has_record:
+            tier2.append(item)
+        else:
+            tier3.append(item)
+    tier1.sort(key=lambda item: item["name"])
+    tier2.sort(key=lambda item: item["name"])
+    tier2.sort(key=lambda item: item["date"], reverse=True)
+    tier3.sort(key=lambda item: item["name"])
+    return tier0 + tier1 + tier2 + tier3
+
+
+def _grouped_lines(items: List[Dict]) -> List[str]:
+    """items（各 {"name", "has_record", "date", "line"}）をグループ化して描画する。
+
+    グループは alpha → coop → その他 の順。1件も無いグループは丸ごと省略し、
+    グループ間には空行を1行だけ挟む（先頭・末尾には残さない）。
+    """
+    buckets: Dict[int, List[Dict]] = {0: [], 1: [], 2: []}
+    for item in items:
+        buckets[_group_index(item["name"])].append(item)
+
+    groups_out = []
+    for group in (0, 1, 2):
+        group_items = buckets[group]
+        if not group_items:
+            continue
+        ordered = _order_group_items(group_items, _GROUP_UMBRELLAS[group])
+        groups_out.append([item["line"] for item in ordered])
+
+    result: List[str] = []
+    for index, group_lines in enumerate(groups_out):
+        if index > 0:
+            result.append("")
+        result.extend(group_lines)
+    return result
+
+
 def render_lines(entries: List) -> List[str]:
     rendered = []
     for entry in entries:
@@ -56,10 +129,21 @@ def render_lines(entries: List) -> List[str]:
 
 
 def render_today_lines(entries: List) -> List[str]:
-    """「この日の作業」サブセクションの本文。0件なら固定の1行を返す。"""
+    """「この日の作業」サブセクションの本文。0件なら固定の1行を返す。
+
+    複数のシステム（alpha* / coop* / その他）にまたがる場合は、システム単位で
+    グループ化し（各グループの傘プロジェクトを先頭に固定）、グループ間に
+    空行を1行挟む（詳細は _grouped_lines）。通常は対象日に動きがあった
+    システムが1つだけなのでグループは1つしか現れない。
+    """
     if not entries:
         return [NO_TODAY_ENTRIES_LINE]
-    return render_lines(entries)
+    lines = render_lines(entries)
+    items = [
+        {"name": entry.source_id, "has_record": True, "date": entry.date, "line": line}
+        for entry, line in zip(entries, lines)
+    ]
+    return _grouped_lines(items)
 
 
 def render_latest_lines(latest_entries: Dict[str, object], project_names: List[str]) -> List[str]:
@@ -67,27 +151,31 @@ def render_latest_lines(latest_entries: Dict[str, object], project_names: List[s
 
     latest_entries は {source_id: Entry}（各ソースの最新1件）。project_names は
     CLAUDE.md 構成テーブル由来の全プロジェクト名（対象外リポジトリ含む）。
-    順序: レコードあり（日付降順・同日はソース識別子昇順）が先、
-    レコードなし（プロジェクト名昇順）が後。
-    """
-    items = sorted(latest_entries.items(), key=lambda kv: kv[0])
-    items.sort(key=lambda kv: kv[1].date, reverse=True)
 
-    record_lines = []
-    for source_id, entry in items:
+    システム単位（alpha* / coop* / その他）でグループ化し、グループ間には
+    空行を1行挟む（1件も無いグループは丸ごと省略）。各グループ内の順序:
+    1) 傘プロジェクト（alphasystem / coop）が常に先頭（記録が無くても「記録なし」で）。
+    2) 傘プロジェクトのサブソース（id 昇順）。
+    3) 残りの記録あり（日付降順・同日は id 昇順）。
+    4) 記録なし（プロジェクト名昇順）。
+    """
+    items = []
+    for source_id, entry in latest_entries.items():
         note = source_id.replace("/", "-")
         title = sections_module.sanitize_title(entry.title)
-        record_lines.append(
+        line = (
             "- **%s** — %s [[00_Claude/projects/%s#%s %s|%s]]"
             % (source_id, entry.date, note, entry.date, title, title)
         )
+        items.append({"name": source_id, "has_record": True, "date": entry.date, "line": line})
 
     covered = {source_id.split("/")[0] for source_id in latest_entries}
-    no_record_lines = [
-        "- **%s** — 記録なし" % name
-        for name in sorted(name for name in project_names if name not in covered)
-    ]
-    return record_lines + no_record_lines
+    for name in project_names:
+        if name in covered:
+            continue
+        items.append({"name": name, "has_record": False, "date": "", "line": "- **%s** — 記録なし" % name})
+
+    return _grouped_lines(items)
 
 
 def update_daily(

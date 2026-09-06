@@ -142,6 +142,8 @@ class LatestSectionTest(unittest.TestCase):
         )
 
     def test_records_come_first_ordered_by_date_desc_then_source_id_asc(self):
+        # alphasystem と coopinf/coopbatch は別グループ（alpha / coop）に属するため、
+        # グループ化後は両者の間に空行が入る（各グループ内は従来通り日付降順・同日はID昇順）。
         latest_entries = {
             "coopinf": entry(source_id="coopinf", title="コop最新", date="2026-09-06"),
             "coopbatch": entry(source_id="coopbatch", title="バッチ最新", date="2026-09-02"),
@@ -165,6 +167,7 @@ class LatestSectionTest(unittest.TestCase):
             [
                 "- **alphasystem** — 2026-09-06 "
                 "[[00_Claude/projects/alphasystem#2026-09-06 アルファ最新|アルファ最新]]",
+                "",
                 "- **coopinf** — 2026-09-06 [[00_Claude/projects/coopinf#2026-09-06 コop最新|コop最新]]",
                 "- **coopbatch** — 2026-09-02 "
                 "[[00_Claude/projects/coopbatch#2026-09-02 バッチ最新|バッチ最新]]",
@@ -191,6 +194,141 @@ class LatestSectionTest(unittest.TestCase):
         text = self.read()
         self.assertNotIn("alphasystem** — 記録なし", text)
         self.assertIn("**alphasystem/alphabsmail** —", text)
+
+
+class GroupingTest(unittest.TestCase):
+    """両サブセクションをシステム単位（alpha* / coop* / その他）でグループ化する。
+
+    各グループ: 1) 傘プロジェクト（alphasystem / coop）が常に先頭（記録なしでも）、
+    2) 傘プロジェクトのサブソース（id 昇順）、3) 残りの記録あり（日付降順・同日は
+    id 昇順）、4) 記録なし（名前昇順）。グループ間は空行1行。空グループは省略。
+    """
+
+    def test_latest_alpha_group_pins_umbrella_then_subsource_then_rest_then_no_record(self):
+        latest_entries = {
+            "alphacdk": entry(source_id="alphacdk", title="cdk", date="2026-08-01"),
+            "alphasystem/alphabsmail": entry(
+                source_id="alphasystem/alphabsmail", title="bsmail", date="2026-08-12"
+            ),
+            "alphasystem": entry(source_id="alphasystem", title="root", date="2026-09-03"),
+        }
+        lines = daily.render_latest_lines(
+            latest_entries, ["alphasystem", "alphacdk", "alphaaimail"]
+        )
+        self.assertEqual(
+            lines,
+            [
+                "- **alphasystem** — 2026-09-03 "
+                "[[00_Claude/projects/alphasystem#2026-09-03 root|root]]",
+                "- **alphasystem/alphabsmail** — 2026-08-12 "
+                "[[00_Claude/projects/alphasystem-alphabsmail#2026-08-12 bsmail|bsmail]]",
+                "- **alphacdk** — 2026-08-01 "
+                "[[00_Claude/projects/alphacdk#2026-08-01 cdk|cdk]]",
+                "- **alphaaimail** — 記録なし",
+            ],
+        )
+
+    def test_latest_coop_group_orders_records_desc_then_no_record_last(self):
+        latest_entries = {
+            "coopinf": entry(source_id="coopinf", title="inf", date="2026-09-06"),
+            "coopbatch": entry(source_id="coopbatch", title="batch", date="2026-09-04"),
+            "coopcdebatch": entry(source_id="coopcdebatch", title="cde", date="2026-08-21"),
+        }
+        lines = daily.render_latest_lines(
+            latest_entries,
+            ["coop", "coopinf", "coopbatch", "coopcdebatch", "coopcdeweb"],
+        )
+        self.assertEqual(
+            lines,
+            [
+                "- **coop** — 記録なし",
+                "- **coopinf** — 2026-09-06 [[00_Claude/projects/coopinf#2026-09-06 inf|inf]]",
+                "- **coopbatch** — 2026-09-04 "
+                "[[00_Claude/projects/coopbatch#2026-09-04 batch|batch]]",
+                "- **coopcdebatch** — 2026-08-21 "
+                "[[00_Claude/projects/coopcdebatch#2026-08-21 cde|cde]]",
+                "- **coopcdeweb** — 記録なし",
+            ],
+        )
+
+    def test_latest_blank_line_separates_alpha_and_coop_groups(self):
+        latest_entries = {
+            "alphasystem": entry(source_id="alphasystem", title="root", date="2026-09-03"),
+            "coopinf": entry(source_id="coopinf", title="inf", date="2026-09-06"),
+        }
+        lines = daily.render_latest_lines(latest_entries, ["alphasystem", "coopinf"])
+        self.assertEqual(
+            lines,
+            [
+                "- **alphasystem** — 2026-09-03 "
+                "[[00_Claude/projects/alphasystem#2026-09-03 root|root]]",
+                "",
+                "- **coopinf** — 2026-09-06 [[00_Claude/projects/coopinf#2026-09-06 inf|inf]]",
+            ],
+        )
+        self.assertEqual(lines.count(""), 1)
+
+    def test_latest_empty_group_is_omitted_without_stray_blank_line(self):
+        # alpha 側の対象が1つも無ければ、coop 側だけが出て空行も出ない。
+        lines = daily.render_latest_lines(
+            {"coopinf": entry(source_id="coopinf", title="inf", date="2026-09-06")},
+            ["coopinf"],
+        )
+        self.assertEqual(
+            lines,
+            ["- **coopinf** — 2026-09-06 [[00_Claude/projects/coopinf#2026-09-06 inf|inf]]"],
+        )
+        self.assertNotIn("", lines)
+
+    def test_latest_umbrella_with_no_record_still_pinned_first(self):
+        latest_entries = {"alphacdk": entry(source_id="alphacdk", title="cdk", date="2026-08-01")}
+        lines = daily.render_latest_lines(latest_entries, ["alphasystem", "alphacdk"])
+        self.assertEqual(
+            lines,
+            [
+                "- **alphasystem** — 記録なし",
+                "- **alphacdk** — 2026-08-01 [[00_Claude/projects/alphacdk#2026-08-01 cdk|cdk]]",
+            ],
+        )
+
+    def test_latest_third_group_for_unmatched_prefix_appears_after_second_blank_line(self):
+        latest_entries = {
+            "alphasystem": entry(source_id="alphasystem", title="root", date="2026-09-03"),
+            "coopinf": entry(source_id="coopinf", title="inf", date="2026-09-06"),
+            "zzzproj": entry(source_id="zzzproj", title="other", date="2026-09-01"),
+        }
+        lines = daily.render_latest_lines(
+            latest_entries, ["alphasystem", "coopinf", "zzzproj"]
+        )
+        self.assertEqual(
+            lines,
+            [
+                "- **alphasystem** — 2026-09-03 "
+                "[[00_Claude/projects/alphasystem#2026-09-03 root|root]]",
+                "",
+                "- **coopinf** — 2026-09-06 [[00_Claude/projects/coopinf#2026-09-06 inf|inf]]",
+                "",
+                "- **zzzproj** — 2026-09-01 "
+                "[[00_Claude/projects/zzzproj#2026-09-01 other|other]]",
+            ],
+        )
+        self.assertEqual(lines.count(""), 2)
+
+    def test_today_lines_group_by_system_with_umbrella_pinned_and_blank_line(self):
+        entries = [
+            entry(source_id="coopbatch", title="バッチ作業", date="2026-09-06"),
+            entry(source_id="alphasystem", title="アルファ作業", date="2026-09-06"),
+        ]
+        lines = daily.render_today_lines(entries)
+        self.assertEqual(
+            lines,
+            [
+                "- **alphasystem** — "
+                "[[00_Claude/projects/alphasystem#2026-09-06 アルファ作業|アルファ作業]]",
+                "",
+                "- **coopbatch** — [[00_Claude/projects/coopbatch#2026-09-06 バッチ作業|バッチ作業]]",
+            ],
+        )
 
 
 class AtomicWriteTest(unittest.TestCase):
