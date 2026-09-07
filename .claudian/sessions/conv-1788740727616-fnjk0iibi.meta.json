@@ -4,7 +4,7 @@
   "title": "Preserve project decisions in conversation records",
   "titleGenerationStatus": "success",
   "createdAt": 1788740727643,
-  "lastActivityAt": 1788760891172,
+  "lastActivityAt": 1788764049401,
   "sessionId": "c30f15d1-7273-4f28-8b42-cd68e4d22b9c",
   "selectedModel": "opus",
   "providerState": {
@@ -3718,11 +3718,11 @@
   "usage": {
     "model": "opus",
     "inputTokens": 2,
-    "cacheCreationInputTokens": 1388,
-    "cacheReadInputTokens": 514195,
+    "cacheCreationInputTokens": 1506,
+    "cacheReadInputTokens": 562694,
     "contextWindow": 1000000,
-    "contextTokens": 515585,
-    "percentage": 52,
+    "contextTokens": 564202,
+    "percentage": 56,
     "contextWindowIsAuthoritative": true
   }
 }

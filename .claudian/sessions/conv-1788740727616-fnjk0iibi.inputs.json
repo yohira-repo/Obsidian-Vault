@@ -356,6 +356,48 @@
       "contentDigest": "239426b7e361da2f1821667967db460533ec4b686f1787cc936a642be8dcc78d",
       "providerUserMessageId": "6e4bde91-bc37-492e-a70c-9c8278620c19",
       "providerAssistantMessageId": "d1ee0af2-307f-41c6-89bf-88809cdd15a1"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788763116537-vddn4tl",
+      "userTurnOrdinal": 26,
+      "state": "accepted",
+      "localMessageId": "msg-1788763116523-1beop08",
+      "timestamp": 1788763116523,
+      "rawDisplayText": "各プロジェクト側でセッション終了しても、やはりDailyノートには反映されませんね。",
+      "canonicalText": "各プロジェクト側でセッション終了しても、やはりDailyノートには反映されませんね。",
+      "images": [],
+      "contentDigest": "f0ffd65c55592d547a9ba536d6f0e6d73d500e72f15bdfbb2a00ae1c1a727aad",
+      "providerUserMessageId": "f3a1378f-3d1f-4039-b756-9832362ec771",
+      "providerAssistantMessageId": "33086cc3-2a0c-4ba9-9eeb-8b9b33ed0477"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788763754766-m1b1m65",
+      "userTurnOrdinal": 27,
+      "state": "accepted",
+      "localMessageId": "msg-1788763754757-x12wp70",
+      "timestamp": 1788763754757,
+      "rawDisplayText": ">先に記録の保全から進めてよろしいでしょうか。\nお願いします。",
+      "canonicalText": ">先に記録の保全から進めてよろしいでしょうか。\nお願いします。",
+      "images": [],
+      "contentDigest": "78a62eb8cfafddde570975500b06a4c3e3db540ea972571abc3312b824cf2fdc",
+      "providerUserMessageId": "ce1c5bff-405f-4633-ae6b-494ee895c114",
+      "providerAssistantMessageId": "c933976c-4bcb-46d5-b320-46f456a45610"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788763983666-t64qilk",
+      "userTurnOrdinal": 28,
+      "state": "accepted",
+      "localMessageId": "msg-1788763983651-nkor79u",
+      "timestamp": 1788763983651,
+      "rawDisplayText": "はい。本日はこれで終了します。",
+      "canonicalText": "はい。本日はこれで終了します。",
+      "images": [],
+      "contentDigest": "98c5626fd7dbcbf20c4577cb70915dd513ac8e73b1927dd4421d1aee57597d35",
+      "providerUserMessageId": "230d6be6-b16f-490a-9495-cb4414f94447",
+      "providerAssistantMessageId": "50979c4a-bf72-4308-8e1e-45dc637288a8"
     }
   ]
 }
