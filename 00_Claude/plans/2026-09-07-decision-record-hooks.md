@@ -1055,6 +1055,14 @@ echo '{}' | "$HOME/.claude/hooks/record/stop-record-decisions.sh" 2>&1; echo "  
 
 **背景:** `sync.ps1` は PowerShell 製で Windows 専用。macOS では `~/.claude` へ手でコピーする必要がある。実際、PR #8 をマージしても macOS 実機の hook は古いままだった（2026-09-07 に発覚）。hook を変更するたびに同じ漏れが起きる。
 
+**重要:** コピー対象は `sync.ps1` の `$Targets` **6項目すべて**である。一部だけ列挙すると、対象ファイルを変えて同じ穴を再生産することになる（レビュー指摘）。
+
+```
+CLAUDE.md / AGENTS.md / settings.json / keybindings.json / hooks / commands/daily-sync.md
+```
+
+ファイル名を並べる代わりに `$Targets` と同じリストでループさせ、`sync.ps1` と同じ意味（ディレクトリは中身ごと置き換える）にする。
+
 ```bash
 python3 - <<'EOS'
 import io
@@ -1062,33 +1070,59 @@ p = '/Users/yohira/git/claude-config/README.md'
 s = io.open(p, encoding='utf-8').read()
 old = """### 2. このリポジトリの設定を反映する"""
 new = """> **macOS には `sync.ps1` が使えない。** PowerShell 製で Windows 専用のため、
-> macOS では次のように手でコピーする。**hook を変更したら必ず実行すること。**
+> macOS では下のコマンドで手動同期する。**設定や hook を変更したら必ず実行すること。**
 > 実際に、hook を更新した PR をマージしたあと macOS 実機だけが古いまま残っていた事例がある。
 >
+> 対象は `sync.ps1` の `$Targets` と同じ6項目。ディレクトリは中身ごと置き換える
+> （コピー元に無いファイルを残さない）。
+>
 > ```sh
-> cp ~/git/claude-config/claude/CLAUDE.md ~/.claude/CLAUDE.md
-> cp ~/git/claude-config/claude/settings.json ~/.claude/settings.json
-> mkdir -p ~/.claude/hooks/record
-> cp ~/git/claude-config/claude/hooks/record/*.sh ~/.claude/hooks/record/
+> for t in CLAUDE.md AGENTS.md settings.json keybindings.json hooks commands/daily-sync.md; do
+>   src=~/git/claude-config/claude/"$t"
+>   dst=~/.claude/"$t"
+>   [ -e "$src" ] || continue
+>   mkdir -p "$(dirname "$dst")"
+>   [ -d "$src" ] && rm -rf "$dst"
+>   cp -R "$src" "$dst"
+> done
 > chmod +x ~/.claude/hooks/record/*.sh
 > ```
 >
-> 反映漏れの確認は次で行う。差分が出なければ同期済み。
+> 反映漏れの確認も同じリストで行う。全項目が `OK` なら同期済み。
 >
 > ```sh
-> diff -r ~/.claude/hooks/record/ ~/git/claude-config/claude/hooks/record/ && echo "SAME"
+> for t in CLAUDE.md AGENTS.md settings.json keybindings.json hooks commands/daily-sync.md; do
+>   if diff -r ~/.claude/"$t" ~/git/claude-config/claude/"$t" >/dev/null 2>&1; then
+>     echo "OK   $t"
+>   else
+>     echo "DIFF $t"
+>   fi
+> done
 > ```
 
 ### 2. このリポジトリの設定を反映する"""
 assert old in s
 s = s.replace(old, new, 1)
 io.open(p, 'w', encoding='utf-8').write(s)
-print("README に macOS の配布手順を追記")
+print("README を更新")
 EOS
-grep -n "macOS には" /Users/yohira/git/claude-config/README.md
 ```
 
-期待: 追記した行が表示される。
+検証する。
+
+```bash
+cd /Users/yohira/git/claude-config
+grep -c 'AGENTS.md keybindings.json hooks commands/daily-sync.md' README.md
+for t in CLAUDE.md AGENTS.md settings.json keybindings.json hooks commands/daily-sync.md; do
+  if diff -r ~/.claude/"$t" ~/git/claude-config/claude/"$t" >/dev/null 2>&1; then
+    echo "OK   $t"
+  else
+    echo "DIFF $t"
+  fi
+done
+```
+
+期待: `grep -c` が 2（コピー用と確認用の2箇所）。`diff` の結果は現状を示すもので、`DIFF` が出た項目は実機が未同期であることを意味する。**その場合は README のコピー手順を実行して同期し、再度全項目 `OK` になることを確認する。**
 
 - [ ] **Step 5: conversations.md の検証状況を最新化する**
 
