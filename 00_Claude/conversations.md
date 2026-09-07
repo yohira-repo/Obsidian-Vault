@@ -303,3 +303,16 @@ README に前提を明文化した（PR #7）。README には既に
 グローバル hook は「どの PC でも黙って動く」ことが前提であるべきなのに、
 `bash` / `jq` / `$HOME` という3つの環境依存を **Windows で検証しないまま配布**していた。
 既存の coopinf の hook が `jq` を使っていたのをそのまま踏襲したことが発端。
+
+### 追記（同日）: `jq` 導入だけでは解決しなかった
+
+`winget install jqlang.jq` 後も SessionStart hook はエラーのまま。ただし**エラーの内容は変わった**。
+
+- 変更前: `jq: command not found`
+- 変更後: `line 70: /c/Users/yohira/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_...`（以降は表示が途切れており未確認）
+
+`jq` は発見されているが、その先の実行で失敗している。原因は**未確定**。
+WinGet がリンク経由で実体を参照する作りと Git Bash の相性を疑っているが、
+エラー全文を確認するまで断定しない。
+
+**この件は未解決。** 上記「決定」は方針としては有効だが、まだ動作していない。
