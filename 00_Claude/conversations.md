@@ -243,3 +243,63 @@ PR #6（`fix/sync-ps1-ascii`）。hook 本体の PR #5 とは無関係のため�
 - Windows での実動作確認（この Mac に PowerShell が無いため未検証）
 - Windows 側の `core.autocrlf` 設定の確認（実機 `~/.claude/CLAUDE.md` は git 管理外のため、
   `sync.ps1 push` で再び CRLF 化する余地がある）
+
+## 2026-09-07 新しい Windows PC で hook が何も起きない件
+
+### 事象
+
+新しい PC で claude-config と coopinf を同期し Claude Code を起動したが、
+SessionStart の報告も Stop の記録促しも出ない。エラー表示も無い。
+
+### 根本原因: `jq` 未インストール（確定）
+
+`claude --debug` で起動すると原因がそのまま出た。
+
+```
+SessionStart:startup hook error
+Failed with non-blocking status code:
+/c/Users/yohira/.claude/hooks/record/session-start-context.sh: line 70: jq: command not found
+```
+
+hook は最後に `jq` で JSON を組み立てるため、`jq` が無いと標準出力が空になる。
+Claude Code から見ると「hook が何も返さなかった」状態で、**エラーも出ず静かに no-op になる**。
+
+### 誤診の記録（重要）
+
+切り分けの途中で **WSL が原因だと一度誤診した**。
+
+PowerShell の PATH 上の `bash` は WSL の bash で、その `$HOME` は `/home/yohira`。
+そこで `ls ~/.claude/hooks/record/` を実行すると "No such file or directory" になるため、
+「`$HOME` の解釈違いでパス解決に失敗している」と判断してしまった。
+
+実際には Claude Code が使うのは **Git Bash**（`$HOME=/c/Users/yohira`）で、パス解決は正常だった。
+Git Bash をフルパスで名指しして実行し直したことで誤診に気づいた。
+
+→ **教訓**: Windows の切り分けで `bash` を使うときは、PATH 上の `bash` が WSL か Git Bash かを
+先に確定させる。両者は `$HOME` が別のファイルシステムを指す。
+
+### 決定: `jq` を入れる（2026-09-07 ユーザー判断）
+
+| 案 | 採否 | 理由 |
+| - | - | - |
+| Windows に `jq` を入れる | **採用** | `winget install jqlang.jq` で即解決。コード修正不要 |
+| `jq` 依存を排除 | 不採用 | exit-code プロトコル（SessionStart は stdout、Stop は stderr+exit2）で `jq` は不要にできることを公式ドキュメントで確認済み。ただし今回は採らない |
+
+不採用とした案は技術的には有効で、JSON エスケープ処理も不要になる。
+**今後また別の PC で同じ事象が起きるようなら再検討する。**
+
+### 対応
+
+README に前提を明文化した（PR #7）。README には既に
+「hook のコマンドは macOS と Windows(Git Bash) の両方で動くように書いてある」とあったが、
+`hooks/record/` はその前提を満たしていなかった。
+
+- セットアップに「0. 前提ツールを入れる」を追加（`bash` / `jq` / `git`）
+- 「hook が何も起きないときの調べ方」を追加（`claude --debug` の出力例、直接実行での切り分け）
+- PATH 上の `bash` が WSL でありうる点を注意書きとして記載
+
+### 設計上の反省
+
+グローバル hook は「どの PC でも黙って動く」ことが前提であるべきなのに、
+`bash` / `jq` / `$HOME` という3つの環境依存を **Windows で検証しないまま配布**していた。
+既存の coopinf の hook が `jq` を使っていたのをそのまま踏襲したことが発端。
