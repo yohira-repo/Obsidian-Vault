@@ -1036,6 +1036,279 @@ git commit -m "docs: 会話の決定・段取りが記録されずに流れる�
 
 ---
 
+---
+
+### Task 8: hook から `jq` 依存を排除する
+
+**背景:** 新しい Windows PC で hook が無言で動かなかった。原因は `jq` 未導入（`claude --debug` で確定）。`winget install jqlang.jq` 後も `WinGet\Links` が空でパスが通らず解決しなかった。**`jq` 起因の不発が2回**続いたため、依存自体を排除する（2026-09-07 ユーザー判断）。
+
+**根拠:** 公式ドキュメントで確認済み。
+
+- SessionStart … 終了コード0で **plain-text stdout がそのままコンテキストに追加**される
+- Stop … **終了コード2で停止をブロックし、stderr がそのまま Claude へのメッセージ**になる
+
+ユーザー環境の実ログでも裏付けが取れている。
+
+```
+[DEBUG] Hook SessionStart (...) provided additionalContext (3321 chars)
+[DEBUG] Hook output does not start with {, treating as plain text
+```
+
+**副次効果:** JSON を組み立てないため、引用符・バックスラッシュ・制御文字の**エスケープ処理が不要**になる。
+
+**Files:**
+- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh`
+- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh`
+- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
+- Modify: `/Users/yohira/git/claude-config/README.md`
+
+**Interfaces:**
+- Consumes: Task 2 の `lib.sh`（変更なし）
+- Produces: 外部コマンド依存が `git` と coreutils のみになった hook 2本
+
+- [ ] **Step 1: SessionStart の出力を平文にする**
+
+`session-start-context.sh` の末尾、`jq -n --arg ctx ...` のブロックを次に置き換える。`HEADER` は必ず日本語で始まるため、出力が `{` で始まって JSON と誤認されることはない。
+
+```bash
+[ -n "$CTX" ] || exit 0
+
+HEADER="以下はこのリポジトリの現在の作業コンテキストです。最初の応答で、実行中の計画がどこまで進んでいるかを簡潔に報告し、読み込み済みであることが分かるようにしてください。
+
+---
+"
+
+printf '%s' "${HEADER}${CTX}"
+```
+
+- [ ] **Step 2: Stop の出力を stderr + 終了コード2にする**
+
+`stop-record-decisions.sh` の2箇所を置き換える。まず冒頭の `stop_hook_active` 判定。
+
+```bash
+INPUT=$(cat 2>/dev/null || true)
+
+# 無限ループ防止。jq を使わずに判定する。
+# 空白・改行を除去してから固定文字列を探すため、整形の違いに影響されない。
+if printf '%s' "$INPUT" | tr -d ' \t\n\r' | grep -q '"stop_hook_active":true'; then
+  exit 0
+fi
+```
+
+次に末尾の `jq -n --arg r ...` を置き換える。
+
+```bash
+printf '%s\n' "$REASON" >&2
+exit 2
+```
+
+- [ ] **Step 3: テストを新しいプロトコルに合わせる**
+
+`tests/test-record-hooks.sh` の SessionStart 節で、JSON を経由している3箇所を平文前提に直す。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+
+# hookEventName の検査は JSON を返さなくなったため、平文が出ることの検査に置き換える
+old = """GOT=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.hookEventName')
+check "SessionStart: hookEventName が正しい" "SessionStart" "$GOT""""
+new = """GOT=$(cd "$R" && "$SS" </dev/null | head -c 1)
+check "SessionStart: 出力が { で始まらない(JSON誤認を避ける)" "以" "$GOT""""
+assert old in s
+s = s.replace(old, new, 1)
+
+# 残りの jq 経由を素の標準出力に置き換える
+s = s.replace("""\"$SS\" </dev/null | jq -r '.hookSpecificOutput.additionalContext'""", '"$SS" </dev/null')
+assert "hookSpecificOutput" not in s
+io.open(p, 'w', encoding='utf-8').write(s)
+print("SessionStart のテストを更新")
+EOS
+```
+
+続けて Stop 節を、`.reason` の代わりに stderr を捕まえ、終了コード2を確認する形に直す。
+
+```bash
+python3 - <<'EOS'
+import io, re
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+
+# 「無出力」を期待していた検査は「ブロックしない(終了コード0)」の検査に変わる
+s = s.replace("""GOT=$(cd "$R" && echo '{"stop_hook_active":true}' | "$ST")
+check "Stop: stop_hook_active なら無出力" "" "$GOT"""",
+"""GOT=$(cd "$R" && echo '{"stop_hook_active":true}' | "$ST" 2>/dev/null; echo $?)
+check "Stop: stop_hook_active ならブロックしない" "0" "$GOT"""")
+
+s = s.replace("""GOT=$(cd "$R" && echo '{"stop_hook_active":false}' | "$ST" | jq -r '.decision')
+check "Stop: decision は block" "block" "$GOT"""",
+"""GOT=$(cd "$R" && echo '{"stop_hook_active":false}' | "$ST" 2>/dev/null; echo $?)
+check "Stop: ブロックする(終了コード2)" "2" "$GOT"""")
+
+# reason を取り出していた箇所は stderr の捕捉に変える
+s = s.replace("""| "$ST" | jq -r '.reason')""", """| "$ST" 2>&1 >/dev/null)""")
+
+# 受け皿なし / git管理外 は「無出力かつブロックしない」の検査にする
+s = s.replace("""GOT=$(cd "$R" && echo '{}' | "$ST")
+check "Stop: 受け皿なしなら無出力" "" "$GOT"""",
+"""GOT=$(cd "$R" && echo '{}' | "$ST" 2>&1; echo "rc=$?")
+check "Stop: 受け皿なしなら無出力でブロックしない" "rc=0" "$GOT"""")
+
+s = s.replace("""GOT=$(cd "$R" && echo '{}' | "$ST")
+check "Stop: git管理外なら無出力" "" "$GOT"""",
+"""GOT=$(cd "$R" && echo '{}' | "$ST" 2>&1; echo "rc=$?")
+check "Stop: git管理外なら無出力でブロックしない" "rc=0" "$GOT"""")
+
+assert "jq -r '.reason'" not in s
+assert "jq -r '.decision'" not in s
+io.open(p, 'w', encoding='utf-8').write(s)
+print("Stop のテストを更新")
+EOS
+```
+
+- [ ] **Step 4: `jq` 非依存を機械的に確認するテストを追加する**
+
+`tests/test-record-hooks.sh` の `echo "PASS=$PASS FAIL=$FAIL"` の直前に挿入する。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
+add = """
+echo "== jq 非依存 =="
+
+# スクリプト本文から jq の呼び出しが消えていること（コメント中の言及は許容しない）
+for f in lib.sh session-start-context.sh stop-record-decisions.sh; do
+  GOT=$(grep -c '\\bjq\\b' "$HOOK_DIR/$f" || true)
+  check "$f に jq の記述が無い" "0" "$GOT"
+done
+
+# PATH から jq を外しても動作すること
+R=$(make_repo)
+mkdir -p "$R/migration"
+printf 'ラーニング本文\\n' > "$R/migration/LEARNINGS.md"
+GOT=$(cd "$R" && env PATH=/usr/bin:/bin "$HOOK_DIR/session-start-context.sh" </dev/null | grep -c 'ラーニング本文')
+check "jq 不在でも SessionStart が動く" "1" "$GOT"
+GOT=$(cd "$R" && echo '{}' | env PATH=/usr/bin:/bin "$HOOK_DIR/stop-record-decisions.sh" 2>/dev/null; echo $?)
+check "jq 不在でも Stop がブロックする" "2" "$GOT"
+rm -rf "$R"
+
+# stop_hook_active の判定が整形の違いに影響されないこと
+R=$(make_repo)
+touch "$R/conversations.md"
+for payload in '{"stop_hook_active":true}' '{"stop_hook_active": true}' '{ "stop_hook_active" : true }'; do
+  GOT=$(cd "$R" && printf '%s' "$payload" | "$HOOK_DIR/stop-record-decisions.sh" 2>/dev/null; echo $?)
+  check "stop_hook_active=true を検出: $payload" "0" "$GOT"
+done
+for payload in '{"stop_hook_active":false}' '{"session_id":"x"}' '{}'; do
+  GOT=$(cd "$R" && printf '%s' "$payload" | "$HOOK_DIR/stop-record-decisions.sh" 2>/dev/null; echo $?)
+  check "stop_hook_active が真でなければブロック: $payload" "2" "$GOT"
+done
+rm -rf "$R"
+"""
+assert marker in s
+s = s.replace(marker, add + marker)
+io.open(p, 'w', encoding='utf-8').write(s)
+print("jq 非依存テストを追加")
+EOS
+```
+
+- [ ] **Step 5: テストを実行する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `FAIL=0` かつ終了コード0。PASS の総数は実装後の実測値を報告に記載する（Step 3 の置換で件数が増減するため、事前に確定した数を期待値としない）。
+
+- [ ] **Step 6: README から `jq` を前提から外す**
+
+PR #7 で追加した「0. 前提ツールを入れる」の表から `jq` の行を削除し、「hook が何も起きないときの調べ方」の `jq` 前提の記述を差し替える。診断手順（`claude --debug`、WSL の注意書き）は有用なので残す。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/README.md'
+s = io.open(p, encoding='utf-8').read()
+s = s.replace("| `jq` | hook が JSON を組み立てるのに使う | `winget install jqlang.jq` |\n", "")
+s = s.replace("macOS では `jq` は `brew install jq`。\n\n", "")
+s = s.replace("""& "C:\\Program Files\\Git\\bin\\bash.exe" -lc 'command -v bash jq git'""",
+              """& "C:\\Program Files\\Git\\bin\\bash.exe" -lc 'command -v bash git'""")
+s = s.replace("3つとも出力されれば良い。", "2つとも出力されれば良い。")
+s = s.replace("""`hooks/record/` の SessionStart / Stop は **`jq` が無いと無言で何もしない**。標準出力が空になるだけで、Claude Code 側にはエラーが見えない。""",
+"""`hooks/record/` の SessionStart / Stop は **外部コマンドに依存しない**（`git` と coreutils のみ）。
+以前は `jq` に依存しており、未導入の PC で無言で何もしない事象が起きたため排除した。
+それでも hook が動かない場合は次の手順で切り分ける。""")
+io.open(p, 'w', encoding='utf-8').write(s)
+print("README を更新")
+EOS
+grep -n "jq" /Users/yohira/git/claude-config/README.md
+```
+
+期待: `jq` の残存が「以前は jq に依存しており…」の1行のみになる。
+
+- [ ] **Step 7: コミットして Draft PR を作成する**
+
+PR #7 はこの変更で前提が覆るため、マージせず close する。
+
+```bash
+cd /Users/yohira/git/claude-config
+git checkout main && git pull
+git checkout -b fix/hooks-drop-jq
+git add claude/hooks/record/ tests/test-record-hooks.sh README.md
+git commit -m "fix: hook から jq 依存を排除し外部コマンド非依存にする
+
+新しい Windows PC で hook が無言で動かなかった。原因は jq 未導入。
+winget で入れても WinGet\\Links が空でパスが通らず解決しなかった。
+
+SessionStart は終了コード0の plain-text stdout がそのままコンテキストに
+追加され、Stop は終了コード2で stderr がそのまま Claude へのメッセージに
+なる。いずれも公式ドキュメントに記載された正規の方法で、ユーザー環境の
+実ログでも別 hook が同じ挙動をしていることを確認済み。
+
+JSON を組み立てないため、引用符・バックスラッシュ・制御文字の
+エスケープ処理も不要になった。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push -u origin fix/hooks-drop-jq
+gh pr create --draft --title "fix: hook から jq 依存を排除し外部コマンド非依存にする" --body "設計書: Obsidian Vault \`00_Claude/specs/2026-09-07-decision-record-hooks-design.md\`
+
+## 背景
+
+新しい Windows PC で hook が無言で動かなかった。原因は \`jq\` 未導入（\`claude --debug\` で確定）。\`winget install jqlang.jq\` 後も \`WinGet\\Links\` が空でパスが通らず解決せず、jq 起因の不発が2回続いた。
+
+## 対応
+
+出力プロトコルを変更し \`jq\` を排除した。
+
+| hook | 変更前 | 変更後 |
+|---|---|---|
+| SessionStart | JSON の \`additionalContext\` | 平文を stdout へ（終了コード0） |
+| Stop | JSON の \`decision: block\` | stderr へ出して終了コード2 |
+
+\`stop_hook_active\` の判定は、空白を除去してから固定文字列を探す方式に置き換えた。
+
+## 副次効果
+
+JSON を組み立てないため、引用符・バックスラッシュ・制御文字のエスケープ処理が不要になった。
+
+## 検証
+
+\`tests/test-record-hooks.sh\` に \`jq\` 非依存の検査を追加した。スクリプト本文に \`jq\` の記述が無いこと、\`PATH\` から \`jq\` を外しても両 hook が動くこと、\`stop_hook_active\` の判定が整形の違いに影響されないことを検査する。
+
+## 関連
+
+PR #7（README に jq を前提として追記）は前提が覆るため close する。診断手順は本 PR に引き継いだ。"
+gh pr close 7 --comment "jq 依存を排除する方針に変更したため close します。診断手順は後継 PR に引き継ぎました。"
+```
+
+期待: PR の URL が出力され、PR #7 が closed になる。
+
+
 ## タスク依存関係
 
 ```
