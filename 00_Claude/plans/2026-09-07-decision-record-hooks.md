@@ -993,13 +993,16 @@ gh pr create --draft --title "ローカルhookをグローバルhookへ移行し
 
 ---
 
-### Task 7: 横展開の確認
+### Task 7: 横展開の確認と macOS への配布手段の明記
 
 **Files:**
-- Create: `/Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md` へ本件の結論を追記
+- Modify: `/Users/yohira/git/claude-config/README.md`
+- Modify: `/Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md`
 
 **Interfaces:**
-- Consumes: Task 5 で稼働したグローバル hook
+- Consumes: Task 8 で `jq` 依存を排除した hook、Task 9 の見出し併記
+
+**注意:** hook は **JSON を返さない**（Task 8 で変更）。SessionStart は平文を stdout、Stop は指示文を stderr に出して終了コード2。`jq` でパースしようとすると失敗する。
 
 - [ ] **Step 1: 全対象リポジトリで受け皿が正しく解決されることを確認する**
 
@@ -1007,9 +1010,9 @@ gh pr create --draft --title "ローカルhookをグローバルhookへ移行し
 for r in /Users/yohira/git/coopinf /Users/yohira/git/coopbatch /Users/yohira/git/coopcdebatch \
          /Users/yohira/git/alphasystem /Users/yohira/git/alphacdk \
          /Users/yohira/Documents/Obsidian-Vault; do
-  echo "===== $r"
-  (cd "$r" && echo '{}' | /Users/yohira/.claude/hooks/record/stop-record-decisions.sh \
-     | jq -r '.reason' | grep -E 'conversations\.md|LEARNINGS\.md|plan\.md' | sed 's/^/  /')
+  echo "===== $(basename "$r")"
+  (cd "$r" && echo '{}' | "$HOME/.claude/hooks/record/stop-record-decisions.sh" 2>&1 >/dev/null \
+     | grep -E '^    - ' | sed 's/^/  /')
 done
 ```
 
@@ -1017,665 +1020,123 @@ done
 
 | リポジトリ | 出力に含まれるべきパス |
 | - | - |
-| coopinf | `conversations.md` / `migration/LEARNINGS.md` / `migration/cutover-plan.md` |
-| coopbatch | `conversations.md` |
-| coopcdebatch | `conversations.md` |
-| alphasystem | `docs/conversations.md` と `alphabsmail/docs/conversations.md` の両方 |
-| alphacdk | `conversations.md` |
-| Obsidian Vault | `00_Claude/conversations.md` |
+| coopinf | `migration/cutover-plan.md`（段取り） / `conversations.md`（決定） / `migration/LEARNINGS.md`（学び） |
+| coopbatch | `conversations.md`（段取りはフォールバック、決定） |
+| coopcdebatch | `conversations.md`（同上） |
+| alphasystem | `docs/conversations.md` と `alphabsmail/docs/conversations.md` の両方が2回ずつ |
+| alphacdk | `conversations.md`（同上） |
+| Obsidian Vault | `00_Claude/conversations.md` と `02_Note/社内ネットワーク更改/conversations.md` が2回ずつ |
 
-- [ ] **Step 2: git 管理外で発火しないことを確認する**
+coopinf だけ `.claude/active-plan` を設置済みのため、段取りの書き先が計画ファイルになり**フォールバック表記が出ない**。
 
-```bash
-cd /tmp && echo '{}' | /Users/yohira/.claude/hooks/record/stop-record-decisions.sh; echo "exit=$?"
-```
-
-期待: 何も出力されず `exit=0`。
-
-- [ ] **Step 3: conversations.md の記録内容を確認・補完する**
-
-**注意:** 本エントリは **2026-09-07 のセッション中に、稼働開始した Stop hook 自身が促して既に追記済み**（`00_Claude/conversations.md` の「2026-09-07 会話の決定・段取りが記録されずに流れる問題への対策（hook 導入）」）。二重に追記しないこと。
-
-このタスクでは、既存エントリの「検証状況」節を実際の結果で更新するだけでよい。
+- [ ] **Step 2: SessionStart も全リポジトリで壊れないことを確認する**
 
 ```bash
-grep -n "検証状況" -A 4 /Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md
-```
-
-期待: SessionStart hook の行が「ユーザー確認待ち」のままなら、Task 5 Step 5 の結果に置き換える。
-
-- [ ] **Step 4: Vault をコミットする**
-
-Vault は obsidian-git が main を直接同期する運用のため、feature ブランチは切らない。
-
-```bash
-cd /Users/yohira/Documents/Obsidian-Vault
-git add 00_Claude/conversations.md
-git commit -m "docs: 会話の決定・段取りが記録されずに流れる問題への対策を記録"
-```
-
----
-
----
-
-### Task 8: hook から `jq` 依存を排除する
-
-**背景:** 新しい Windows PC で hook が無言で動かなかった。原因は `jq` 未導入（`claude --debug` で確定）。`winget install jqlang.jq` 後も `WinGet\Links` が空でパスが通らず解決しなかった。**`jq` 起因の不発が2回**続いたため、依存自体を排除する（2026-09-07 ユーザー判断）。
-
-**根拠:** 公式ドキュメントで確認済み。
-
-- SessionStart … 終了コード0で **plain-text stdout がそのままコンテキストに追加**される
-- Stop … **終了コード2で停止をブロックし、stderr がそのまま Claude へのメッセージ**になる
-
-ユーザー環境の実ログでも裏付けが取れている。
-
-```
-[DEBUG] Hook SessionStart (...) provided additionalContext (3321 chars)
-[DEBUG] Hook output does not start with {, treating as plain text
-```
-
-**副次効果:** JSON を組み立てないため、引用符・バックスラッシュ・制御文字の**エスケープ処理が不要**になる。
-
-**Files:**
-- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh`
-- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh`
-- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
-- Modify: `/Users/yohira/git/claude-config/README.md`
-
-**Interfaces:**
-- Consumes: Task 2 の `lib.sh`（変更なし）
-- Produces: 外部コマンド依存が `git` と coreutils のみになった hook 2本
-
-- [ ] **Step 1: SessionStart の出力を平文にする**
-
-`session-start-context.sh` の末尾、`jq -n --arg ctx ...` のブロックを次に置き換える。`HEADER` は必ず日本語で始まるため、出力が `{` で始まって JSON と誤認されることはない。
-
-```bash
-[ -n "$CTX" ] || exit 0
-
-HEADER="以下はこのリポジトリの現在の作業コンテキストです。最初の応答で、実行中の計画がどこまで進んでいるかを簡潔に報告し、読み込み済みであることが分かるようにしてください。
-
----
-"
-
-printf '%s' "${HEADER}${CTX}"
-```
-
-- [ ] **Step 2: Stop の出力を stderr + 終了コード2にする**
-
-`stop-record-decisions.sh` の2箇所を置き換える。まず冒頭の `stop_hook_active` 判定。
-
-```bash
-INPUT=$(cat 2>/dev/null || true)
-
-# 無限ループ防止。jq を使わずに判定する。
-# 空白・改行を除去してから固定文字列を探すため、整形の違いに影響されない。
-if printf '%s' "$INPUT" | tr -d ' \t\n\r' | grep -q '"stop_hook_active":true'; then
-  exit 0
-fi
-```
-
-次に末尾の `jq -n --arg r ...` を置き換える。
-
-```bash
-printf '%s\n' "$REASON" >&2
-exit 2
-```
-
-- [ ] **Step 3: テストを新しいプロトコルに合わせる**
-
-`tests/test-record-hooks.sh` の SessionStart 節で、JSON を経由している3箇所を平文前提に直す。
-
-```bash
-python3 - <<'EOS'
-import io
-p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
-s = io.open(p, encoding='utf-8').read()
-
-# hookEventName の検査は JSON を返さなくなったため、平文が出ることの検査に置き換える
-old = """GOT=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.hookEventName')
-check "SessionStart: hookEventName が正しい" "SessionStart" "$GOT""""
-new = """GOT=$(cd "$R" && "$SS" </dev/null | head -c 1)
-check "SessionStart: 出力が { で始まらない(JSON誤認を避ける)" "以" "$GOT""""
-assert old in s
-s = s.replace(old, new, 1)
-
-# 残りの jq 経由を素の標準出力に置き換える
-s = s.replace("""\"$SS\" </dev/null | jq -r '.hookSpecificOutput.additionalContext'""", '"$SS" </dev/null')
-assert "hookSpecificOutput" not in s
-io.open(p, 'w', encoding='utf-8').write(s)
-print("SessionStart のテストを更新")
-EOS
-```
-
-続けて Stop 節を、`.reason` の代わりに stderr を捕まえ、終了コード2を確認する形に直す。
-
-```bash
-python3 - <<'EOS'
-import io, re
-p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
-s = io.open(p, encoding='utf-8').read()
-
-# 「無出力」を期待していた検査は「ブロックしない(終了コード0)」の検査に変わる
-s = s.replace("""GOT=$(cd "$R" && echo '{"stop_hook_active":true}' | "$ST")
-check "Stop: stop_hook_active なら無出力" "" "$GOT"""",
-"""GOT=$(cd "$R" && echo '{"stop_hook_active":true}' | "$ST" 2>/dev/null; echo $?)
-check "Stop: stop_hook_active ならブロックしない" "0" "$GOT"""")
-
-s = s.replace("""GOT=$(cd "$R" && echo '{"stop_hook_active":false}' | "$ST" | jq -r '.decision')
-check "Stop: decision は block" "block" "$GOT"""",
-"""GOT=$(cd "$R" && echo '{"stop_hook_active":false}' | "$ST" 2>/dev/null; echo $?)
-check "Stop: ブロックする(終了コード2)" "2" "$GOT"""")
-
-# reason を取り出していた箇所は stderr の捕捉に変える
-s = s.replace("""| "$ST" | jq -r '.reason')""", """| "$ST" 2>&1 >/dev/null)""")
-
-# 受け皿なし / git管理外 は「無出力かつブロックしない」の検査にする
-s = s.replace("""GOT=$(cd "$R" && echo '{}' | "$ST")
-check "Stop: 受け皿なしなら無出力" "" "$GOT"""",
-"""GOT=$(cd "$R" && echo '{}' | "$ST" 2>&1; echo "rc=$?")
-check "Stop: 受け皿なしなら無出力でブロックしない" "rc=0" "$GOT"""")
-
-s = s.replace("""GOT=$(cd "$R" && echo '{}' | "$ST")
-check "Stop: git管理外なら無出力" "" "$GOT"""",
-"""GOT=$(cd "$R" && echo '{}' | "$ST" 2>&1; echo "rc=$?")
-check "Stop: git管理外なら無出力でブロックしない" "rc=0" "$GOT"""")
-
-assert "jq -r '.reason'" not in s
-assert "jq -r '.decision'" not in s
-io.open(p, 'w', encoding='utf-8').write(s)
-print("Stop のテストを更新")
-EOS
-```
-
-- [ ] **Step 4: `jq` 非依存を機械的に確認するテストを追加する**
-
-`tests/test-record-hooks.sh` の `echo "PASS=$PASS FAIL=$FAIL"` の直前に挿入する。
-
-```bash
-python3 - <<'EOS'
-import io
-p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
-s = io.open(p, encoding='utf-8').read()
-marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
-add = """
-echo "== jq 非依存 =="
-
-# スクリプト本文から jq の呼び出しが消えていること（コメント中の言及は許容しない）
-for f in lib.sh session-start-context.sh stop-record-decisions.sh; do
-  GOT=$(grep -c '\\bjq\\b' "$HOOK_DIR/$f" || true)
-  check "$f に jq の記述が無い" "0" "$GOT"
+for r in /Users/yohira/git/coopinf /Users/yohira/git/coopbatch /Users/yohira/git/alphasystem \
+         /Users/yohira/Documents/Obsidian-Vault; do
+  printf "  %-14s " "$(basename "$r")"
+  (cd "$r" && "$HOME/.claude/hooks/record/session-start-context.sh" </dev/null >/dev/null 2>&1; echo "exit=$?")
 done
-
-# PATH から jq を外しても動作すること
-R=$(make_repo)
-mkdir -p "$R/migration"
-printf 'ラーニング本文\\n' > "$R/migration/LEARNINGS.md"
-GOT=$(cd "$R" && env PATH=/usr/bin:/bin "$HOOK_DIR/session-start-context.sh" </dev/null | grep -c 'ラーニング本文')
-check "jq 不在でも SessionStart が動く" "1" "$GOT"
-GOT=$(cd "$R" && echo '{}' | env PATH=/usr/bin:/bin "$HOOK_DIR/stop-record-decisions.sh" 2>/dev/null; echo $?)
-check "jq 不在でも Stop がブロックする" "2" "$GOT"
-rm -rf "$R"
-
-# stop_hook_active の判定が整形の違いに影響されないこと
-R=$(make_repo)
-touch "$R/conversations.md"
-for payload in '{"stop_hook_active":true}' '{"stop_hook_active": true}' '{ "stop_hook_active" : true }'; do
-  GOT=$(cd "$R" && printf '%s' "$payload" | "$HOOK_DIR/stop-record-decisions.sh" 2>/dev/null; echo $?)
-  check "stop_hook_active=true を検出: $payload" "0" "$GOT"
-done
-for payload in '{"stop_hook_active":false}' '{"session_id":"x"}' '{}'; do
-  GOT=$(cd "$R" && printf '%s' "$payload" | "$HOOK_DIR/stop-record-decisions.sh" 2>/dev/null; echo $?)
-  check "stop_hook_active が真でなければブロック: $payload" "2" "$GOT"
-done
-rm -rf "$R"
-"""
-assert marker in s
-s = s.replace(marker, add + marker)
-io.open(p, 'w', encoding='utf-8').write(s)
-print("jq 非依存テストを追加")
-EOS
 ```
 
-- [ ] **Step 5: テストを実行する**
+期待: すべて `exit=0`。注入対象が無いリポジトリでも異常終了しない。
+
+- [ ] **Step 3: git 管理外で発火しないことを確認する**
 
 ```bash
-/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+cd /tmp
+echo '{}' | "$HOME/.claude/hooks/record/stop-record-decisions.sh" 2>&1; echo "  Stop exit=$?"
+"$HOME/.claude/hooks/record/session-start-context.sh" </dev/null 2>&1; echo "  SessionStart exit=$?"
 ```
 
-期待: `FAIL=0` かつ終了コード0。PASS の総数は実装後の実測値を報告に記載する（Step 3 の置換で件数が増減するため、事前に確定した数を期待値としない）。
+期待: いずれも何も出力せず `exit=0`。
 
-- [ ] **Step 6: README から `jq` を前提から外す**
+- [ ] **Step 4: macOS への配布手段を README に明記する**
 
-PR #7 で追加した「0. 前提ツールを入れる」の表から `jq` の行を削除し、「hook が何も起きないときの調べ方」の `jq` 前提の記述を差し替える。診断手順（`claude --debug`、WSL の注意書き）は有用なので残す。
+**背景:** `sync.ps1` は PowerShell 製で Windows 専用。macOS では `~/.claude` へ手でコピーする必要がある。実際、PR #8 をマージしても macOS 実機の hook は古いままだった（2026-09-07 に発覚）。hook を変更するたびに同じ漏れが起きる。
 
 ```bash
 python3 - <<'EOS'
 import io
 p = '/Users/yohira/git/claude-config/README.md'
 s = io.open(p, encoding='utf-8').read()
-s = s.replace("| `jq` | hook が JSON を組み立てるのに使う | `winget install jqlang.jq` |\n", "")
-s = s.replace("macOS では `jq` は `brew install jq`。\n\n", "")
-s = s.replace("""& "C:\\Program Files\\Git\\bin\\bash.exe" -lc 'command -v bash jq git'""",
-              """& "C:\\Program Files\\Git\\bin\\bash.exe" -lc 'command -v bash git'""")
-s = s.replace("3つとも出力されれば良い。", "2つとも出力されれば良い。")
-s = s.replace("""`hooks/record/` の SessionStart / Stop は **`jq` が無いと無言で何もしない**。標準出力が空になるだけで、Claude Code 側にはエラーが見えない。""",
-"""`hooks/record/` の SessionStart / Stop は **外部コマンドに依存しない**（`git` と coreutils のみ）。
-以前は `jq` に依存しており、未導入の PC で無言で何もしない事象が起きたため排除した。
-それでも hook が動かない場合は次の手順で切り分ける。""")
+old = """### 2. このリポジトリの設定を反映する"""
+new = """> **macOS には `sync.ps1` が使えない。** PowerShell 製で Windows 専用のため、
+> macOS では次のように手でコピーする。**hook を変更したら必ず実行すること。**
+> 実際に、hook を更新した PR をマージしたあと macOS 実機だけが古いまま残っていた事例がある。
+>
+> ```sh
+> cp ~/git/claude-config/claude/CLAUDE.md ~/.claude/CLAUDE.md
+> cp ~/git/claude-config/claude/settings.json ~/.claude/settings.json
+> mkdir -p ~/.claude/hooks/record
+> cp ~/git/claude-config/claude/hooks/record/*.sh ~/.claude/hooks/record/
+> chmod +x ~/.claude/hooks/record/*.sh
+> ```
+>
+> 反映漏れの確認は次で行う。差分が出なければ同期済み。
+>
+> ```sh
+> diff -r ~/.claude/hooks/record/ ~/git/claude-config/claude/hooks/record/ && echo "SAME"
+> ```
+
+### 2. このリポジトリの設定を反映する"""
+assert old in s
+s = s.replace(old, new, 1)
 io.open(p, 'w', encoding='utf-8').write(s)
-print("README を更新")
+print("README に macOS の配布手順を追記")
 EOS
-grep -n "jq" /Users/yohira/git/claude-config/README.md
+grep -n "macOS には" /Users/yohira/git/claude-config/README.md
 ```
 
-期待: `jq` の残存が「以前は jq に依存しており…」の1行のみになる。
+期待: 追記した行が表示される。
 
-- [ ] **Step 7: コミットして Draft PR を作成する**
+- [ ] **Step 5: conversations.md の検証状況を最新化する**
 
-PR #7 はこの変更で前提が覆るため、マージせず close する。
+既にエントリ本体は追記済み（Stop hook 自身が促して作成したもの）。**二重に追記しないこと。** 検証状況の表だけを実測に合わせて更新する。
+
+```bash
+grep -n "検証状況" -A 8 /Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md
+```
+
+Step 1〜3 の結果を踏まえ、未確認のまま残っている行があれば更新する。SessionStart（macOS）は Task 7 の Step 2 で終了コード0を確認できるが、**実セッションでの注入確認は別途必要**なため、そこは正直に「未確認」のまま残してよい。
+
+- [ ] **Step 6: コミットする**
+
+claude-config は feature ブランチを切る。Vault は obsidian-git が main を直接同期する運用のため feature ブランチを切らない。
 
 ```bash
 cd /Users/yohira/git/claude-config
 git checkout main && git pull
-git checkout -b fix/hooks-drop-jq
-git add claude/hooks/record/ tests/test-record-hooks.sh README.md
-git commit -m "fix: hook から jq 依存を排除し外部コマンド非依存にする
+git checkout -b docs/macos-sync-note
+git add README.md
+git commit -m "docs: macOS では sync.ps1 が使えず手でコピーする必要がある旨を明記
 
-新しい Windows PC で hook が無言で動かなかった。原因は jq 未導入。
-winget で入れても WinGet\\Links が空でパスが通らず解決しなかった。
+sync.ps1 は PowerShell 製で Windows 専用。macOS では ~/.claude へ手で
+コピーする必要があるが、これが README に書かれておらず、hook を更新した
+PR をマージしたあと macOS 実機だけが古いまま残っていた。
 
-SessionStart は終了コード0の plain-text stdout がそのままコンテキストに
-追加され、Stop は終了コード2で stderr がそのまま Claude へのメッセージに
-なる。いずれも公式ドキュメントに記載された正規の方法で、ユーザー環境の
-実ログでも別 hook が同じ挙動をしていることを確認済み。
-
-JSON を組み立てないため、引用符・バックスラッシュ・制御文字の
-エスケープ処理も不要になった。
+コピー手順と、反映漏れを確認する diff コマンドを追記した。
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-git push -u origin fix/hooks-drop-jq
-gh pr create --draft --title "fix: hook から jq 依存を排除し外部コマンド非依存にする" --body "設計書: Obsidian Vault \`00_Claude/specs/2026-09-07-decision-record-hooks-design.md\`
+git push -u origin docs/macos-sync-note
+gh pr create --draft --title "docs: macOS では sync.ps1 が使えず手でコピーする必要がある旨を明記" --body "## 背景
 
-## 背景
+\`sync.ps1\` は PowerShell 製で Windows 専用。macOS では \`~/.claude\` へ手でコピーする必要があるが、README に書かれていなかった。
 
-新しい Windows PC で hook が無言で動かなかった。原因は \`jq\` 未導入（\`claude --debug\` で確定）。\`winget install jqlang.jq\` 後も \`WinGet\\Links\` が空でパスが通らず解決せず、jq 起因の不発が2回続いた。
+実際に、\`jq\` 依存を排除した PR #8 をマージしたあと **macOS 実機の hook だけが古いまま**残っていた（2026-09-07 に発覚）。hook を変更するたびに同じ漏れが起きる。
 
 ## 対応
 
-出力プロトコルを変更し \`jq\` を排除した。
+README のセットアップ節に、macOS でのコピー手順と、反映漏れを確認する \`diff\` コマンドを追記した。
 
-| hook | 変更前 | 変更後 |
-|---|---|---|
-| SessionStart | JSON の \`additionalContext\` | 平文を stdout へ（終了コード0） |
-| Stop | JSON の \`decision: block\` | stderr へ出して終了コード2 |
+将来的には macOS 用の同期スクリプト（\`sync.sh\`）を用意する選択肢もあるが、まずは手順の明文化にとどめている。"
 
-\`stop_hook_active\` の判定は、空白を除去してから固定文字列を探す方式に置き換えた。
-
-## 副次効果
-
-JSON を組み立てないため、引用符・バックスラッシュ・制御文字のエスケープ処理が不要になった。
-
-## 検証
-
-\`tests/test-record-hooks.sh\` に \`jq\` 非依存の検査を追加した。スクリプト本文に \`jq\` の記述が無いこと、\`PATH\` から \`jq\` を外しても両 hook が動くこと、\`stop_hook_active\` の判定が整形の違いに影響されないことを検査する。
-
-## 関連
-
-PR #7（README に jq を前提として追記）は前提が覆るため close する。診断手順は本 PR に引き継いだ。"
-gh pr close 7 --comment "jq 依存を排除する方針に変更したため close します。診断手順は後継 PR に引き継ぎました。"
+cd /Users/yohira/Documents/Obsidian-Vault
+git add 00_Claude/conversations.md
+git commit -m "docs: hook の横展開確認の結果を反映"
 ```
 
-期待: PR の URL が出力され、PR #7 が closed になる。
-
-
----
-
-### Task 9: 注入する Step に見出しを併記する
-
-**背景:** SessionStart の計画注入は `- [ ]` 行だけを抜き出すため、**どの Task に属する Step か分からない**。`cutover-plan.md` では「Step 1: ユーザーのgoサインを取る」が Task 4・5・7 にそれぞれ存在し、同じ文言が3回並ぶ（2026-09-07 ユーザー判断で対応することにした Minor）。
-
-**方針:** 各 `- [ ]` の**直近上位の見出し行**を併記する。見出しは元ファイルの記法（`#` の数）をそのまま出力し、原文への忠実性を保つ。
-
-**Files:**
-- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh`
-- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
-
-**Interfaces:**
-- Consumes: Task 2 の `lib.sh`（変更なし）
-- Produces: 見出し付きの計画注入。上限（1ファイル20件・合計60件）の意味は変わらず、**見出し行は件数に数えない**
-
-- [ ] **Step 1: 失敗するテストを追記する**
-
-```bash
-python3 - <<'EOS'
-import io
-p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
-s = io.open(p, encoding='utf-8').read()
-marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
-add = """
-echo "== 計画注入の見出し併記 =="
-
-# 同じ Step 名が別の Task に存在しても、見出しで区別できること
-R=$(make_repo)
-mkdir -p "$R/.claude"
-printf '### Task A\\n- [ ] goサインを取る\\n- [ ] 実行する\\n### Task B\\n- [ ] goサインを取る\\n' > "$R/p.md"
-printf 'p.md\\n' > "$R/.claude/active-plan"
-CTX=$(cd "$R" && "$SS" </dev/null)
-check "見出し: Task A が出る"           "1" "$(printf '%s' "$CTX" | grep -c '^### Task A$')"
-check "見出し: Task B が出る"           "1" "$(printf '%s' "$CTX" | grep -c '^### Task B$')"
-check "見出し: 同名Stepが2件とも出る"   "2" "$(printf '%s' "$CTX" | grep -c 'goサインを取る')"
-rm -rf "$R"
-
-# 見出しが1つも無い計画ファイルでも壊れないこと
-R=$(make_repo)
-mkdir -p "$R/.claude"
-printf -- '- [ ] alpha\\n- [ ] bravo\\n' > "$R/q.md"
-printf 'q.md\\n' > "$R/.claude/active-plan"
-CTX=$(cd "$R" && "$SS" </dev/null)
-check "見出し無しでも Step が出る" "2" "$(printf '%s' "$CTX" | grep -c '^- \\[ \\]')"
-rm -rf "$R"
-
-# 未チェックが1件も無い見出しは出力しないこと
-R=$(make_repo)
-mkdir -p "$R/.claude"
-printf '### DONE-ONLY\\n- [x] done\\n### HAS-OPEN\\n- [ ] open\\n' > "$R/r.md"
-printf 'r.md\\n' > "$R/.claude/active-plan"
-CTX=$(cd "$R" && "$SS" </dev/null)
-check "済みだけの見出しは出ない" "0" "$(printf '%s' "$CTX" | grep -c 'DONE-ONLY')"
-check "未完了がある見出しは出る" "1" "$(printf '%s' "$CTX" | grep -c 'HAS-OPEN')"
-rm -rf "$R"
-
-# 上限は Step の件数で数え、見出し行は数えないこと
-R=$(make_repo)
-mkdir -p "$R/.claude"
-: > "$R/big.md"
-for i in $(seq 1 25); do printf '### T%02d\\n- [ ] item%02d\\n' "$i" "$i" >> "$R/big.md"; done
-printf 'big.md\\n' > "$R/.claude/active-plan"
-CTX=$(cd "$R" && "$SS" </dev/null)
-check "上限は Step 件数で数える" "20" "$(printf '%s' "$CTX" | grep -c -- '-item')"
-rm -rf "$R"
-"""
-assert marker in s
-s = s.replace(marker, add + marker)
-io.open(p, 'w', encoding='utf-8').write(s)
-print("テストを追加")
-EOS
-```
-
-- [ ] **Step 2: テストを実行して失敗することを確認する**
-
-```bash
-/Users/yohira/git/claude-config/tests/test-record-hooks.sh
-```
-
-期待: 見出し関連のテストが FAIL する（`### Task A` が出力に含まれないため）。
-
-- [ ] **Step 3: 抽出処理を `grep` から `awk` に置き換える**
-
-`session-start-context.sh` の次の1行を置き換える。
-
-```bash
-$(grep '^[[:space:]]*- \[ \]' "$ROOT/$rel" | head -n "$take")
-```
-
-置き換え後。
-
-```bash
-$(awk -v max="$take" '
-    /^#+ / { heading = $0; next }
-    /^[[:space:]]*- \[ \]/ {
-      if (count >= max) exit
-      if (heading != "" && heading != lastprinted) {
-        if (count > 0) print ""
-        print heading
-        lastprinted = heading
-      }
-      print
-      count++
-    }
-  ' "$ROOT/$rel")
-```
-
-`count` は Step のみを数えるため、**見出し行は上限に影響しない**。`lastprinted` により同じ見出しの重複出力を防ぐ。`heading != ""` のガードで、見出しが1つも無いファイルでも空行が入らない。
-
-- [ ] **Step 4: テストを実行して通ることを確認する**
-
-```bash
-/Users/yohira/git/claude-config/tests/test-record-hooks.sh
-```
-
-期待: `FAIL=0` かつ終了コード0。PASS の総数は実測値を報告に記載する。
-
-- [ ] **Step 5: 実リポジトリで見え方を確認する**
-
-```bash
-cd /Users/yohira/git/coopinf
-"$HOME/.claude/hooks/record/session-start-context.sh" </dev/null | sed -n '/実行中の計画/,$p' | head -20
-```
-
-期待: `### Task 4: ...` の下に Step 1〜3、`### Task 5: ...` の下に Step 1〜4、というように Task ごとにまとまって出力される。
-
-- [ ] **Step 6: 実機へ配布する**
-
-macOS には `sync.ps1` が使えないため手でコピーする。
-
-```bash
-cp /Users/yohira/git/claude-config/claude/hooks/record/*.sh /Users/yohira/.claude/hooks/record/
-chmod +x /Users/yohira/.claude/hooks/record/*.sh
-diff /Users/yohira/.claude/hooks/record/session-start-context.sh /Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh && echo "SAME"
-```
-
-期待: `SAME`
-
-- [ ] **Step 7: コミットして Draft PR を作成する**
-
-```bash
-cd /Users/yohira/git/claude-config
-git checkout main && git pull
-git checkout -b feature/inject-plan-headings
-git add claude/hooks/record/session-start-context.sh tests/test-record-hooks.sh
-git commit -m "feat: 計画注入に直近上位の見出しを併記する
-
-- [ ] 行だけを抜き出していたため、どの Task の Step か分からなかった。
-cutover-plan.md では「Step 1: ユーザーのgoサインを取る」が Task 4/5/7 に
-存在し、同じ文言が3回並んでいた。
-
-各 Step の直近上位の見出し行を併記する。見出しは元ファイルの記法のまま
-出力し、上限(1ファイル20件・合計60件)は従来どおり Step の件数で数える。
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-git push -u origin feature/inject-plan-headings
-gh pr create --draft --title "feat: 計画注入に直近上位の見出しを併記する" --body "実装計画: Obsidian Vault \`00_Claude/plans/2026-09-07-decision-record-hooks.md\` の Task 9
-
-## 背景
-
-SessionStart の計画注入は \`- [ ]\` 行だけを抜き出すため、どの Task に属する Step か分からなかった。\`cutover-plan.md\` では「Step 1: ユーザーのgoサインを取る」が Task 4・5・7 に存在し、同じ文言が3回並ぶ。
-
-## 対応
-
-各 Step の直近上位の見出し行を併記する。
-
-変更前
-
-\`\`\`
-### migration/cutover-plan.md（未完了 19 件）
-- [ ] **Step 1: ユーザーのgoサインを取る**
-- [ ] **Step 2: prd のステートマシンを起動する**
-- [ ] **Step 3: CloudWatch Logs で結果を確認する**
-- [ ] **Step 1: ユーザーのgoサインを取る**
-\`\`\`
-
-変更後
-
-\`\`\`
-### migration/cutover-plan.md（未完了 19 件）
-
-### Task 4: 本番SFTPへの接続確認を実行する(要ユーザーgo判断)
-- [ ] **Step 1: ユーザーのgoサインを取る**
-- [ ] **Step 2: prd のステートマシンを起動する**
-- [ ] **Step 3: CloudWatch Logs で結果を確認する**
-
-### Task 5: カットオーバー(要ユーザーgo判断)
-- [ ] **Step 1: ユーザーのgoサインを取る**
-\`\`\`
-
-## 仕様
-
-- 見出しは元ファイルの記法（\`#\` の数）のまま出力する
-- 上限（1ファイル20件・合計60件）は従来どおり **Step の件数**で数え、見出し行は数えない
-- 未チェックが1件も無い見出しは出力しない
-- 見出しが1つも無い計画ファイルでも壊れない
-
-いずれもテストで検査している。"
-```
-
-期待: PR の URL が出力される。
-
-
-- [ ] **Step 8: レビュー指摘（Critical）を修正する — コードフェンス内を無視する**
-
-**指摘内容:** `/^#+ /` が**コードブロック内のシェルコメントを見出しと誤認識**する。計画ファイルにはコードブロックが多数含まれるため実運用で頻発する。
-
-実測した影響範囲。
-
-| ファイル | フェンス内の `#` 行 | フェンス内の `- [ ]` |
-| - | - | - |
-| `coopinf/migration/cutover-plan.md` | 0 | 0 |
-| `coopinf/migration/verify-backfill-plan.md` | **12** | 0 |
-| Vault の実装計画 | **87** | **9** |
-
-Step 5 の実機確認で気づけなかったのは、`cutover-plan.md` にたまたま該当が0件だったため。
-
-**方針（2026-09-07 ユーザー判断）:** コードフェンスの内側は**見出しもチェックボックスも無視する**。ドキュメント中の例示は実タスクではないため、「未完了 N 件」の件数も正確になる。`lib.sh` の `unchecked_count` も合わせて修正し、件数と実出力を一致させる。
-
-まずテストを追記する。
-
-```bash
-python3 - <<'EOS'
-import io
-p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
-s = io.open(p, encoding='utf-8').read()
-marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
-add = """
-echo "== コードフェンス内を無視する =="
-
-R=$(make_repo)
-mkdir -p "$R/.claude"
-{
-  printf '### Task 1: 見出しテスト\\n'
-  printf -- '- [ ] STEP-REAL-1\\n'
-  printf '\\n'
-  printf '```bash\\n'
-  printf 'echo hello\\n'
-  printf '# FENCE-COMMENT\\n'
-  printf -- '- [ ] FENCE-CHECKBOX\\n'
-  printf '```\\n'
-  printf '\\n'
-  printf -- '- [ ] STEP-REAL-2\\n'
-} > "$R/f.md"
-printf 'f.md\\n' > "$R/.claude/active-plan"
-
-check "unchecked_count がフェンス内を数えない" "2" "$(unchecked_count "$R" f.md)"
-
-CTX=$(cd "$R" && "$SS" </dev/null)
-check "フェンス内の # が見出しにならない"   "0" "$(printf '%s' "$CTX" | grep -c 'FENCE-COMMENT')"
-check "フェンス内の - [ ] を出力しない"     "0" "$(printf '%s' "$CTX" | grep -c 'FENCE-CHECKBOX')"
-check "フェンス外の Step は2件とも出る"     "2" "$(printf '%s' "$CTX" | grep -c 'STEP-REAL-')"
-check "正しい見出しが1回だけ付く"           "1" "$(printf '%s' "$CTX" | grep -c '^### Task 1: 見出しテスト$')"
-check "見出しの件数表示がフェンス除外後の数" "1" "$(printf '%s' "$CTX" | grep -c '（未完了 2 件）')"
-rm -rf "$R"
-"""
-assert marker in s
-s = s.replace(marker, add + marker)
-io.open(p, 'w', encoding='utf-8').write(s)
-print("フェンステストを追加")
-EOS
-```
-
-テストを実行し、フェンス関連が FAIL することを確認する。
-
-```bash
-/Users/yohira/git/claude-config/tests/test-record-hooks.sh
-```
-
-`lib.sh` の `unchecked_count` を置き換える。
-
-```bash
-# unchecked_count <root> <relpath>
-# 未チェックのチェックボックス行の件数を出力する。
-# コードフェンス（``` / ~~~）の内側は、ドキュメント中の例示であって実タスクでは
-# ないため数えない。session-start-context.sh の抽出処理と同じ判定にしてあり、
-# 「未完了 N 件」の表示と実際の出力件数が食い違わないようにしている。
-unchecked_count() {
-  local root="$1" rel="$2" n
-  n=$(awk '
-    /^[[:space:]]*(```|~~~)/ { infence = !infence; next }
-    !infence && /^[[:space:]]*- \[ \]/ { c++ }
-    END { print c+0 }
-  ' "$root/$rel" 2>/dev/null || true)
-  printf '%s\n' "${n:-0}"
-}
-```
-
-`session-start-context.sh` の抽出 `awk` を置き換える。冒頭2行が追加分。
-
-```bash
-$(awk -v max="$take" '
-    /^[[:space:]]*(```|~~~)/ { infence = !infence; next }
-    infence { next }
-    /^#+ / { heading = $0; next }
-    /^[[:space:]]*- \[ \]/ {
-      if (count >= max) exit
-      if (heading != "" && heading != lastprinted) {
-        if (count > 0) print ""
-        print heading
-        lastprinted = heading
-      }
-      print
-      count++
-    }
-  ' "$ROOT/$rel")
-```
-
-テストを実行して通ることを確認する。
-
-```bash
-/Users/yohira/git/claude-config/tests/test-record-hooks.sh
-```
-
-期待: `FAIL=0`。PASS の総数は実測値を報告する。
-
-実ファイルでの件数を確認する。
-
-```bash
-cd /Users/yohira/git/coopinf
-"$HOME/.claude/hooks/record/session-start-context.sh" </dev/null | grep -E '未完了|^### Task' | head
-```
-
-期待: `### migration/cutover-plan.md（未完了 19 件）`（**フェンス内が0件のため件数は変わらない**）。`### Task 4:` 等の見出しが付く。
-
-実機へ配布してコミットする。
-
-```bash
-cp /Users/yohira/git/claude-config/claude/hooks/record/*.sh /Users/yohira/.claude/hooks/record/
-chmod +x /Users/yohira/.claude/hooks/record/*.sh
-cd /Users/yohira/git/claude-config
-git add claude/hooks/record/lib.sh claude/hooks/record/session-start-context.sh tests/test-record-hooks.sh
-git commit -m "fix: コードフェンス内の見出しとチェックボックスを無視する
-
-/^#+ / がコードブロック内のシェルコメントを見出しと誤認識していた。
-計画ファイルにはコードブロックが多数含まれ、verify-backfill-plan.md で12件、
-Vault の実装計画で87件が該当する。Step 5 の実機確認で気づけなかったのは
-cutover-plan.md にたまたま該当が0件だったため。
-
-フェンスの内側は見出しもチェックボックスも無視する。例示は実タスクでは
-ないため、unchecked_count も同じ判定にして「未完了 N 件」の表示と
-実出力の件数を一致させた。
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-git push
-```
+期待: PR の URL が出力される。Vault 側は変更が無ければコミット不要。
 
 
 ## タスク依存関係
