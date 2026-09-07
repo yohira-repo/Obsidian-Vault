@@ -442,8 +442,27 @@ chmod +x ~/.claude/hooks/record/*.sh
 
 ### 残っていること
 
-- **claude-config PR #10**（README への macOS 配布手順の明記）が Draft のまま
+- ~~**claude-config PR #10**（README への macOS 配布手順の明記）が Draft のまま~~
+  → **マージ済み（2026-09-07）。** 全 PR がマージされ open はゼロ。
+  README に書いた確認手順を実際に回して6項目すべて `OK` を確認した
 - **Stop hook の Windows 対話セッションでの確認**が未実施。RDP 経由で送信キーが効かない問題（別エントリ参照）が解決してから
+
+### 完了時点の状態（2026-09-07）
+
+- `tests/test-record-hooks.sh` 60件・`tests/test-ascii-only.sh` ともに通過
+- macOS 実機と repo が `$Targets` 全6項目で一致
+- coopinf のセッション開始時に注入される内容:
+
+  ```
+  ### migration/cutover-plan.md（未完了 19 件）
+
+  ### Task 4: 本番SFTPへの接続確認を実行する(要ユーザーgo判断)
+  ### Task 5: カットオーバー(要ユーザーgo判断)
+  ### Task 6: 初回自動実行(9/8 09:30)の結果を確認する
+  ```
+
+  発端となった「9/7・9/8 の段取りが会話から消える」問題に対し、
+  次に coopinf を開いた時点で Phase 4 の進捗が Task 見出し付きで見える状態になった。
 
 ### 対応不要と決めた指摘（2026-09-07 ユーザー判断）
 
