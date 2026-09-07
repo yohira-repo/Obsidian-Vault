@@ -1434,6 +1434,311 @@ gh pr create --draft --title "feat: 記録先を conversations.md に集約し�
 期待: PR の URL が出力される。
 
 
+---
+
+### Task 11: macOS/Linux 用の `sync.sh` を作り、対象一覧の重複を解消する
+
+**背景:** `sync.ps1` は PowerShell 製で Windows 専用。macOS では README に書いたシェルループを毎回貼る運用になっており現実的でない。さらに**同じ対象一覧が3箇所に重複**している。
+
+1. `sync.ps1` の `$Targets`
+2. README のコピー用ループ
+3. README の確認用ループ
+
+実際にずれが発生した。`/record` を足して6項目になったのに README の説明文が「同じ5項目」のまま残っている。2026-09-07 の Task 7 レビューで「対象ファイルを変えて同じ穴を再生産している」と指摘されたのと同じ構図。
+
+**方針（2026-09-08 ユーザー判断・B案）:** `sync.sh` を作り、一覧を `sync.ps1` と `sync.sh` の2箇所に集約する。README からは一覧を消す。2箇所のずれは**テストで検出**する。
+
+対案A（`targets.txt` に一覧を置き両方から読む）は不採用。PowerShell 側のパース処理が増え、文字コード事故の再来を招きうるため。
+
+**Files:**
+- Create: `/Users/yohira/git/claude-config/sync.sh`
+- Create: `/Users/yohira/git/claude-config/tests/test-sync-targets.sh`
+- Modify: `/Users/yohira/git/claude-config/README.md`
+
+**Interfaces:**
+- Produces: `./sync.sh {pull|push} [--force]`。`sync.ps1` と同じ意味（対象一覧、実行前に一覧表示して確認、ディレクトリは中身ごと置換）
+
+- [ ] **Step 1: 一致検査テストを作る（この時点では落ちる）**
+
+```bash
+cat > /Users/yohira/git/claude-config/tests/test-sync-targets.sh <<'EOS'
+#!/bin/bash
+# sync.ps1 の $Targets と sync.sh の TARGETS が一致することを検査する。
+# 一覧が2箇所にあるため、ずれると片方の環境だけ同期漏れが起きる。
+set -uo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+ps1_targets() {
+  awk '/^\$Targets = @\(/{f=1;next} f&&/^\)/{exit} f' "$REPO_ROOT/sync.ps1" \
+    | sed -n "s/.*'\(.*\)'.*/\1/p"
+}
+sh_targets() {
+  awk '/^TARGETS=\(/{f=1;next} f&&/^\)/{exit} f' "$REPO_ROOT/sync.sh" \
+    | sed -n "s/.*'\(.*\)'.*/\1/p"
+}
+
+A=$(ps1_targets)
+B=$(sh_targets)
+
+echo "  sync.ps1 の \$Targets:"; printf '%s\n' "$A" | sed 's/^/    /'
+echo "  sync.sh の TARGETS:";   printf '%s\n' "$B" | sed 's/^/    /'
+echo ""
+
+FAIL=0
+if [ -z "$A" ]; then echo "  NG   - sync.ps1 から \$Targets を抽出できない"; FAIL=$((FAIL+1)); fi
+if [ -z "$B" ]; then echo "  NG   - sync.sh から TARGETS を抽出できない"; FAIL=$((FAIL+1)); fi
+if [ "$A" = "$B" ]; then
+  echo "  ok   - 対象一覧が一致している（$(printf '%s\n' "$A" | wc -l | tr -d ' ') 項目）"
+else
+  echo "  NG   - 対象一覧が一致しない"
+  diff <(printf '%s\n' "$A") <(printf '%s\n' "$B") | sed 's/^/         /'
+  FAIL=$((FAIL+1))
+fi
+
+echo ""
+echo "FAIL=$FAIL"
+[ "$FAIL" -eq 0 ]
+EOS
+chmod +x /Users/yohira/git/claude-config/tests/test-sync-targets.sh
+/Users/yohira/git/claude-config/tests/test-sync-targets.sh
+```
+
+期待: `sync.sh` がまだ無いため `NG - sync.sh から TARGETS を抽出できない` が出て `FAIL` が1以上になる。**ここで落ちることを必ず確認する。**
+
+- [ ] **Step 2: `sync.sh` を作る**
+
+`TARGETS` は `sync.ps1` の `$Targets` と**同じ順序・同じ内容**にすること。
+
+```bash
+cat > /Users/yohira/git/claude-config/sync.sh <<'EOS'
+#!/bin/bash
+# Claude Code の個人設定を ~/.claude とこのリポジトリの間で同期する（macOS / Linux 用）。
+#
+#   ./sync.sh pull   … ~/.claude  →  このリポジトリ（設定を変えた後に取り込む）
+#   ./sync.sh push   … このリポジトリ  →  ~/.claude （新しいPCや他PCへ反映する）
+#
+# Windows では sync.ps1 を使う。対象一覧は両者で一致させること
+# （tests/test-sync-targets.sh が一致を検査する）。
+set -uo pipefail
+
+# 同期対象（~/.claude からの相対パス）。sync.ps1 の $Targets と同じ順序・同じ内容にする。
+TARGETS=(
+  'CLAUDE.md'
+  'AGENTS.md'
+  'settings.json'
+  'hooks'
+  'commands/daily-sync.md'
+  'commands/record.md'
+)
+
+DIRECTION="${1:-}"
+FORCE="${2:-}"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+CLAUDE_HOME="$HOME/.claude"
+REPO_STORE="$SCRIPT_DIR/claude"
+
+case "$DIRECTION" in
+  pull|push) ;;
+  *) echo "usage: ./sync.sh {pull|push} [--force]" >&2; exit 2 ;;
+esac
+[ -d "$CLAUDE_HOME" ] || { echo "Claude Code の設定ディレクトリが見つかりません: $CLAUDE_HOME" >&2; exit 1; }
+mkdir -p "$REPO_STORE"
+
+if [ "$DIRECTION" = "pull" ]; then
+  SRC_ROOT="$CLAUDE_HOME"; DST_ROOT="$REPO_STORE"
+  LABEL="$CLAUDE_HOME  ->  $REPO_STORE  （リポジトリ側を上書き）"
+else
+  SRC_ROOT="$REPO_STORE"; DST_ROOT="$CLAUDE_HOME"
+  LABEL="$REPO_STORE  ->  $CLAUDE_HOME  （~/.claude 側を上書き）"
+fi
+
+echo ""; echo "$LABEL"; echo ""
+
+PLAN=()
+for t in "${TARGETS[@]}"; do
+  src="$SRC_ROOT/$t"
+  dst="$DST_ROOT/$t"
+  if [ ! -e "$src" ]; then
+    printf '  skip       %s  (コピー元に存在しない)\n' "$t"
+    continue
+  fi
+  state=$([ -e "$dst" ] && echo "上書き" || echo "新規")
+  printf '  %-9s  %s\n' "$state" "$t"
+  PLAN+=("$t")
+done
+
+if [ "${#PLAN[@]}" -eq 0 ]; then
+  echo ""; echo "コピー対象がありません。"; exit 0
+fi
+
+if [ "$FORCE" != "--force" ] && [ "$FORCE" != "-f" ]; then
+  echo ""
+  printf '実行しますか (y/N): '
+  read -r answer
+  if [ "$answer" != "y" ]; then echo "中止しました。"; exit 0; fi
+fi
+
+for t in "${PLAN[@]}"; do
+  src="$SRC_ROOT/$t"
+  dst="$DST_ROOT/$t"
+  mkdir -p "$(dirname "$dst")"
+  # ディレクトリは中身ごと置き換える（コピー元に無いファイルを残さない）
+  [ -d "$src" ] && rm -rf "$dst"
+  cp -R "$src" "$dst"
+  printf '  done       %s\n' "$t"
+done
+
+[ -d "$DST_ROOT/hooks/record" ] && chmod +x "$DST_ROOT/hooks/record/"*.sh 2>/dev/null
+
+echo ""
+if [ "$DIRECTION" = "pull" ]; then
+  echo "取り込みました。git diff で差分を確認してからコミットしてください。"
+else
+  echo "反映しました。Claude Code を再起動すると設定が読み込まれます。"
+fi
+EOS
+chmod +x /Users/yohira/git/claude-config/sync.sh
+```
+
+- [ ] **Step 3: 一致検査テストが通ることを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-sync-targets.sh
+```
+
+期待: `ok - 対象一覧が一致している（6 項目）` と `FAIL=0`。
+
+- [ ] **Step 4: 偽の HOME で動作を検証する（実機を壊さない）**
+
+```bash
+cd /Users/yohira/git/claude-config
+FAKE=$(mktemp -d); mkdir -p "$FAKE/.claude"
+echo "--- push（初回）---"
+HOME="$FAKE" ./sync.sh push --force
+echo "--- 配置結果 ---"
+find "$FAKE/.claude" -type f | sed "s|$FAKE/.claude|~/.claude|" | sort
+echo "--- 2回目（入れ子にならないか）---"
+HOME="$FAKE" ./sync.sh push --force >/dev/null
+[ -d "$FAKE/.claude/hooks/hooks" ] && echo "NG: 入れ子ができた" || echo "OK: 入れ子なし"
+ls -l "$FAKE/.claude/hooks/record/lib.sh" | cut -c1-11
+echo "--- 引数なし ---"
+HOME="$FAKE" ./sync.sh; echo "exit=$?"
+rm -rf "$FAKE"
+```
+
+期待: 6項目が配置される。2回目でも `hooks/hooks` は作られない。`lib.sh` は `-rwxr-xr-x`。引数なしは usage を出して `exit=2`。
+
+- [ ] **Step 5: README から一覧の重複を消す**
+
+macOS 向けのブロック（`> **macOS には ...` から `### 2. このリポジトリの設定を反映する` の直前まで）を差し替える。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/README.md'
+s = io.open(p, encoding='utf-8').read()
+start = s.index('> **macOS には `sync.ps1` が使えない。**')
+end = s.index('### 2. このリポジトリの設定を反映する')
+new = """> **macOS / Linux では `sync.ps1` の代わりに `sync.sh` を使う。**
+> `sync.ps1` は PowerShell 製で Windows 専用のため。
+>
+> ```sh
+> ./sync.sh push    # このリポジトリ  →  ~/.claude
+> ./sync.sh pull    # ~/.claude  →  このリポジトリ
+> ```
+>
+> **設定や hook を変更したら必ず実行すること。** 実際に、hook を更新した PR を
+> マージしたあと macOS 実機だけが古いまま残っていた事例がある。
+>
+> 対象一覧は `sync.ps1` の `$Targets` と `sync.sh` の `TARGETS` の2箇所にある。
+> ずれると片方の環境だけ同期漏れが起きるため、`tests/test-sync-targets.sh` が
+> 一致を検査する。**対象を増やすときは両方に足すこと。**
+
+"""
+s = s[:start] + new + s[end:]
+io.open(p, 'w', encoding='utf-8').write(s)
+print("README を更新")
+EOS
+grep -n "sync.sh\|5項目\|6項目" /Users/yohira/git/claude-config/README.md
+```
+
+期待: `sync.sh` の記述が現れ、**「5項目」の記述が消えている**こと。README 内にコピー用・確認用のループが残っていないこと。
+
+- [ ] **Step 6: 全テストを実行する**
+
+```bash
+cd /Users/yohira/git/claude-config
+./tests/test-sync-targets.sh | tail -3
+./tests/test-ascii-only.sh | tail -2
+./tests/test-record-hooks.sh | tail -2
+```
+
+期待: いずれも `FAIL=0`。`test-ascii-only.sh` は `*.ps1` のみを対象とするため `sync.sh` の日本語は問題ない。
+
+- [ ] **Step 7: 実機で `./sync.sh push` を実行して同期する**
+
+```bash
+cd /Users/yohira/git/claude-config
+./sync.sh push --force
+for t in CLAUDE.md AGENTS.md settings.json hooks commands/daily-sync.md commands/record.md; do
+  diff -r ~/.claude/"$t" ~/git/claude-config/claude/"$t" >/dev/null 2>&1 && echo "OK   $t" || echo "DIFF $t"
+done
+```
+
+期待: 6項目すべて `OK`。
+
+- [ ] **Step 8: コミットして Draft PR を作成する**
+
+```bash
+cd /Users/yohira/git/claude-config
+git checkout main && git pull
+git checkout -b feature/sync-sh
+git add sync.sh tests/test-sync-targets.sh README.md
+git commit -m "feat: macOS/Linux 用の sync.sh を追加し対象一覧の重複を解消する
+
+sync.ps1 は PowerShell 製で Windows 専用のため、macOS では README に
+書いたシェルループを毎回貼る運用になっていた。さらに同じ対象一覧が
+3箇所(sync.ps1 の \$Targets / README のコピー用ループ / README の確認用ループ)
+に重複しており、実際にずれが発生していた(/record を足して6項目になったのに
+README の説明文が「同じ5項目」のまま残っていた)。
+
+sync.sh を追加して一覧を2箇所に減らし、README からは一覧を消した。
+残る2箇所のずれは tests/test-sync-targets.sh が検出する。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push -u origin feature/sync-sh
+gh pr create --draft --title "feat: macOS/Linux 用の sync.sh を追加し対象一覧の重複を解消する" --body "実装計画: Obsidian Vault \`00_Claude/plans/2026-09-07-decision-record-hooks.md\` の Task 11
+
+## 背景
+
+\`sync.ps1\` は PowerShell 製で **Windows 専用**。macOS では README に書いたシェルループを毎回貼る運用になっており現実的でなかった。
+
+さらに**同じ対象一覧が3箇所に重複**していた。
+
+1. \`sync.ps1\` の \`\$Targets\`
+2. README のコピー用ループ
+3. README の確認用ループ
+
+実際にずれが発生した。\`/record\` を足して6項目になったのに README の説明文が「同じ5項目」のまま残っていた。
+
+## 対応（B案・ユーザー判断）
+
+- \`sync.sh\` を追加。\`./sync.sh push\` / \`./sync.sh pull\` の1コマンドにする
+- README から一覧を消す（重複3箇所 → 2箇所）
+- 残る2箇所のずれは \`tests/test-sync-targets.sh\` が検出する
+
+対案A（\`targets.txt\` に一覧を置き両方から読む）は不採用。PowerShell 側のパース処理が増え、\`sync.ps1\` で起きた文字コード事故の再来を招きうるため。
+
+## 検証
+
+- 一致検査テストは、わざと一覧をずらすと確実に落ちることを確認済み
+- \`sync.sh\` は偽の \`HOME\` で検証。6項目の配置、2回実行しても \`hooks/hooks\` の入れ子ができないこと、実行権が付くこと、引数なしで usage を出して \`exit=2\` になることを確認"
+```
+
+期待: PR の URL が出力される。
+
+
 ## タスク依存関係
 
 ```
