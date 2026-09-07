@@ -10,6 +10,18 @@
 
 **設計書:** `00_Claude/specs/2026-09-07-decision-record-hooks-design.md`
 
+> **⚠ Task 3・Task 4 の記述は古い。** Task 8（2026-09-07 追加）で hook の出力プロトコルを
+> 変更し、`jq` 依存を排除した。Task 3・4 に出てくる `jq -r '.hookSpecificOutput...'` や
+> `jq -r '.reason'` を使う検証コマンドは**現在の実装では動作しない**。
+> 現在の仕様は次のとおり。
+>
+> | hook | 出力 |
+> |---|---|
+> | SessionStart | 平文を stdout に出して終了コード0（`grep` で直接検査する） |
+> | Stop | 指示文を stderr に出して終了コード2（`2>&1 >/dev/null` で捕捉する） |
+>
+> Task 3・4 は実施済みの記録として残してあるだけで、再実行を想定していない。
+
 ## Global Constraints
 
 - すべてのファイルは **UTF-8（BOMなし・LF）** で作成する。Claudian の Write ツールは UTF-16 LE で書き込むため、bash のヒアドキュメントまたは python3 で書き出すこと。
@@ -948,10 +960,18 @@ file /Users/yohira/git/coopinf/.claude/active-plan
 
 ```bash
 cd /Users/yohira/git/coopinf
-/Users/yohira/.claude/hooks/record/session-start-context.sh </dev/null | jq -r '.hookSpecificOutput.additionalContext' | grep -E '実行中の計画|cutover-plan|未完了'
+echo "--- SessionStart: 計画が注入されるか ---"
+"$HOME/.claude/hooks/record/session-start-context.sh" </dev/null | grep -E '^## |^### '
+echo "--- Stop: 段取りの書き先が計画ファイルになるか ---"
+echo '{}' | "$HOME/.claude/hooks/record/stop-record-decisions.sh" 2>&1 >/dev/null | sed -n '1,8p'
 ```
 
-期待: `### migration/cutover-plan.md（未完了 19 件）` を含む行が出力される。
+期待:
+
+- SessionStart の出力に `## 実行中の計画と未完了のステップ` と `### migration/cutover-plan.md（未完了 19 件）` が含まれる
+- Stop の項番1の書き先が `- migration/cutover-plan.md` になり、**「フォールバック」の文字列が出ない**
+
+> **注:** hook は JSON を返さない（Task 8 で変更）。`jq` でパースしようとするとエラーになる。
 
 - [ ] **Step 6: コミットして Draft PR を作成する**
 
