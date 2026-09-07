@@ -353,12 +353,17 @@ Task 8（`jq` 依存の排除）のレビューまで完了。以降は**順序�
 
 ### 順序（依存関係あり）
 
-1. **PR #6（`sync.ps1` の ASCII 化）をマージ**し、Windows で `.\sync.ps1 push` が通ることを確認する
-   - **これが先。** `sync.ps1` が動かないと PR #8 の内容を Windows へ配れない
-2. **PR #8（`jq` 依存の排除）をマージ**し、Windows で `sync.ps1 push` → Claude 起動
+1. ~~**PR #6（`sync.ps1` の ASCII 化）をマージ**し、Windows で `.\sync.ps1 push` が通ることを確認する~~
+   → **完了（2026-09-07）。** Windows で `sync.ps1 push` が英語メッセージで完走した。
+     ASCII 化によりパースエラーは解消。
+2. **PR #8（`jq` 依存の排除）をマージ**し、Windows で `git pull` → `sync.ps1 push` → Claude 起動
+   - **マージだけでは Windows に届かない。** `git pull` と `sync.ps1 push` をやり直すこと
 3. **Windows で hook の発火を確認**する
-   - SessionStart … 冒頭に `LEARNINGS.md` の要約報告が出るか
-   - Stop … 1ターン応答後に記録を促す動きが入るか
+   - **注意: 起動しただけでは何も表示されない。** SessionStart hook が注入するのは
+     コンテキストであって画面表示ではなく、Claude は入力を受けるまで応答しない。
+     **新セッションで一言送ってから**判定する
+   - SessionStart … その応答が `LEARNINGS.md` の内容に触れているか
+   - Stop … 応答が終わった直後に記録を促す動きが入るか
 4. **Task 5 のレビュー**（実機発火確認の結果を含めて実施）
 5. **Task 6**（coopinf のローカル hook 撤去 + `.claude/active-plan` 設置）
    - coopinf の PR #34 はマージ済みのため **main から新ブランチを切り直す**
@@ -378,6 +383,7 @@ PR #8 マージ後は `jq` 不要。`winget` で導入済みのものは残し�
 
 | 対象 | 状態 |
 | - | - |
+| `sync.ps1`（Windows） | **確認済み**（2026-09-07。ASCII 化でパースエラー解消） |
 | Stop hook（macOS） | **実発火を確認済み**（本ファイルの複数エントリがその成果物） |
 | SessionStart hook（macOS） | 未確認（hook 登録後に新セッションを開始していないため） |
 | 両 hook（Windows） | 未確認（手順3で確認する） |
