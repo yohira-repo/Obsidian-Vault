@@ -135,3 +135,58 @@
 - claude-config へ追加コミットする際、対象 PR が既にマージ済みかを push 前に確認しなかった。
   マージ済みブランチにコミットしてしまい、PR #2 に切り出して復旧した。
 
+## 2026-09-07 会話の決定・段取りが記録されずに流れる問題への対策（hook 導入）
+
+### 事象
+
+coopinf の Phase 4 カットオーバーで 9/7・9/8 の段取りを会話で何度も詰めたが、
+`conversations.md` に残ったのは本筋から外れた CloudFormation 文字化けの件だけだった。
+
+### 原因
+
+自動トリガー（Stop hook）を持つ `migration/LEARNINGS.md` だけが埋まり、
+宣言的ルールに委ねた `conversations.md` は「完結した調査の結論」しか拾えていなかった。
+9/7・9/8 の段取りは**未完了の合意**であるため「結論」と判定されず落ちた。
+CLAUDE.md の文言強化だけでは不十分（Draft PR ルールが明文化済みでも3日連続で守られなかった前例がある）。
+
+### 決定事項
+
+| 論点 | 決定 | 日付 |
+| - | - | - |
+| 記録すべき対象 | 「日付付きの実行段取り」と「会話で確定した決定・合意」の2つ。進捗チェックボックスと全文要約は対象外 | 2026-09-07 |
+| 実現方式 | グローバル hook 2本を `claude-config` で版管理し `~/.claude/hooks/record/` に配置。リポジトリ個別配置は却下（`settings.local.json` が gitignore されており他PCで消えるため） | 2026-09-07 |
+| 計画ファイルの特定 | 自動検出は却下。`.claude/active-plan` で明示宣言する（自動検出は完了済みの残骸や古い計画を拾うことを実測で確認） | 2026-09-07 |
+| `active-plan` の形式 | **複数行**（1行1パス）。`#` コメント・空行・実在しないパスは無視するため、更新漏れでも壊れない | 2026-09-07 |
+| 適用範囲 | 全リポジトリ + **Obsidian Vault も含める**（プログラム以外の作業系を Vault の Note で管理しているため） | 2026-09-07 |
+| ECC 生成物 | `claude-config/claude/hooks/` 配下の everything-claude-code 生成物は**削除する** | 2026-09-07 |
+| 改行コード | repo・実機とも **LF に統一**し、`.gitattributes` の `* text=auto eol=lf` で再発を防ぐ | 2026-09-07 |
+| 実行方式 | Subagent-Driven（タスクごとに実装者とレビュアーを立てる） | 2026-09-07 |
+
+### 成果物
+
+- `~/.claude/hooks/record/lib.sh` … パス解決の共通処理
+- `~/.claude/hooks/record/session-start-context.sh` … `LEARNINGS.md` と実行中計画の未完了 Step を注入（1ファイル20件 / 合計60件が上限）
+- `~/.claude/hooks/record/stop-record-decisions.sh` … 毎ターン3観点を自問させる
+- `~/.claude/settings.json` に SessionStart / Stop を登録（既存の SessionEnd 同期は維持）
+- `~/.claude/CLAUDE.md` の記録ルールを「結論」から「決定・合意・日付付き段取り」へ具体化
+
+設計書は `00_Claude/specs/2026-09-07-decision-record-hooks-design.md`、
+実装計画は `00_Claude/plans/2026-09-07-decision-record-hooks.md`。
+
+### レビューで見つかった欠陥（すべて計画に書いたコードの不良）
+
+1. `cp` により repo 側 `CLAUDE.md` が LF から CRLF に退行
+2. `find_records` の `sed "s|^${root}/||"` が、パスに `[` `]` を含むと絶対パスを返し `|` を含むとコマンド自体が失敗
+3. Stop hook が、受け皿が部分的にしか無いリポジトリで存在しないファイルへ案内し項番が 1→3 に飛ぶ
+
+いずれもテストが通っている状態で潜んでいた。レビューを挟まなければそのまま入っていた。
+
+### 限界（合意済み）
+
+hook が保証するのは「毎ターン必ず判定が走る」ことであり、書き込みの強制ではない。
+記録すべきかの最終判断は Claude 側に残る。
+
+### 検証状況
+
+- Stop hook … **2026-09-07 のこの会話で実発火を確認**（本エントリがその成果物）
+- SessionStart hook … 新セッションでの発火確認が未実施（ユーザー確認待ち）

@@ -1012,58 +1012,17 @@ cd /tmp && echo '{}' | /Users/yohira/.claude/hooks/record/stop-record-decisions.
 
 期待: 何も出力されず `exit=0`。
 
-- [ ] **Step 3: 本件の結論を Vault の conversations.md に追記する**
+- [ ] **Step 3: conversations.md の記録内容を確認・補完する**
+
+**注意:** 本エントリは **2026-09-07 のセッション中に、稼働開始した Stop hook 自身が促して既に追記済み**（`00_Claude/conversations.md` の「2026-09-07 会話の決定・段取りが記録されずに流れる問題への対策（hook 導入）」）。二重に追記しないこと。
+
+このタスクでは、既存エントリの「検証状況」節を実際の結果で更新するだけでよい。
 
 ```bash
-python3 - <<'EOS'
-import io, datetime
-p = '/Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md'
-s = io.open(p, encoding='utf-8').read()
-add = """
-## 2026-09-07 会話の決定・段取りが記録されずに流れる問題への対策
-
-### 事象
-
-coopinf の Phase 4 カットオーバーで 9/7・9/8 の段取りを会話で何度も詰めたが、
-`conversations.md` には本筋から外れた CloudFormation 文字化けの件しか残らなかった。
-
-### 原因
-
-自動トリガー（Stop hook）を持つ `LEARNINGS.md` だけが埋まり、
-宣言的ルールに委ねた `conversations.md` は「完結した調査の結論」しか拾えていなかった。
-9/7・9/8 の段取りは未完了の合意であるため「結論」と判定されず落ちた。
-CLAUDE.md の文言強化だけでは不十分（Draft PR ルールが明文化済みでも守られなかった前例がある）。
-
-### 対応
-
-グローバル hook 2本（`~/.claude/hooks/record/`）を `claude-config` で版管理し、全リポジトリに適用。
-
-- **Stop hook** … 毎ターン「日付付き段取り / 決定・合意 / 学び」の3観点を自問させる。
-  受け皿の実在パスを hook 側で解決して指示文に埋め込む
-- **SessionStart hook** … `LEARNINGS.md` と、`.claude/active-plan` が指す計画ファイルの
-  未チェック Step を注入する（1ファイル20件・合計60件が上限）
-- **`.claude/active-plan`** … 実行中の計画ファイルを1行1パスで複数宣言。
-  `#` コメント・空行・実在しないパスは無視するため、更新漏れでも壊れない
-
-### 副次的に判明した問題（対応済み）
-
-- `claude-config/claude/CLAUDE.md` が実機より9行古く、他PCで `sync.ps1 push` すると
-  個人ルールが5行に巻き戻る状態だった
-- `claude-config/claude/hooks/` に everything-claude-code の生成物が残っており、
-  リポジトリ自身の方針（生成物は管理しない）に反していた
-
-### 限界（合意済み）
-
-hook が保証するのは「毎ターン必ず判定が走る」ことであり、書き込みの強制ではない。
-記録すべきかの最終判断は Claude 側に残る。
-"""
-io.open(p, 'w', encoding='utf-8').write(s.rstrip("\n") + "\n" + add)
-print("ok")
-EOS
-file /Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md
+grep -n "検証状況" -A 4 /Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md
 ```
 
-期待: `UTF-8 text` と表示される。
+期待: SessionStart hook の行が「ユーザー確認待ち」のままなら、Task 5 Step 5 の結果に置き換える。
 
 - [ ] **Step 4: Vault をコミットする**
 
