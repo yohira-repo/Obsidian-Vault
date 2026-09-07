@@ -177,6 +177,10 @@ HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../claude/hooks/record" && pwd)
 PASS=0
 FAIL=0
 
+TMPDIRS=()
+cleanup() { for d in "${TMPDIRS[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done; }
+trap cleanup EXIT
+
 ok()   { PASS=$((PASS+1)); echo "  ok   - $1"; }
 ng()   { FAIL=$((FAIL+1)); echo "  NG   - $1"; echo "         期待: [$2]"; echo "         実際: [$3]"; }
 check(){ if [ "$2" = "$3" ]; then ok "$1"; else ng "$1" "$2" "$3"; fi; }
@@ -186,6 +190,7 @@ make_repo() {
   local d
   d=$(mktemp -d)
   git -C "$d" init -q
+  TMPDIRS+=("$d")
   echo "$d"
 }
 
@@ -198,7 +203,21 @@ mkdir -p "$R/docs" "$R/sub/docs" "$R/node_modules/pkg"
 touch "$R/conversations.md" "$R/docs/conversations.md" "$R/sub/docs/conversations.md" "$R/node_modules/pkg/conversations.md"
 GOT=$(cd "$R" && find_records "$R" conversations.md | tr '\n' ',')
 check "find_records は3階層まで拾い node_modules を除外する" "conversations.md,docs/conversations.md,sub/docs/conversations.md," "$GOT"
+cp "$R/conversations.md" "$R/.git/conversations.md"
+GOT=$(find_records "$R" conversations.md | tr '\n' ',')
+check "find_records は .git 配下を除外する" "conversations.md,docs/conversations.md,sub/docs/conversations.md," "$GOT"
 rm -rf "$R"
+
+# root に正規表現メタ文字や sed の区切り文字が含まれても壊れないこと。
+# sed によるプレフィックス除去だと [ ] で絶対パスがそのまま返り、| ではコマンドが失敗する。
+B=$(mktemp -d); TMPDIRS+=("$B")
+R="$B/re[po] |x"
+mkdir -p "$R/docs"
+git -C "$R" init -q
+touch "$R/conversations.md" "$R/docs/conversations.md"
+GOT=$(find_records "$R" conversations.md | tr '\n' ',')
+check "find_records は特殊文字を含むパスでも root 相対で返す" "conversations.md,docs/conversations.md," "$GOT"
+rm -rf "$B"
 
 R=$(make_repo)
 GOT=$(cd "$R" && find_records "$R" conversations.md)
@@ -212,6 +231,9 @@ touch "$R/migration/cutover-plan.md" "$R/migration/verify-backfill-plan.md"
 printf '# Phase 4\nmigration/cutover-plan.md\n\n#migration/verify-backfill-plan.md\nmigration/deleted-plan.md\n' > "$R/.claude/active-plan"
 GOT=$(read_active_plans "$R" | tr '\n' ',')
 check "read_active_plans はコメント・空行・実在しないパスを除外する" "migration/cutover-plan.md," "$GOT"
+printf '   migration/cutover-plan.md   \n\t  # インデントされたコメント\n' > "$R/.claude/active-plan"
+GOT=$(read_active_plans "$R" | tr '\n' ',')
+check "read_active_plans は前後の空白を除去する" "migration/cutover-plan.md," "$GOT"
 rm -rf "$R"
 
 R=$(make_repo)
@@ -259,12 +281,17 @@ repo_root() {
 
 # find_records <root> <filename>
 # <root> 配下3階層以内の <filename> を root 相対パスで出力する。
+#
+# プレフィックス除去に sed を使ってはならない。root は正規表現ではなくリテラルであり、
+# パスに [ ] . を含むと誤マッチし、| を含むと区切り文字と衝突して sed 自体が失敗する
+# （実機で再現確認済み）。bash のパラメータ展開 ${f#"$root"/} はリテラル一致のため安全。
 find_records() {
-  local root="$1" name="$2"
+  local root="$1" name="$2" f
   [ -d "$root" ] || return 0
-  find "$root" -maxdepth 3 -name "$name" -type f \
-    -not -path "*/.git/*" -not -path "*/node_modules/*" 2>/dev/null \
-    | sed "s|^${root}/||" | sort
+  while IFS= read -r f; do
+    printf '%s\n' "${f#"$root"/}"
+  done < <(find "$root" -maxdepth 3 -name "$name" -type f \
+             -not -path "*/.git/*" -not -path "*/node_modules/*" 2>/dev/null | sort)
 }
 
 # read_active_plans <root>
@@ -301,7 +328,7 @@ EOS
 /Users/yohira/git/claude-config/tests/test-record-hooks.sh
 ```
 
-期待: `PASS=6 FAIL=0` と表示され、終了コード0。
+期待: `PASS=9 FAIL=0` と表示され、終了コード0。
 
 - [ ] **Step 5: コミットする**
 
@@ -498,7 +525,7 @@ chmod +x /Users/yohira/git/claude-config/claude/hooks/record/session-start-conte
 /Users/yohira/git/claude-config/tests/test-record-hooks.sh
 ```
 
-期待: `PASS=17 FAIL=0`、終了コード0。
+期待: `PASS=20 FAIL=0`、終了コード0。
 
 - [ ] **Step 5: 実リポジトリで手動確認する**
 
@@ -683,7 +710,7 @@ chmod +x /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisio
 /Users/yohira/git/claude-config/tests/test-record-hooks.sh
 ```
 
-期待: `PASS=30 FAIL=0`、終了コード0。
+期待: `PASS=33 FAIL=0`、終了コード0。
 
 - [ ] **Step 5: 実リポジトリで手動確認する**
 
