@@ -107,7 +107,10 @@ gh pr create --draft --title "決定・段取りの記録漏れを防ぐ hook �
 
 **Files:**
 - Create: `/Users/yohira/git/claude-config/claude/hooks/record/lib.sh`
+- Create: `/Users/yohira/git/claude-config/.gitattributes`
 - Test: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
+
+**なぜ `.gitattributes` が要るか（Task 1 の実測で判明）:** このリポジトリには `.gitattributes` が無く、実機の `CLAUDE.md` は **CRLF** で保存されている。Windows PC が `core.autocrlf=true` でチェックアウトすると `*.sh` も CRLF になり、`#!/bin/bash\r` として解釈されて **hook が「bad interpreter」で起動しなくなる**。Global Constraints の「Windows PC と共用するため」を成立させるために必須。既存ファイルの改行は変えず、`*.sh` のみ LF に固定する。
 
 **Interfaces:**
 - Produces: 以下4関数。Task 3・Task 4 の両スクリプトが `. "$SCRIPT_DIR/lib.sh"` で読み込んで使う。
@@ -249,7 +252,21 @@ unchecked_count() {
 EOS
 ```
 
-- [ ] **Step 4: テストを実行して通ることを確認する**
+- [ ] **Step 4: `.gitattributes` を作成して `*.sh` を LF に固定する**
+
+```bash
+cat > /Users/yohira/git/claude-config/.gitattributes <<'EOS'
+# hook スクリプトは Windows でも LF でなければ shebang が壊れる
+*.sh text eol=lf
+EOS
+cd /Users/yohira/git/claude-config
+git add .gitattributes claude/hooks/record/lib.sh
+git ls-files --eol claude/hooks/record/lib.sh
+```
+
+期待: `w/lf` を含む行が表示される（ワーキングツリー上が LF）。
+
+- [ ] **Step 5: テストを実行して通ることを確認する**
 
 ```bash
 /Users/yohira/git/claude-config/tests/test-record-hooks.sh
@@ -257,12 +274,15 @@ EOS
 
 期待: `PASS=6 FAIL=0` と表示され、終了コード0。
 
-- [ ] **Step 5: コミットする**
+- [ ] **Step 6: コミットする**
 
 ```bash
 cd /Users/yohira/git/claude-config
-git add claude/hooks/record/lib.sh tests/test-record-hooks.sh
-git commit -m "feat: record hooks の共通パス解決ライブラリとテストを追加"
+git add .gitattributes claude/hooks/record/lib.sh tests/test-record-hooks.sh
+git commit -m "feat: record hooks の共通パス解決ライブラリとテストを追加
+
+Windows で .sh が CRLF チェックアウトされ shebang が壊れるのを防ぐため
+.gitattributes で *.sh を LF に固定する。"
 ```
 
 ---
@@ -720,6 +740,8 @@ jq -r '.hooks | keys[]' /Users/yohira/.claude/settings.json
 
 - [ ] **Step 3: CLAUDE.md の文言を修正する**
 
+**注意:** この2ファイルは **CRLF** で保存されている（Task 1 の実測で判明）。Python のテキストモードで読み書きすると改行が LF へ黙って変換され、全14行が差分として出てしまう。既存ファイルの改行は変えないため、下記は元の改行コードを検出して復元する。
+
 ```bash
 python3 - <<'EOS'
 import io
@@ -732,15 +754,21 @@ new = ("- 会話で確定した内容は、コマンドライン上だけでは�
        "  - **効いた型・失敗・業務知識** → LEARNINGS.md（あるリポジトリのみ）\n")
 for p in ('/Users/yohira/.claude/CLAUDE.md',
           '/Users/yohira/git/claude-config/claude/CLAUDE.md'):
-    s = io.open(p, encoding='utf-8').read()
+    raw = io.open(p, 'rb').read()
+    crlf = b'\r\n' in raw
+    s = raw.decode('utf-8').replace('\r\n', '\n')
     assert old in s, p
-    io.open(p, 'w', encoding='utf-8').write(s.replace(old, new))
-    print("patched", p)
+    s = s.replace(old, new)
+    out = s.replace('\n', '\r\n') if crlf else s
+    io.open(p, 'wb').write(out.encode('utf-8'))
+    print("patched", p, "crlf=" + str(crlf))
 EOS
 diff /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md && echo "SAME"
+file /Users/yohira/git/claude-config/claude/CLAUDE.md
+cd /Users/yohira/git/claude-config && git diff --stat claude/CLAUDE.md
 ```
 
-期待: 2ファイルとも `patched` と表示され、最後に `SAME`。
+期待: 2ファイルとも `patched ... crlf=True`、`SAME`、`with CRLF line terminators`。`git diff --stat` の変更行数が **1行削除・4行追加程度**に収まっていること（全14行が差分になっていたら改行変換が起きている）。
 
 - [ ] **Step 4: 実機の settings.json を repo へ同期する**
 
