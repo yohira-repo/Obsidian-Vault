@@ -1329,6 +1329,210 @@ gh pr close 7 --comment "jq 依存を排除する方針に変更したため clo
 期待: PR の URL が出力され、PR #7 が closed になる。
 
 
+---
+
+### Task 9: 注入する Step に見出しを併記する
+
+**背景:** SessionStart の計画注入は `- [ ]` 行だけを抜き出すため、**どの Task に属する Step か分からない**。`cutover-plan.md` では「Step 1: ユーザーのgoサインを取る」が Task 4・5・7 にそれぞれ存在し、同じ文言が3回並ぶ（2026-09-07 ユーザー判断で対応することにした Minor）。
+
+**方針:** 各 `- [ ]` の**直近上位の見出し行**を併記する。見出しは元ファイルの記法（`#` の数）をそのまま出力し、原文への忠実性を保つ。
+
+**Files:**
+- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh`
+- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
+
+**Interfaces:**
+- Consumes: Task 2 の `lib.sh`（変更なし）
+- Produces: 見出し付きの計画注入。上限（1ファイル20件・合計60件）の意味は変わらず、**見出し行は件数に数えない**
+
+- [ ] **Step 1: 失敗するテストを追記する**
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
+add = """
+echo "== 計画注入の見出し併記 =="
+
+# 同じ Step 名が別の Task に存在しても、見出しで区別できること
+R=$(make_repo)
+mkdir -p "$R/.claude"
+printf '### Task A\\n- [ ] goサインを取る\\n- [ ] 実行する\\n### Task B\\n- [ ] goサインを取る\\n' > "$R/p.md"
+printf 'p.md\\n' > "$R/.claude/active-plan"
+CTX=$(cd "$R" && "$SS" </dev/null)
+check "見出し: Task A が出る"           "1" "$(printf '%s' "$CTX" | grep -c '^### Task A$')"
+check "見出し: Task B が出る"           "1" "$(printf '%s' "$CTX" | grep -c '^### Task B$')"
+check "見出し: 同名Stepが2件とも出る"   "2" "$(printf '%s' "$CTX" | grep -c 'goサインを取る')"
+rm -rf "$R"
+
+# 見出しが1つも無い計画ファイルでも壊れないこと
+R=$(make_repo)
+mkdir -p "$R/.claude"
+printf -- '- [ ] alpha\\n- [ ] bravo\\n' > "$R/q.md"
+printf 'q.md\\n' > "$R/.claude/active-plan"
+CTX=$(cd "$R" && "$SS" </dev/null)
+check "見出し無しでも Step が出る" "2" "$(printf '%s' "$CTX" | grep -c '^- \\[ \\]')"
+rm -rf "$R"
+
+# 未チェックが1件も無い見出しは出力しないこと
+R=$(make_repo)
+mkdir -p "$R/.claude"
+printf '### DONE-ONLY\\n- [x] done\\n### HAS-OPEN\\n- [ ] open\\n' > "$R/r.md"
+printf 'r.md\\n' > "$R/.claude/active-plan"
+CTX=$(cd "$R" && "$SS" </dev/null)
+check "済みだけの見出しは出ない" "0" "$(printf '%s' "$CTX" | grep -c 'DONE-ONLY')"
+check "未完了がある見出しは出る" "1" "$(printf '%s' "$CTX" | grep -c 'HAS-OPEN')"
+rm -rf "$R"
+
+# 上限は Step の件数で数え、見出し行は数えないこと
+R=$(make_repo)
+mkdir -p "$R/.claude"
+: > "$R/big.md"
+for i in $(seq 1 25); do printf '### T%02d\\n- [ ] item%02d\\n' "$i" "$i" >> "$R/big.md"; done
+printf 'big.md\\n' > "$R/.claude/active-plan"
+CTX=$(cd "$R" && "$SS" </dev/null)
+check "上限は Step 件数で数える" "20" "$(printf '%s' "$CTX" | grep -c -- '-item')"
+rm -rf "$R"
+"""
+assert marker in s
+s = s.replace(marker, add + marker)
+io.open(p, 'w', encoding='utf-8').write(s)
+print("テストを追加")
+EOS
+```
+
+- [ ] **Step 2: テストを実行して失敗することを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: 見出し関連のテストが FAIL する（`### Task A` が出力に含まれないため）。
+
+- [ ] **Step 3: 抽出処理を `grep` から `awk` に置き換える**
+
+`session-start-context.sh` の次の1行を置き換える。
+
+```bash
+$(grep '^[[:space:]]*- \[ \]' "$ROOT/$rel" | head -n "$take")
+```
+
+置き換え後。
+
+```bash
+$(awk -v max="$take" '
+    /^#+ / { heading = $0; next }
+    /^[[:space:]]*- \[ \]/ {
+      if (count >= max) exit
+      if (heading != "" && heading != lastprinted) {
+        if (count > 0) print ""
+        print heading
+        lastprinted = heading
+      }
+      print
+      count++
+    }
+  ' "$ROOT/$rel")
+```
+
+`count` は Step のみを数えるため、**見出し行は上限に影響しない**。`lastprinted` により同じ見出しの重複出力を防ぐ。`heading != ""` のガードで、見出しが1つも無いファイルでも空行が入らない。
+
+- [ ] **Step 4: テストを実行して通ることを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `FAIL=0` かつ終了コード0。PASS の総数は実測値を報告に記載する。
+
+- [ ] **Step 5: 実リポジトリで見え方を確認する**
+
+```bash
+cd /Users/yohira/git/coopinf
+"$HOME/.claude/hooks/record/session-start-context.sh" </dev/null | sed -n '/実行中の計画/,$p' | head -20
+```
+
+期待: `### Task 4: ...` の下に Step 1〜3、`### Task 5: ...` の下に Step 1〜4、というように Task ごとにまとまって出力される。
+
+- [ ] **Step 6: 実機へ配布する**
+
+macOS には `sync.ps1` が使えないため手でコピーする。
+
+```bash
+cp /Users/yohira/git/claude-config/claude/hooks/record/*.sh /Users/yohira/.claude/hooks/record/
+chmod +x /Users/yohira/.claude/hooks/record/*.sh
+diff /Users/yohira/.claude/hooks/record/session-start-context.sh /Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh && echo "SAME"
+```
+
+期待: `SAME`
+
+- [ ] **Step 7: コミットして Draft PR を作成する**
+
+```bash
+cd /Users/yohira/git/claude-config
+git checkout main && git pull
+git checkout -b feature/inject-plan-headings
+git add claude/hooks/record/session-start-context.sh tests/test-record-hooks.sh
+git commit -m "feat: 計画注入に直近上位の見出しを併記する
+
+- [ ] 行だけを抜き出していたため、どの Task の Step か分からなかった。
+cutover-plan.md では「Step 1: ユーザーのgoサインを取る」が Task 4/5/7 に
+存在し、同じ文言が3回並んでいた。
+
+各 Step の直近上位の見出し行を併記する。見出しは元ファイルの記法のまま
+出力し、上限(1ファイル20件・合計60件)は従来どおり Step の件数で数える。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push -u origin feature/inject-plan-headings
+gh pr create --draft --title "feat: 計画注入に直近上位の見出しを併記する" --body "実装計画: Obsidian Vault \`00_Claude/plans/2026-09-07-decision-record-hooks.md\` の Task 9
+
+## 背景
+
+SessionStart の計画注入は \`- [ ]\` 行だけを抜き出すため、どの Task に属する Step か分からなかった。\`cutover-plan.md\` では「Step 1: ユーザーのgoサインを取る」が Task 4・5・7 に存在し、同じ文言が3回並ぶ。
+
+## 対応
+
+各 Step の直近上位の見出し行を併記する。
+
+変更前
+
+\`\`\`
+### migration/cutover-plan.md（未完了 19 件）
+- [ ] **Step 1: ユーザーのgoサインを取る**
+- [ ] **Step 2: prd のステートマシンを起動する**
+- [ ] **Step 3: CloudWatch Logs で結果を確認する**
+- [ ] **Step 1: ユーザーのgoサインを取る**
+\`\`\`
+
+変更後
+
+\`\`\`
+### migration/cutover-plan.md（未完了 19 件）
+
+### Task 4: 本番SFTPへの接続確認を実行する(要ユーザーgo判断)
+- [ ] **Step 1: ユーザーのgoサインを取る**
+- [ ] **Step 2: prd のステートマシンを起動する**
+- [ ] **Step 3: CloudWatch Logs で結果を確認する**
+
+### Task 5: カットオーバー(要ユーザーgo判断)
+- [ ] **Step 1: ユーザーのgoサインを取る**
+\`\`\`
+
+## 仕様
+
+- 見出しは元ファイルの記法（\`#\` の数）のまま出力する
+- 上限（1ファイル20件・合計60件）は従来どおり **Step の件数**で数え、見出し行は数えない
+- 未チェックが1件も無い見出しは出力しない
+- 見出しが1つも無い計画ファイルでも壊れない
+
+いずれもテストで検査している。"
+```
+
+期待: PR の URL が出力される。
+
+
 ## タスク依存関係
 
 ```
