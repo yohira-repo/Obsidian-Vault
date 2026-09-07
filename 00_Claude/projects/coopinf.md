@@ -320,3 +320,14 @@ Phase 4の作業で発生したものではない。
 ユーザーより「スケジュールの設定は今日中」「実施しておいてください」とgoサインを得た
 (2026-09-07)。Task 5(旧バッチのスケジュール停止→新バッチのスケジュール有効化、
 順序厳守)を本日中に実施する。
+
+---
+
+## 2026-09-07 運用ルール: conversations.md記載時は対象ドキュメントへのリンク必須
+
+ユーザーより「会話をconversations.mdに記載する際には、必ず、どのドキュメントの
+会話なのか、リンクを入れてください」と指示(2026-09-07)。以後、本ファイルへの
+エントリには対象ドキュメント(仕様書・計画ファイル・PR・Issue等)へのリンクを
+必ず添える運用とする。Claude側のmemoryにも
+[conversations-md-doc-link.md](/Users/yohira/.claude/projects/-Users-yohira-git-coopinf/memory/conversations-md-doc-link.md)
+として記録済み。
