@@ -1533,6 +1533,151 @@ SessionStart の計画注入は \`- [ ]\` 行だけを抜き出すため、ど�
 期待: PR の URL が出力される。
 
 
+- [ ] **Step 8: レビュー指摘（Critical）を修正する — コードフェンス内を無視する**
+
+**指摘内容:** `/^#+ /` が**コードブロック内のシェルコメントを見出しと誤認識**する。計画ファイルにはコードブロックが多数含まれるため実運用で頻発する。
+
+実測した影響範囲。
+
+| ファイル | フェンス内の `#` 行 | フェンス内の `- [ ]` |
+| - | - | - |
+| `coopinf/migration/cutover-plan.md` | 0 | 0 |
+| `coopinf/migration/verify-backfill-plan.md` | **12** | 0 |
+| Vault の実装計画 | **87** | **9** |
+
+Step 5 の実機確認で気づけなかったのは、`cutover-plan.md` にたまたま該当が0件だったため。
+
+**方針（2026-09-07 ユーザー判断）:** コードフェンスの内側は**見出しもチェックボックスも無視する**。ドキュメント中の例示は実タスクではないため、「未完了 N 件」の件数も正確になる。`lib.sh` の `unchecked_count` も合わせて修正し、件数と実出力を一致させる。
+
+まずテストを追記する。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
+add = """
+echo "== コードフェンス内を無視する =="
+
+R=$(make_repo)
+mkdir -p "$R/.claude"
+{
+  printf '### Task 1: 見出しテスト\\n'
+  printf -- '- [ ] STEP-REAL-1\\n'
+  printf '\\n'
+  printf '```bash\\n'
+  printf 'echo hello\\n'
+  printf '# FENCE-COMMENT\\n'
+  printf -- '- [ ] FENCE-CHECKBOX\\n'
+  printf '```\\n'
+  printf '\\n'
+  printf -- '- [ ] STEP-REAL-2\\n'
+} > "$R/f.md"
+printf 'f.md\\n' > "$R/.claude/active-plan"
+
+check "unchecked_count がフェンス内を数えない" "2" "$(unchecked_count "$R" f.md)"
+
+CTX=$(cd "$R" && "$SS" </dev/null)
+check "フェンス内の # が見出しにならない"   "0" "$(printf '%s' "$CTX" | grep -c 'FENCE-COMMENT')"
+check "フェンス内の - [ ] を出力しない"     "0" "$(printf '%s' "$CTX" | grep -c 'FENCE-CHECKBOX')"
+check "フェンス外の Step は2件とも出る"     "2" "$(printf '%s' "$CTX" | grep -c 'STEP-REAL-')"
+check "正しい見出しが1回だけ付く"           "1" "$(printf '%s' "$CTX" | grep -c '^### Task 1: 見出しテスト$')"
+check "見出しの件数表示がフェンス除外後の数" "1" "$(printf '%s' "$CTX" | grep -c '（未完了 2 件）')"
+rm -rf "$R"
+"""
+assert marker in s
+s = s.replace(marker, add + marker)
+io.open(p, 'w', encoding='utf-8').write(s)
+print("フェンステストを追加")
+EOS
+```
+
+テストを実行し、フェンス関連が FAIL することを確認する。
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+`lib.sh` の `unchecked_count` を置き換える。
+
+```bash
+# unchecked_count <root> <relpath>
+# 未チェックのチェックボックス行の件数を出力する。
+# コードフェンス（``` / ~~~）の内側は、ドキュメント中の例示であって実タスクでは
+# ないため数えない。session-start-context.sh の抽出処理と同じ判定にしてあり、
+# 「未完了 N 件」の表示と実際の出力件数が食い違わないようにしている。
+unchecked_count() {
+  local root="$1" rel="$2" n
+  n=$(awk '
+    /^[[:space:]]*(```|~~~)/ { infence = !infence; next }
+    !infence && /^[[:space:]]*- \[ \]/ { c++ }
+    END { print c+0 }
+  ' "$root/$rel" 2>/dev/null || true)
+  printf '%s\n' "${n:-0}"
+}
+```
+
+`session-start-context.sh` の抽出 `awk` を置き換える。冒頭2行が追加分。
+
+```bash
+$(awk -v max="$take" '
+    /^[[:space:]]*(```|~~~)/ { infence = !infence; next }
+    infence { next }
+    /^#+ / { heading = $0; next }
+    /^[[:space:]]*- \[ \]/ {
+      if (count >= max) exit
+      if (heading != "" && heading != lastprinted) {
+        if (count > 0) print ""
+        print heading
+        lastprinted = heading
+      }
+      print
+      count++
+    }
+  ' "$ROOT/$rel")
+```
+
+テストを実行して通ることを確認する。
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `FAIL=0`。PASS の総数は実測値を報告する。
+
+実ファイルでの件数を確認する。
+
+```bash
+cd /Users/yohira/git/coopinf
+"$HOME/.claude/hooks/record/session-start-context.sh" </dev/null | grep -E '未完了|^### Task' | head
+```
+
+期待: `### migration/cutover-plan.md（未完了 19 件）`（**フェンス内が0件のため件数は変わらない**）。`### Task 4:` 等の見出しが付く。
+
+実機へ配布してコミットする。
+
+```bash
+cp /Users/yohira/git/claude-config/claude/hooks/record/*.sh /Users/yohira/.claude/hooks/record/
+chmod +x /Users/yohira/.claude/hooks/record/*.sh
+cd /Users/yohira/git/claude-config
+git add claude/hooks/record/lib.sh claude/hooks/record/session-start-context.sh tests/test-record-hooks.sh
+git commit -m "fix: コードフェンス内の見出しとチェックボックスを無視する
+
+/^#+ / がコードブロック内のシェルコメントを見出しと誤認識していた。
+計画ファイルにはコードブロックが多数含まれ、verify-backfill-plan.md で12件、
+Vault の実装計画で87件が該当する。Step 5 の実機確認で気づけなかったのは
+cutover-plan.md にたまたま該当が0件だったため。
+
+フェンスの内側は見出しもチェックボックスも無視する。例示は実タスクでは
+ないため、unchecked_count も同じ判定にして「未完了 N 件」の表示と
+実出力の件数を一致させた。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push
+```
+
+
 ## タスク依存関係
 
 ```
