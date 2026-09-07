@@ -402,8 +402,10 @@ PR #8 マージ後は `jq` 不要。`winget` で導入済みのものは残し�
 | `sync.ps1`（Windows） | **確認済み**（2026-09-07。ASCII 化でパースエラー解消） |
 | Stop hook（macOS） | **確認済み**（本ファイルの複数エントリがその成果物） |
 | SessionStart hook（Windows） | **確認済み**（2026-09-07。`claude --debug -p` で LEARNINGS.md の内容に基づく応答を確認） |
-| SessionStart hook（macOS） | 未確認（hook 登録後に新セッションを開始していないため） |
+| SessionStart hook（macOS） | 起動時に異常終了しないことは**確認済み**（Task 7 Step 2, 2026-09-07。coopinf/coopbatch/alphasystem/Obsidian Vault で exit=0）。ただし実セッションでの注入内容の確認は未実施（未確認のまま） |
 | Stop hook（Windows） | 未確認（RDP のキー入力問題で対話セッションを試せていない） |
+| 全対象リポジトリでの受け皿解決（coopinf/coopbatch/coopcdebatch/alphasystem/alphacdk/Obsidian Vault） | **確認済み**（Task 7 Step 1, 2026-09-07。期待表と一致。coopinf のみ `.claude/active-plan` によりフォールバック表記なし） |
+| git 管理外（`/tmp`）での非発火 | **確認済み**（Task 7 Step 3, 2026-09-07。Stop・SessionStart とも無出力で exit=0） |
 
 ### 判明した運用上の穴: macOS には hook の配布手段が無い
 
