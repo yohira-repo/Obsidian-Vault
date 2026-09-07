@@ -1173,6 +1173,267 @@ git commit -m "docs: hook の横展開確認の結果を反映"
 期待: PR の URL が出力される。Vault 側は変更が無ければコミット不要。
 
 
+---
+
+### Task 10: 記録先を conversations.md に集約し、計画ファイルはチェックボックスのみにする
+
+**背景（2026-09-07〜08 ユーザー判断）:** 現在の Stop hook は段取りの書き先として `.claude/active-plan` が指す計画ファイルを提示する。しかし `cutover-plan.md` 等は**手順書も兼ねており**、会話の記録を本文に混ぜると性格が変わる。
+
+あわせて、Obsidian Daily 同期が拾えない事故が起きた。`sections.py` の `DATED_H2_RE` は日付が見出しの**先頭**にあることを要求するが、hook の指示文に**書式の指定が1箇所も無い**ため、セッションごとに違う書式が生まれ黙って落ちる（2026-09-07 に coopinf で実害）。
+
+**変更内容:**
+
+| 対象 | 変更前 | 変更後 |
+| - | - | - |
+| 段取り（日付・順序） | `active-plan` が指す計画ファイル | **`conversations.md`** |
+| 決定・合意 | `conversations.md` | 同じ |
+| 学び | `LEARNINGS.md` | 同じ |
+| 計画の進捗 | （指示なし） | **チェックボックスを `- [x]` に更新。本文は追記しない** |
+| 見出し書式 | （指示なし） | **`## YYYY-MM-DD タイトル` を明示** |
+| 日付の解釈 | （指示なし） | **「出来事が起きた日」を使う**（日付跨ぎ対策） |
+
+フォールバックの概念は不要になる（段取りの書き先が常に `conversations.md` のため）。
+
+**Files:**
+- Modify: `/Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh`
+- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
+
+**Interfaces:**
+- Consumes: Task 2 の `lib.sh`（変更なし）
+- Produces: 受け皿ごとに節を分けた指示文。節も項番も、実在する受け皿の分だけ動的に採番する
+
+- [ ] **Step 1: 既存テストのうち、旧仕様に依存するものを洗い出す**
+
+```bash
+cd /Users/yohira/git/claude-config
+grep -n "フォールバック\|cutover-plan.md\|段取りの書き先\|conversations.md は項番2" tests/test-record-hooks.sh
+```
+
+期待: Stop 節のテストが数件ヒットする。これらは新仕様では成り立たないため Step 3 で書き換える。
+
+- [ ] **Step 2: `REASON` の組み立てを節構成に置き換える**
+
+`stop-record-decisions.sh` の `REASON` 組み立て部分（`# 指示文は…` のコメントから `printf '%s\n' "$REASON" >&2` の直前まで）を次に置き換える。
+
+```bash
+# 受け皿ごとに節を分ける。実在する受け皿の節だけを出し、項番は通しで採番する。
+# 計画ファイルは手順書を兼ねるため、本文への追記はさせずチェックボックスの更新のみとする。
+REASON="このターンを振り返ってください。次に該当するものがあれば記録してください。
+"
+N=0
+
+if [ -n "$CONV" ]; then
+  N=$((N + 1)); ITEM_A=$N
+  N=$((N + 1)); ITEM_B=$N
+  REASON="${REASON}
+── conversations.md に追記する ──
+書き先:
+$(printf '%s' "$CONV" | sed 's/^/    - /')
+
+${ITEM_A}. 日付・時刻・実行順序が確定した段取り
+   例:「Task 4 は 9/7 の日中」「9/8 09:30 の自動実行でカットオーバー」
+${ITEM_B}. ユーザーの承認・go サイン / 方針変更 / やらないと決めたこと（不作為の決定）
+   例:「その方針でいきましょう」「今回はやらない」「B案に変更する」
+"
+fi
+
+if [ -n "$LEARN" ]; then
+  N=$((N + 1))
+  REASON="${REASON}
+── LEARNINGS.md に追記する ──
+書き先:
+$(printf '%s' "$LEARN" | sed 's/^/    - /')
+
+${N}. 効いた型・失敗・業務知識・覚えておく価値のある解法
+   例:「この切り分け手順が原因特定に効いた」「この仕様は直感に反する」
+"
+fi
+
+if [ -n "$PLANS" ]; then
+  N=$((N + 1))
+  REASON="${REASON}
+── 計画ファイルを更新する（本文は追記しない）──
+対象:
+$(printf '%s' "$PLANS" | sed 's/^/    - /')
+
+${N}. 完了したステップのチェックボックスを - [x] にし、実施日を添える
+   計画ファイルは手順書を兼ねるため、会話の記録を本文に書き込まないこと
+"
+fi
+
+REASON="${REASON}
+見出しは \`## YYYY-MM-DD タイトル\` 形式にし、日付を必ず先頭に置くこと。
+末尾の括弧内に日付を書くと Obsidian Daily 同期のパーサが日付なし見出しと判定し黙ってスキップする。
+日付は date コマンドで取得し、出来事が起きた日を使う（セッションが日付を跨ぐ場合に注意）。
+
+重要: 「その件はまだ完了していない」ことは記録しない理由になりません。
+決まった時点で記録してください。会話で詰めた具体的な段取りを省略しないこと。
+
+書き先の候補が複数ある場合は話題に最も近いものを選び、判断がつかなければユーザーに確認してください。
+いずれにも該当しなければ、ファイルを変更せずそのまま終了してください。"
+```
+
+- [ ] **Step 3: テストを新仕様に合わせて書き換える**
+
+旧仕様のテスト（フォールバック表記、段取りの書き先が計画ファイル）は成り立たないため置き換える。`tests/test-record-hooks.sh` の Stop 節を次の内容にする。既存の `== stop-record-decisions.sh ==` の見出しから、その次の `echo "== ` の直前までを差し替える。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+start = s.index('echo "== stop-record-decisions.sh =="')
+end = s.index('echo "== ', start + 10)
+new = """echo "== stop-record-decisions.sh =="
+ST="$HOOK_DIR/stop-record-decisions.sh"
+
+# 受け皿の有無で節と項番がどう変わるかを網羅する。
+# 期待値は「節の数」と「項番の並び」で表す。
+run_stop() {  # $1=repo  -> stderr を stdout に出す
+  (cd "$1" && echo '{}' | "$ST" 2>&1 >/dev/null)
+}
+make_combo() {  # $1=conv $2=learn $3=plan (1/0)
+  local d; d=$(make_repo); mkdir -p "$d/.claude" "$d/m"
+  [ "$1" = 1 ] && touch "$d/conversations.md"
+  [ "$2" = 1 ] && touch "$d/m/LEARNINGS.md"
+  [ "$3" = 1 ] && { touch "$d/m/p.md"; printf 'm/p.md\\n' > "$d/.claude/active-plan"; }
+  echo "$d"
+}
+
+R=$(make_combo 1 0 0)
+OUT=$(run_stop "$R")
+check "Stop: conv のみ → 節1・項番1,2" "1|1,2," "$(printf '%s' "$OUT" | grep -c '^── ')|$(printf '%s' "$OUT" | grep -oE '^[0-9]+' | tr '\\n' ',')"
+check "Stop: conv のみ → 計画節を出さない" "0" "$(printf '%s' "$OUT" | grep -c '計画ファイルを更新')"
+check "Stop: 段取りの書き先が conversations.md" "1" "$(printf '%s' "$OUT" | grep -c '^    - conversations.md$')"
+check "Stop: フォールバック表記は使わない" "0" "$(printf '%s' "$OUT" | grep -c 'フォールバック')"
+rm -rf "$R"
+
+R=$(make_combo 0 1 0)
+OUT=$(run_stop "$R")
+check "Stop: learn のみ → 節1・項番1" "1|1," "$(printf '%s' "$OUT" | grep -c '^── ')|$(printf '%s' "$OUT" | grep -oE '^[0-9]+' | tr '\\n' ',')"
+check "Stop: learn のみ → conversations.md に言及しない" "0" "$(printf '%s' "$OUT" | grep -c 'conversations.md')"
+rm -rf "$R"
+
+R=$(make_combo 0 0 1)
+OUT=$(run_stop "$R")
+check "Stop: plan のみ → 節1・項番1" "1|1," "$(printf '%s' "$OUT" | grep -c '^── ')|$(printf '%s' "$OUT" | grep -oE '^[0-9]+' | tr '\\n' ',')"
+check "Stop: plan のみ → チェックボックス更新を指示" "1" "$(printf '%s' "$OUT" | grep -c 'チェックボックスを - \\[x\\] に')"
+check "Stop: plan のみ → 本文追記を禁じる" "1" "$(printf '%s' "$OUT" | grep -c '本文に書き込まないこと')"
+rm -rf "$R"
+
+R=$(make_combo 1 1 1)
+OUT=$(run_stop "$R")
+check "Stop: 全部 → 節3・項番1,2,3,4" "3|1,2,3,4," "$(printf '%s' "$OUT" | grep -c '^── ')|$(printf '%s' "$OUT" | grep -oE '^[0-9]+' | tr '\\n' ',')"
+check "Stop: 見出し書式を指示する" "1" "$(printf '%s' "$OUT" | grep -c '## YYYY-MM-DD')"
+check "Stop: 出来事が起きた日を使うと指示する" "1" "$(printf '%s' "$OUT" | grep -c '出来事が起きた日')"
+check "Stop: 未完了は記録しない理由にならない旨" "1" "$(printf '%s' "$OUT" | grep -c '完了していない')"
+GOT=$(cd "$R" && echo '{"stop_hook_active":true}' | "$ST" 2>/dev/null; echo $?)
+check "Stop: stop_hook_active ならブロックしない" "0" "$GOT"
+GOT=$(cd "$R" && echo '{}' | "$ST" >/dev/null 2>&1; echo $?)
+check "Stop: ブロックする(終了コード2)" "2" "$GOT"
+rm -rf "$R"
+
+R=$(make_combo 0 0 0)
+GOT=$(cd "$R" && echo '{}' | "$ST" 2>&1; echo "rc=$?")
+check "Stop: 受け皿なしなら無出力でブロックしない" "rc=0" "$GOT"
+rm -rf "$R"
+
+R=$(mktemp -d); touch "$R/conversations.md"
+GOT=$(cd "$R" && echo '{}' | "$ST" 2>&1; echo "rc=$?")
+check "Stop: git管理外なら無出力でブロックしない" "rc=0" "$GOT"
+rm -rf "$R"
+
+"""
+s = s[:start] + new + s[end:]
+io.open(p, 'w', encoding='utf-8').write(s)
+print("Stop 節のテストを差し替え")
+EOS
+```
+
+- [ ] **Step 4: テストを実行する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `FAIL=0` かつ終了コード0。PASS の総数は実測値を報告する。
+
+- [ ] **Step 5: 実リポジトリで出力を確認する**
+
+```bash
+cd /Users/yohira/git/coopinf
+echo '{}' | "$HOME/.claude/hooks/record/stop-record-decisions.sh" 2>&1 >/dev/null
+```
+
+**注意: Step 6 の実機配布より前に実行すると古い版の出力になる。** 配布後に再確認すること。
+
+期待: 3つの節（conversations.md / LEARNINGS.md / 計画ファイル）が出て、項番が 1〜4。段取りの書き先が `conversations.md` になっており、`migration/cutover-plan.md` はチェックボックス更新の対象としてのみ現れる。
+
+- [ ] **Step 6: 実機へ配布する**
+
+macOS には `sync.ps1` が使えないため手でコピーする。
+
+```bash
+cp /Users/yohira/git/claude-config/claude/hooks/record/*.sh /Users/yohira/.claude/hooks/record/
+chmod +x /Users/yohira/.claude/hooks/record/*.sh
+diff -r ~/.claude/hooks/record/ ~/git/claude-config/claude/hooks/record/ && echo "SAME"
+```
+
+期待: `SAME`
+
+- [ ] **Step 7: コミットして Draft PR を作成する**
+
+```bash
+cd /Users/yohira/git/claude-config
+git checkout main && git pull
+git checkout -b feature/records-to-conversations
+git add claude/hooks/record/stop-record-decisions.sh tests/test-record-hooks.sh
+git commit -m "feat: 記録先を conversations.md に集約し計画ファイルはチェックボックスのみにする
+
+計画ファイル(cutover-plan.md 等)は手順書を兼ねており、会話の記録を
+本文に混ぜると性格が変わる。段取りの書き先を conversations.md に変更し、
+計画ファイルへは完了ステップのチェックボックス更新のみを指示する。
+
+あわせて見出し書式を指示文に明記した。Obsidian Daily 同期のパーサは
+日付が見出しの先頭にあることを要求するが、書式の指定が無かったため
+セッションごとに違う書式が生まれ黙って落ちていた(2026-09-07 に実害)。
+日付は「出来事が起きた日」を使う。セッションが日付を跨ぐため。
+
+受け皿ごとに節を分け、実在する分だけを動的に採番する。
+段取りの書き先が常に conversations.md になったため
+フォールバックの概念は不要になった。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push -u origin feature/records-to-conversations
+gh pr create --draft --title "feat: 記録先を conversations.md に集約し計画ファイルはチェックボックスのみにする" --body "実装計画: Obsidian Vault \`00_Claude/plans/2026-09-07-decision-record-hooks.md\` の Task 10
+
+## 背景
+
+計画ファイル（\`cutover-plan.md\` 等）は**手順書も兼ねている**。会話の記録を本文に混ぜると性格が変わる（2026-09-07 ユーザー指摘）。
+
+あわせて Obsidian Daily 同期が拾えない事故が起きた。\`sections.py\` の \`DATED_H2_RE\` は日付が見出しの**先頭**にあることを要求するが、hook の指示文に書式の指定が無かったため、セッションごとに違う書式が生まれ**黙って落ちていた**。
+
+## 変更
+
+| 対象 | 変更前 | 変更後 |
+|---|---|---|
+| 段取り | \`active-plan\` が指す計画ファイル | **\`conversations.md\`** |
+| 決定・合意 | \`conversations.md\` | 同じ |
+| 学び | \`LEARNINGS.md\` | 同じ |
+| 計画の進捗 | 指示なし | **チェックボックスのみ更新。本文は追記しない** |
+| 見出し書式 | 指示なし | **\`## YYYY-MM-DD タイトル\` を明示** |
+| 日付の解釈 | 指示なし | **出来事が起きた日**（日付跨ぎ対策） |
+
+受け皿ごとに節を分け、実在する分だけを動的に採番する。段取りの書き先が常に \`conversations.md\` になったため**フォールバックの概念は不要**になった。
+
+## 検証
+
+受け皿の全8通りの組み合わせで、節の数・項番の連続性・存在しない受け皿の節が出ないことを検査している。"
+```
+
+期待: PR の URL が出力される。
+
+
 ## タスク依存関係
 
 ```
