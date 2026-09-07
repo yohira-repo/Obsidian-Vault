@@ -598,6 +598,26 @@ check "Stop: LEARNINGS.md が項番3に出る"        "1" "$(printf '%s' "$REASO
 check "Stop: 宣言があればフォールバック表記は出ない" "0" "$(printf '%s' "$REASON" | grep -c 'フォールバック')"
 rm -rf "$R"
 
+# --- ケースD: 受け皿が部分的にしか無い ---
+# LEARNINGS.md だけがあるリポジトリで、存在しない conversations.md へ案内したり
+# 項番が 1→3 と飛んだりしないこと。
+R=$(make_repo)
+mkdir -p "$R/migration"
+touch "$R/migration/LEARNINGS.md"
+REASON=$(cd "$R" && echo '{}' | "$ST" | jq -r '.reason')
+check "Stop: LEARNINGS のみなら項番は1つだけ" "1. 効いた型・失敗・業務知識・覚えておく価値のある解法" "$(printf '%s' "$REASON" | grep -E '^[0-9]+\.')"
+check "Stop: LEARNINGS のみなら conversations.md に言及しない" "0" "$(printf '%s' "$REASON" | grep -c 'conversations.md')"
+rm -rf "$R"
+
+# active-plan だけがあるリポジトリでは段取りの項目のみが出る。
+R=$(make_repo)
+mkdir -p "$R/.claude"
+touch "$R/p.md"
+printf 'p.md\n' > "$R/.claude/active-plan"
+REASON=$(cd "$R" && echo '{}' | "$ST" | jq -r '.reason')
+check "Stop: active-plan のみなら段取りだけが出る" "1. 日付・時刻・実行順序が確定した段取り" "$(printf '%s' "$REASON" | grep -E '^[0-9]+\.')"
+rm -rf "$R"
+
 # --- ケースC: 受け皿なし / git 管理外 ---
 R=$(make_repo)
 GOT=$(cd "$R" && echo '{}' | "$ST")
@@ -658,34 +678,48 @@ PLANS=$(read_active_plans "$ROOT")
 # 受け皿が1つも無いリポジトリでは何もしない
 [ -n "${CONV}${LEARN}${PLANS}" ] || exit 0
 
-# 段取りの書き先。active-plan の宣言が無ければ conversations.md にフォールバックする。
-if [ -n "$PLANS" ]; then
-  PLAN_DEST=$(printf '%s' "$PLANS" | sed 's/^/    - /')
-else
-  PLAN_DEST=$(printf '%s' "$CONV" | sed 's/^/    - /')
-  PLAN_DEST="${PLAN_DEST}
-    （.claude/active-plan の宣言が無いため conversations.md にフォールバック）"
-fi
-
+# 指示文は「実在する受け皿がある項目だけ」を、番号を飛ばさずに並べる。
+# 受け皿が部分的にしか無いリポジトリで、存在しないファイルへ案内したり
+# 項番が 1→3 のように飛んだりしないよう、N を動的に採番する。
 REASON="このターンを振り返ってください。次のいずれかが出ていれば、対応するファイルへ簡潔に追記してください。
+"
+N=0
 
-1. 日付・時刻・実行順序が確定した段取り
+# 1. 段取り。書き先は active-plan、無ければ conversations.md にフォールバックする。
+#    どちらも無い場合はこの項目自体を出さない（宛先が存在しないため）。
+if [ -n "$PLANS" ] || [ -n "$CONV" ]; then
+  N=$((N + 1))
+  if [ -n "$PLANS" ]; then
+    PLAN_DEST=$(printf '%s' "$PLANS" | sed 's/^/    - /')
+  else
+    PLAN_DEST="$(printf '%s' "$CONV" | sed 's/^/    - /')
+    （.claude/active-plan の宣言が無いため conversations.md にフォールバック）"
+  fi
+  REASON="${REASON}
+${N}. 日付・時刻・実行順序が確定した段取り
    例:「Task 4 は 9/7 の日中」「9/8 09:30 の自動実行でカットオーバー」
    書き先:
 ${PLAN_DEST}
 "
+fi
 
+# 2. 決定・合意
 if [ -n "$CONV" ]; then
+  N=$((N + 1))
   REASON="${REASON}
-2. ユーザーの承認・go サイン / 方針変更 / やらないと決めたこと（不作為の決定）
+${N}. ユーザーの承認・go サイン / 方針変更 / やらないと決めたこと（不作為の決定）
+   例:「その方針でいきましょう」「今回はやらない」「B案に変更する」
    書き先:
 $(printf '%s' "$CONV" | sed 's/^/    - /')
 "
 fi
 
+# 3. 学び
 if [ -n "$LEARN" ]; then
+  N=$((N + 1))
   REASON="${REASON}
-3. 効いた型・失敗・業務知識・覚えておく価値のある解法
+${N}. 効いた型・失敗・業務知識・覚えておく価値のある解法
+   例:「この切り分け手順が原因特定に効いた」「この仕様は直感に反する」
    書き先:
 $(printf '%s' "$LEARN" | sed 's/^/    - /')
 "
@@ -698,7 +732,6 @@ REASON="${REASON}
 
 書き先の候補が複数ある場合は話題に最も近いものを選び、判断がつかなければユーザーに確認してください。
 いずれにも該当しなければ、ファイルを変更せずそのまま終了してください。"
-
 jq -n --arg r "$REASON" '{decision: "block", reason: $r}'
 EOS
 chmod +x /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh
@@ -710,7 +743,7 @@ chmod +x /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisio
 /Users/yohira/git/claude-config/tests/test-record-hooks.sh
 ```
 
-期待: `PASS=33 FAIL=0`、終了コード0。
+期待: `PASS=36 FAIL=0`、終了コード0。
 
 - [ ] **Step 5: 実リポジトリで手動確認する**
 
