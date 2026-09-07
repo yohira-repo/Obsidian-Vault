@@ -400,6 +400,22 @@ PR #8 マージ後は `jq` 不要。`winget` で導入済みのものは残し�
 | 対象 | 状態 |
 | - | - |
 | `sync.ps1`（Windows） | **確認済み**（2026-09-07。ASCII 化でパースエラー解消） |
-| Stop hook（macOS） | **実発火を確認済み**（本ファイルの複数エントリがその成果物） |
+| Stop hook（macOS） | **確認済み**（本ファイルの複数エントリがその成果物） |
+| SessionStart hook（Windows） | **確認済み**（2026-09-07。`claude --debug -p` で LEARNINGS.md の内容に基づく応答を確認） |
 | SessionStart hook（macOS） | 未確認（hook 登録後に新セッションを開始していないため） |
-| 両 hook（Windows） | 未確認（手順3で確認する） |
+| Stop hook（Windows） | 未確認（RDP のキー入力問題で対話セッションを試せていない） |
+
+### 判明した運用上の穴: macOS には hook の配布手段が無い
+
+PR #8 をマージしても **macOS の `~/.claude/hooks/record/` は自動では更新されない**。
+`sync.ps1` は PowerShell 製で Windows 専用のため、macOS では手でコピーする必要がある。
+
+実際、2026-09-07 の時点で macOS 実機の hook は PR #8 前の（`jq` 依存の）古い版のままだった。
+`cp` で同期して解消したが、**hook を変更するたびに同じ漏れが起きる**。
+
+```sh
+cp ~/git/claude-config/claude/hooks/record/*.sh ~/.claude/hooks/record/
+chmod +x ~/.claude/hooks/record/*.sh
+```
+
+恒久対応（macOS 用の同期スクリプト、あるいは README への明記）は Task 7 で扱う。
