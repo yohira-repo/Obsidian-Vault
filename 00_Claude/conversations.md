@@ -315,4 +315,33 @@ README に前提を明文化した（PR #7）。README には既に
 WinGet がリンク経由で実体を参照する作りと Git Bash の相性を疑っているが、
 エラー全文を確認するまで断定しない。
 
-**この件は未解決。** 上記「決定」は方針としては有効だが、まだ動作していない。
+**→ この方針は後述のとおり撤回した。**
+
+### 撤回と再決定（同日）: `jq` 依存を排除する
+
+`jq` は導入されていたが、`WinGet\Links` が空でリンクが作られておらず、
+Claude Code が起動する Git Bash から見えていなかった。実体は
+`AppData\Local\Microsoft\WinGet\Packages\jqlang.jq_...\jq.exe` に存在。
+
+**`jq` 起因の不発が2回続いた**ため、依存そのものを排除する方針に変更した（ユーザー判断）。
+
+| hook | 変更前 | 変更後 |
+| - | - | - |
+| SessionStart | `jq` で JSON の `additionalContext` を組み立てる | 平文を stdout に出して終了コード0 |
+| Stop | `jq` で `{"decision":"block",...}` を組み立てる | stderr に出して終了コード2 |
+
+いずれも公式ドキュメントに記載された正規の方法。ユーザー環境の実ログでも、
+別の hook が平文を返して `Hook output does not start with {, treating as plain text`
+としてコンテキストに追加されていることが確認できた。
+
+`stop_hook_active` の判定は、空白を除去してから固定文字列を探す方式に置換した。
+
+**副次効果:** JSON を組み立てないため、引用符・バックスラッシュ・制御文字の
+エスケープ処理が不要になった。
+
+**結果:** テスト47件が通過。`PATH` から `jq` を外した状態で SessionStart は平文を出力、
+Stop は stderr + 終了コード2 でブロック、`stop_hook_active=true` では終了コード0。
+PR #8。README には前提ツール（`bash` / `git` のみ）と診断手順を記載した。
+
+**教訓:** グローバル hook に外部コマンド依存を持ち込むと、それを入れ忘れた PC で
+無言で機能しなくなる。依存を増やす前に、標準の仕組みで代替できないかを先に確認する。
