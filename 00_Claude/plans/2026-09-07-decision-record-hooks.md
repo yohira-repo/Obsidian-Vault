@@ -1,0 +1,981 @@
+# 決定・段取りの記録漏れを防ぐ hook 群 実装計画
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 会話で確定した「日付付きの実行段取り」と「決定・合意」が記録されないまま流れる事象を、グローバル hook による機械的トリガーで防ぐ。
+
+**Architecture:** hook スクリプト2本と共通ライブラリ1本を `claude-config` リポジトリで版管理し、`~/.claude/hooks/record/` へ配置する。`~/.claude/settings.json` に SessionStart / Stop として登録することで、全リポジトリに一括適用する。各リポジトリは `.claude/active-plan`（1行1パスの複数行テキスト）で「いま動いている計画ファイル」だけを宣言する。
+
+**Tech Stack:** bash, jq（既存 hook が使用しており導入済み）, git。テストは bash による自作ハーネス（bats は未導入のため使わない）。
+
+**設計書:** `00_Claude/specs/2026-09-07-decision-record-hooks-design.md`
+
+## Global Constraints
+
+- すべてのファイルは **UTF-8（BOMなし・LF）** で作成する。Claudian の Write ツールは UTF-16 LE で書き込むため、bash のヒアドキュメントまたは python3 で書き出すこと。
+- スクリプト内に `/Users/yohira` 等の**絶対パスをハードコードしない**。`$HOME` とリポジトリルートからの相対解決のみを使う（Windows PC と共用するため）。
+- hook は**失敗してもセッションを壊してはならない**。想定外の入力・欠損ファイルでは `exit 0` で静かに何もしない。
+- Stop hook は `stop_hook_active` が `true` のとき必ず `exit 0` する（無限ループ防止）。
+- git 管理下でないディレクトリ、および受け皿ファイルが1つも無いリポジトリでは何も出力しない。
+- 注入量の上限: 計画ファイル1つあたり未チェック20件、全計画ファイル合計60件。
+- `claude-config` の同期対象は `sync.ps1` の `$Targets`（`CLAUDE.md` / `AGENTS.md` / `settings.json` / `keybindings.json` / `hooks` / `commands/daily-sync.md`）。ここに含まれないパスに置いたものは他PCへ配布されない。
+
+---
+
+### Task 1: claude-config を安全な作業状態にする
+
+**背景（着手前に必ず読むこと）:** このリポジトリには2つの地雷がある。
+
+1. 現在ブランチ `feature/keybindings-sync` は **PR #2 で既にマージ済み**。このまま作業してはいけない。
+2. `claude/CLAUDE.md` は**実機より古い**。repo 版は5行で `- コード修正の際は、特にしていない場合` という誤字を含む。実機 `~/.claude/CLAUDE.md` は14行。この状態で他PCが `sync.ps1 push` すると**個人ルールが5行に巻き戻る**。Task 5 で CLAUDE.md を編集する前に、必ずここで実機の内容を取り込む。
+
+**Files:**
+- Modify: `/Users/yohira/git/claude-config/claude/CLAUDE.md`（実機の内容で置き換え）
+- Delete: `/Users/yohira/git/claude-config/claude/hooks/README.md`
+- Delete: `/Users/yohira/git/claude-config/claude/hooks/hooks.json`
+- Delete: `/Users/yohira/git/claude-config/claude/hooks/memory-persistence/README.md`
+- Delete: `/Users/yohira/git/claude-config/claude/hooks/memory-persistence/hooks.json`
+
+**Interfaces:**
+- Produces: 作業ブランチ `feature/decision-record-hooks`、および ECC 生成物が除去され `claude/hooks/` が空になった状態（Task 2 以降がここにスクリプトを置く）
+
+- [ ] **Step 1: マージ済みブランチであることを確認する**
+
+```bash
+cd /Users/yohira/git/claude-config
+git rev-parse --abbrev-ref HEAD
+gh pr list --state all --limit 5
+```
+
+期待: カレントブランチが `feature/keybindings-sync`、PR #2 が `MERGED` と表示される。
+
+- [ ] **Step 2: main を最新化して新しいブランチを切る**
+
+```bash
+cd /Users/yohira/git/claude-config
+git checkout main
+git pull
+git checkout -b feature/decision-record-hooks
+```
+
+期待: `Switched to a new branch 'feature/decision-record-hooks'`
+
+- [ ] **Step 3: 実機の CLAUDE.md を repo へ取り込む**
+
+```bash
+cp /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md
+diff /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md && echo "SAME"
+```
+
+期待: `SAME` と表示される（差分なし）。
+
+- [ ] **Step 4: ECC 生成物を削除する**
+
+`claude/hooks/` 配下の `README.md` / `hooks.json` / `memory-persistence/` は everything-claude-code の生成物であり、実機 `~/.claude/hooks/` には存在しない（実機にはディレクトリ自体が無い）。リポジトリ README の方針「プラグイン・フレームワークが生成するものは管理しない（乗り換え時に古い世代が復活するのを防ぐ）」に反しているため除去する。残したまま他PCで `sync.ps1 push` すると、意図しない hook 定義が配布される。
+
+```bash
+cd /Users/yohira/git/claude-config
+git rm -r claude/hooks/README.md claude/hooks/hooks.json claude/hooks/memory-persistence
+ls claude/hooks 2>/dev/null || echo "(空)"
+```
+
+期待: `(空)` と表示される。
+
+- [ ] **Step 5: コミットして push し、Draft PR を作成する**
+
+```bash
+cd /Users/yohira/git/claude-config
+git add claude/CLAUDE.md
+git commit -m "chore: 実機のCLAUDE.mdを取り込み、ECC生成物のhooksを除去
+
+- claude/CLAUDE.md が実機より9行古く、push時にルールが巻き戻る状態だったため同期
+- claude/hooks/ 配下の ECC 生成物を除去（実機に存在せず、リポジトリ方針にも反するため）"
+git push -u origin feature/decision-record-hooks
+gh pr create --draft --title "決定・段取りの記録漏れを防ぐ hook 群" --body "設計書: Obsidian Vault \`00_Claude/specs/2026-09-07-decision-record-hooks-design.md\`
+
+会話で確定した「日付付きの実行段取り」と「決定・合意」が記録されずに流れる事象への対策。
+グローバル hook 2本で全リポジトリに一括適用する。
+
+このコミットでは前提整備として、stale だった CLAUDE.md の同期と ECC 生成物の除去を行う。"
+```
+
+期待: PR の URL が出力される。
+
+---
+
+### Task 2: 共通ライブラリ `lib.sh` とテストハーネス
+
+**Files:**
+- Create: `/Users/yohira/git/claude-config/claude/hooks/record/lib.sh`
+- Test: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
+
+**Interfaces:**
+- Produces: 以下4関数。Task 3・Task 4 の両スクリプトが `. "$SCRIPT_DIR/lib.sh"` で読み込んで使う。
+  - `repo_root()` … git リポジトリルートの絶対パスを stdout に出す。git 管理下でなければ何も出さず終了コード0
+  - `find_records <root> <filename>` … `<root>` 配下 3 階層以内の `<filename>` を、root からの相対パスで1行ずつ出力。`.git/` と `node_modules/` は除外。ソート済み
+  - `read_active_plans <root>` … `<root>/.claude/active-plan` を読み、空行・`#` 始まりを除外し、**実在するパスのみ**を1行ずつ出力
+  - `unchecked_count <root> <relpath>` … 未チェック `- [ ]` 行の件数を出力（0件なら `0`）
+
+**なぜ `tests/` をリポジトリ直下に置くか:** `sync.ps1` の同期対象は `claude/` 配下のみ。テストは他PCへ配布する必要がないため、対象外の場所に置く。
+
+- [ ] **Step 1: 失敗するテストを書く**
+
+```bash
+mkdir -p /Users/yohira/git/claude-config/tests
+cat > /Users/yohira/git/claude-config/tests/test-record-hooks.sh <<'EOS'
+#!/bin/bash
+# record hooks のテスト。fixture を一時ディレクトリに作って検証する。
+set -uo pipefail
+
+HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../claude/hooks/record" && pwd)
+PASS=0
+FAIL=0
+
+ok()   { PASS=$((PASS+1)); echo "  ok   - $1"; }
+ng()   { FAIL=$((FAIL+1)); echo "  NG   - $1"; echo "         期待: [$2]"; echo "         実際: [$3]"; }
+check(){ if [ "$2" = "$3" ]; then ok "$1"; else ng "$1" "$2" "$3"; fi; }
+
+# fixture: git リポジトリを1つ作る
+make_repo() {
+  local d
+  d=$(mktemp -d)
+  git -C "$d" init -q
+  echo "$d"
+}
+
+echo "== lib.sh =="
+. "$HOOK_DIR/lib.sh"
+
+# --- find_records ---
+R=$(make_repo)
+mkdir -p "$R/docs" "$R/sub/docs" "$R/node_modules/pkg"
+touch "$R/conversations.md" "$R/docs/conversations.md" "$R/sub/docs/conversations.md" "$R/node_modules/pkg/conversations.md"
+GOT=$(cd "$R" && find_records "$R" conversations.md | tr '\n' ',')
+check "find_records は3階層まで拾い node_modules を除外する" "conversations.md,docs/conversations.md,sub/docs/conversations.md," "$GOT"
+rm -rf "$R"
+
+R=$(make_repo)
+GOT=$(cd "$R" && find_records "$R" conversations.md)
+check "find_records は該当なしなら空を返す" "" "$GOT"
+rm -rf "$R"
+
+# --- read_active_plans ---
+R=$(make_repo)
+mkdir -p "$R/.claude" "$R/migration"
+touch "$R/migration/cutover-plan.md" "$R/migration/verify-backfill-plan.md"
+printf '# Phase 4\nmigration/cutover-plan.md\n\n#migration/verify-backfill-plan.md\nmigration/deleted-plan.md\n' > "$R/.claude/active-plan"
+GOT=$(read_active_plans "$R" | tr '\n' ',')
+check "read_active_plans はコメント・空行・実在しないパスを除外する" "migration/cutover-plan.md," "$GOT"
+rm -rf "$R"
+
+R=$(make_repo)
+GOT=$(read_active_plans "$R")
+check "read_active_plans は active-plan が無ければ空を返す" "" "$GOT"
+rm -rf "$R"
+
+# --- unchecked_count ---
+R=$(make_repo)
+printf -- '- [ ] a\n- [x] b\n  - [ ] c\n' > "$R/p.md"
+check "unchecked_count は未チェック行を数える" "2" "$(unchecked_count "$R" p.md)"
+printf -- '- [x] b\n' > "$R/q.md"
+check "unchecked_count は0件なら0を返す" "0" "$(unchecked_count "$R" q.md)"
+rm -rf "$R"
+
+echo ""
+echo "PASS=$PASS FAIL=$FAIL"
+[ "$FAIL" -eq 0 ]
+EOS
+chmod +x /Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+- [ ] **Step 2: テストを実行して失敗することを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: FAIL。`claude/hooks/record` ディレクトリが存在しないため `cd` に失敗するエラーが出る。
+
+- [ ] **Step 3: `lib.sh` を実装する**
+
+```bash
+mkdir -p /Users/yohira/git/claude-config/claude/hooks/record
+cat > /Users/yohira/git/claude-config/claude/hooks/record/lib.sh <<'EOS'
+#!/bin/bash
+# record hooks 共通のパス解決処理。
+# session-start-context.sh / stop-record-decisions.sh から source される。
+# 単体では実行しない（set -e は呼び出し側に委ねる）。
+
+# git リポジトリのルート絶対パス。git 管理下でなければ何も出力しない。
+repo_root() {
+  git rev-parse --show-toplevel 2>/dev/null || true
+}
+
+# find_records <root> <filename>
+# <root> 配下3階層以内の <filename> を root 相対パスで出力する。
+find_records() {
+  local root="$1" name="$2"
+  [ -d "$root" ] || return 0
+  find "$root" -maxdepth 3 -name "$name" -type f \
+    -not -path "*/.git/*" -not -path "*/node_modules/*" 2>/dev/null \
+    | sed "s|^${root}/||" | sort
+}
+
+# read_active_plans <root>
+# <root>/.claude/active-plan を読み、実在する計画ファイルのみを root 相対で出力する。
+# 空行と # 始まりの行は無視する。
+read_active_plans() {
+  local root="$1" f="$1/.claude/active-plan" line
+  [ -f "$f" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -z "$line" ] && continue
+    case "$line" in
+      '#'*) continue ;;
+    esac
+    [ -f "$root/$line" ] && printf '%s\n' "$line"
+  done < "$f"
+  return 0
+}
+
+# unchecked_count <root> <relpath>
+# 未チェックのチェックボックス行の件数を出力する。
+unchecked_count() {
+  local root="$1" rel="$2" n
+  n=$(grep -c '^[[:space:]]*- \[ \]' "$root/$rel" 2>/dev/null || true)
+  printf '%s\n' "${n:-0}"
+}
+EOS
+```
+
+- [ ] **Step 4: テストを実行して通ることを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `PASS=6 FAIL=0` と表示され、終了コード0。
+
+- [ ] **Step 5: コミットする**
+
+```bash
+cd /Users/yohira/git/claude-config
+git add claude/hooks/record/lib.sh tests/test-record-hooks.sh
+git commit -m "feat: record hooks の共通パス解決ライブラリとテストを追加"
+```
+
+---
+
+### Task 3: SessionStart hook `session-start-context.sh`
+
+**Files:**
+- Create: `/Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh`
+- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`（末尾にテストを追加）
+
+**Interfaces:**
+- Consumes: Task 2 の `repo_root` / `find_records` / `read_active_plans` / `unchecked_count`
+- Produces: 標準出力に `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}` の JSON。注入すべき内容が無ければ何も出力せず終了コード0
+
+- [ ] **Step 1: 失敗するテストを追記する**
+
+`tests/test-record-hooks.sh` の `echo ""` `echo "PASS=$PASS FAIL=$FAIL"` の直前に、以下を挿入する。
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
+add = '''
+echo "== session-start-context.sh =="
+SS="$HOOK_DIR/session-start-context.sh"
+
+# 受け皿が何も無ければ無出力
+R=$(make_repo)
+GOT=$(cd "$R" && "$SS" </dev/null)
+check "SessionStart: 受け皿なしなら無出力" "" "$GOT"
+rm -rf "$R"
+
+# git 管理外なら無出力
+R=$(mktemp -d)
+touch "$R/conversations.md"
+GOT=$(cd "$R" && "$SS" </dev/null)
+check "SessionStart: git管理外なら無出力" "" "$GOT"
+rm -rf "$R"
+
+# LEARNINGS.md を注入する
+R=$(make_repo)
+mkdir -p "$R/migration"
+printf 'ラーニング本文\\n' > "$R/migration/LEARNINGS.md"
+GOT=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.hookEventName')
+check "SessionStart: hookEventName が正しい" "SessionStart" "$GOT"
+GOT=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.additionalContext' | grep -c 'ラーニング本文')
+check "SessionStart: LEARNINGS.md の本文が含まれる" "1" "$GOT"
+rm -rf "$R"
+
+# active-plan の未チェック Step を注入する
+R=$(make_repo)
+mkdir -p "$R/.claude" "$R/migration"
+printf -- '- [x] done\\n- [ ] STEP-ALPHA\\n- [ ] STEP-BRAVO\\n' > "$R/migration/cutover-plan.md"
+printf 'migration/cutover-plan.md\\n' > "$R/.claude/active-plan"
+CTX=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.additionalContext')
+check "SessionStart: 未チェックStepが含まれる" "1" "$(printf '%s' "$CTX" | grep -c 'STEP-ALPHA')"
+check "SessionStart: 済Stepは含まれない"     "0" "$(printf '%s' "$CTX" | grep -c 'done')"
+check "SessionStart: 計画ファイル名が見出しに出る" "1" "$(printf '%s' "$CTX" | grep -c 'migration/cutover-plan.md')"
+rm -rf "$R"
+
+# 1ファイル20件の上限
+R=$(make_repo)
+mkdir -p "$R/.claude"
+for i in $(seq 1 25); do printf -- '- [ ] item%02d\\n' "$i"; done > "$R/big-plan.md"
+printf 'big-plan.md\\n' > "$R/.claude/active-plan"
+CTX=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.additionalContext')
+check "SessionStart: 20件で打ち切る"       "20" "$(printf '%s' "$CTX" | grep -c 'item')"
+check "SessionStart: 残件数を件数だけ添える" "1"  "$(printf '%s' "$CTX" | grep -c '他に 5 件')"
+rm -rf "$R"
+
+# 全ファイル合計60件の上限
+R=$(make_repo)
+mkdir -p "$R/.claude"
+: > "$R/.claude/active-plan"
+for f in p1 p2 p3 p4; do
+  for i in $(seq 1 25); do printf -- '- [ ] %s-item%02d\n' "$f" "$i"; done > "$R/$f.md"
+  printf '%s.md\n' "$f" >> "$R/.claude/active-plan"
+done
+CTX=$(cd "$R" && "$SS" </dev/null | jq -r '.hookSpecificOutput.additionalContext')
+check "SessionStart: 合計60件で打ち切る"     "60" "$(printf '%s' "$CTX" | grep -c -- '-item')"
+check "SessionStart: 上限超過分は出力しない" "0"  "$(printf '%s' "$CTX" | grep -c 'p4.md')"
+rm -rf "$R"
+'''
+assert marker in s
+s = s.replace(marker, add + marker)
+io.open(p, 'w', encoding='utf-8').write(s)
+print("added")
+EOS
+```
+
+- [ ] **Step 2: テストを実行して失敗することを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `session-start-context.sh` が存在しないため、`NG` が並び `FAIL` が0でない。
+
+- [ ] **Step 3: `session-start-context.sh` を実装する**
+
+```bash
+cat > /Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh <<'EOS'
+#!/bin/bash
+# SessionStart hook:
+#   - LEARNINGS.md があれば全文を
+#   - .claude/active-plan が指す計画ファイルの未チェック Step を
+#   コンテキストへ注入し、セッション開始時に「今どこ」が分かる状態にする。
+set -uo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
+
+PER_FILE_CAP=20
+TOTAL_CAP=60
+
+ROOT=$(repo_root)
+[ -n "$ROOT" ] || exit 0
+
+CTX=""
+
+# --- LEARNINGS.md ---
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  CTX="${CTX}## ${rel} の現在の内容
+
+$(cat "$ROOT/$rel")
+
+"
+done < <(find_records "$ROOT" LEARNINGS.md)
+
+# --- active-plan が指す計画ファイルの未チェック Step ---
+PLAN_CTX=""
+total=0
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  [ "$total" -lt "$TOTAL_CAP" ] || break
+  n=$(unchecked_count "$ROOT" "$rel")
+  [ "$n" -gt 0 ] || continue
+
+  take="$PER_FILE_CAP"
+  remain=$((TOTAL_CAP - total))
+  [ "$take" -gt "$remain" ] && take="$remain"
+  [ "$take" -gt "$n" ] && take="$n"
+
+  PLAN_CTX="${PLAN_CTX}### ${rel}（未完了 ${n} 件）
+
+$(grep '^[[:space:]]*- \[ \]' "$ROOT/$rel" | head -n "$take")
+"
+  if [ "$n" -gt "$take" ]; then
+    PLAN_CTX="${PLAN_CTX}（他に $((n - take)) 件）
+"
+  fi
+  PLAN_CTX="${PLAN_CTX}
+"
+  total=$((total + take))
+done < <(read_active_plans "$ROOT")
+
+if [ -n "$PLAN_CTX" ]; then
+  CTX="${CTX}## 実行中の計画と未完了のステップ
+
+${PLAN_CTX}"
+fi
+
+[ -n "$CTX" ] || exit 0
+
+HEADER="以下はこのリポジトリの現在の作業コンテキストです。最初の応答で、実行中の計画がどこまで進んでいるかを簡潔に報告し、読み込み済みであることが分かるようにしてください。
+
+---
+"
+
+jq -n --arg ctx "${HEADER}${CTX}" '{
+  hookSpecificOutput: {
+    hookEventName: "SessionStart",
+    additionalContext: $ctx
+  }
+}'
+EOS
+chmod +x /Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh
+```
+
+- [ ] **Step 4: テストを実行して通ることを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `PASS=17 FAIL=0`、終了コード0。
+
+- [ ] **Step 5: 実リポジトリで手動確認する**
+
+```bash
+cd /Users/yohira/git/coopinf && /Users/yohira/git/claude-config/claude/hooks/record/session-start-context.sh </dev/null | jq -r '.hookSpecificOutput.additionalContext' | head -20
+```
+
+期待: `migration/LEARNINGS.md の現在の内容` の見出しが出る。この時点では coopinf に `.claude/active-plan` が無いため、計画セクションは出ない（Task 6 で設置する）。
+
+- [ ] **Step 6: コミットする**
+
+```bash
+cd /Users/yohira/git/claude-config
+git add claude/hooks/record/session-start-context.sh tests/test-record-hooks.sh
+git commit -m "feat: SessionStart hook を追加（LEARNINGS.md と実行中計画の未完了Stepを注入）"
+```
+
+---
+
+### Task 4: Stop hook `stop-record-decisions.sh`
+
+**Files:**
+- Create: `/Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh`
+- Modify: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`（末尾にテストを追加）
+
+**Interfaces:**
+- Consumes: Task 2 の `repo_root` / `find_records` / `read_active_plans`
+- Produces: 標準出力に `{"decision":"block","reason":"..."}` の JSON。促す必要が無ければ何も出力せず終了コード0
+
+- [ ] **Step 1: 失敗するテストを追記する**
+
+```bash
+python3 - <<'EOS'
+import io
+p = '/Users/yohira/git/claude-config/tests/test-record-hooks.sh'
+s = io.open(p, encoding='utf-8').read()
+marker = '\necho ""\necho "PASS=$PASS FAIL=$FAIL"\n'
+add = '''
+echo "== stop-record-decisions.sh =="
+ST="$HOOK_DIR/stop-record-decisions.sh"
+
+# --- ケースA: conversations.md のみ（active-plan 宣言なし） ---
+R=$(make_repo)
+touch "$R/conversations.md"
+
+GOT=$(cd "$R" && echo '{"stop_hook_active":true}' | "$ST")
+check "Stop: stop_hook_active なら無出力" "" "$GOT"
+
+GOT=$(cd "$R" && echo '{"stop_hook_active":false}' | "$ST" | jq -r '.decision')
+check "Stop: decision は block" "block" "$GOT"
+
+REASON=$(cd "$R" && echo '{}' | "$ST" | jq -r '.reason')
+# 宣言が無いので項番1(段取り)と項番2(決定)の両方が conversations.md を指す = 2 行
+check "Stop: conversations.md が書き先に列挙される" "2" "$(printf '%s' "$REASON" | grep -c '^    - conversations.md$')"
+check "Stop: フォールバックである旨が明示される"    "1" "$(printf '%s' "$REASON" | grep -c 'フォールバック')"
+check "Stop: 未完了は記録しない理由にならない旨"    "1" "$(printf '%s' "$REASON" | grep -c '完了していない')"
+check "Stop: LEARNINGS.md が無ければ言及しない"     "0" "$(printf '%s' "$REASON" | grep -c 'LEARNINGS.md')"
+
+GOT=$(cd "$R" && "$ST" </dev/null >/dev/null 2>&1; echo $?)
+check "Stop: 空の標準入力でも落ちない" "0" "$GOT"
+
+# --- ケースB: active-plan と LEARNINGS.md がある ---
+mkdir -p "$R/.claude" "$R/migration"
+touch "$R/migration/cutover-plan.md" "$R/migration/LEARNINGS.md"
+printf 'migration/cutover-plan.md\n' > "$R/.claude/active-plan"
+REASON=$(cd "$R" && echo '{}' | "$ST" | jq -r '.reason')
+check "Stop: 計画ファイルが段取りの書き先になる" "1" "$(printf '%s' "$REASON" | grep -c '^    - migration/cutover-plan.md$')"
+check "Stop: conversations.md は項番2のみになる" "1" "$(printf '%s' "$REASON" | grep -c '^    - conversations.md$')"
+check "Stop: LEARNINGS.md が項番3に出る"        "1" "$(printf '%s' "$REASON" | grep -c '^    - migration/LEARNINGS.md$')"
+check "Stop: 宣言があればフォールバック表記は出ない" "0" "$(printf '%s' "$REASON" | grep -c 'フォールバック')"
+rm -rf "$R"
+
+# --- ケースC: 受け皿なし / git 管理外 ---
+R=$(make_repo)
+GOT=$(cd "$R" && echo '{}' | "$ST")
+check "Stop: 受け皿なしなら無出力" "" "$GOT"
+rm -rf "$R"
+
+R=$(mktemp -d)
+touch "$R/conversations.md"
+GOT=$(cd "$R" && echo '{}' | "$ST")
+check "Stop: git管理外なら無出力" "" "$GOT"
+rm -rf "$R"
+'''
+assert marker in s
+s = s.replace(marker, add + marker)
+io.open(p, 'w', encoding='utf-8').write(s)
+print("added")
+EOS
+```
+
+- [ ] **Step 2: テストを実行して失敗することを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `stop-record-decisions.sh` が存在せず `NG` が並ぶ。
+
+- [ ] **Step 3: `stop-record-decisions.sh` を実装する**
+
+```bash
+cat > /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh <<'EOS'
+#!/bin/bash
+# Stop hook: 応答が終わるたびに、このターンで
+#   1. 日付・時刻・実行順序が確定した段取り
+#   2. 承認・方針変更・やらないと決めたこと
+#   3. 効いた型・失敗・業務知識
+# が出ていないかを自問させ、該当する受け皿へ追記するよう促す。
+#
+# 受け皿の実在パスをこのスクリプトが解決して指示文に埋め込む。
+# 存在しない受け皿は指示文に出さない（書き先を誤らせないため）。
+set -uo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
+
+INPUT=$(cat 2>/dev/null || true)
+STOP_ACTIVE=$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)
+[ "$STOP_ACTIVE" = "true" ] && exit 0
+
+ROOT=$(repo_root)
+[ -n "$ROOT" ] || exit 0
+
+CONV=$(find_records "$ROOT" conversations.md)
+LEARN=$(find_records "$ROOT" LEARNINGS.md)
+PLANS=$(read_active_plans "$ROOT")
+
+# 受け皿が1つも無いリポジトリでは何もしない
+[ -n "${CONV}${LEARN}${PLANS}" ] || exit 0
+
+# 段取りの書き先。active-plan の宣言が無ければ conversations.md にフォールバックする。
+if [ -n "$PLANS" ]; then
+  PLAN_DEST=$(printf '%s' "$PLANS" | sed 's/^/    - /')
+else
+  PLAN_DEST=$(printf '%s' "$CONV" | sed 's/^/    - /')
+  PLAN_DEST="${PLAN_DEST}
+    （.claude/active-plan の宣言が無いため conversations.md にフォールバック）"
+fi
+
+REASON="このターンを振り返ってください。次のいずれかが出ていれば、対応するファイルへ簡潔に追記してください。
+
+1. 日付・時刻・実行順序が確定した段取り
+   例:「Task 4 は 9/7 の日中」「9/8 09:30 の自動実行でカットオーバー」
+   書き先:
+${PLAN_DEST}
+"
+
+if [ -n "$CONV" ]; then
+  REASON="${REASON}
+2. ユーザーの承認・go サイン / 方針変更 / やらないと決めたこと（不作為の決定）
+   書き先:
+$(printf '%s' "$CONV" | sed 's/^/    - /')
+"
+fi
+
+if [ -n "$LEARN" ]; then
+  REASON="${REASON}
+3. 効いた型・失敗・業務知識・覚えておく価値のある解法
+   書き先:
+$(printf '%s' "$LEARN" | sed 's/^/    - /')
+"
+fi
+
+REASON="${REASON}
+重要: 「その件はまだ完了していない」ことは記録しない理由になりません。
+決まった時点で記録してください。既に計画ファイルに1行書いてあることも、
+会話で詰めた具体的な段取りを省略する理由にはなりません。
+
+書き先の候補が複数ある場合は話題に最も近いものを選び、判断がつかなければユーザーに確認してください。
+いずれにも該当しなければ、ファイルを変更せずそのまま終了してください。"
+
+jq -n --arg r "$REASON" '{decision: "block", reason: $r}'
+EOS
+chmod +x /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh
+```
+
+- [ ] **Step 4: テストを実行して通ることを確認する**
+
+```bash
+/Users/yohira/git/claude-config/tests/test-record-hooks.sh
+```
+
+期待: `PASS=30 FAIL=0`、終了コード0。
+
+- [ ] **Step 5: 実リポジトリで手動確認する**
+
+```bash
+cd /Users/yohira/git/coopinf && echo '{}' | /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh | jq -r '.reason'
+echo '{}' | /Users/yohira/git/claude-config/claude/hooks/record/stop-record-decisions.sh | jq -r '.reason'
+```
+
+期待: coopinf では `conversations.md` と `migration/LEARNINGS.md` が書き先として列挙される。Vault では `00_Claude/conversations.md` が列挙され、LEARNINGS.md の項番3は出ない。
+
+- [ ] **Step 6: コミットする**
+
+```bash
+cd /Users/yohira/git/claude-config
+git add claude/hooks/record/stop-record-decisions.sh tests/test-record-hooks.sh
+git commit -m "feat: Stop hook を追加（決定・段取り・学びの記録を毎ターン促す）"
+```
+
+---
+
+### Task 5: `settings.json` への登録と CLAUDE.md の文言修正
+
+**Files:**
+- Modify: `/Users/yohira/.claude/settings.json`（実機）
+- Modify: `/Users/yohira/git/claude-config/claude/settings.json`
+- Modify: `/Users/yohira/git/claude-config/claude/CLAUDE.md`
+- Modify: `/Users/yohira/.claude/CLAUDE.md`（実機）
+
+**Interfaces:**
+- Consumes: Task 3・Task 4 のスクリプト
+- Produces: 実機で hook が発火する状態
+
+**注意:** 実機の `~/.claude/hooks/` は存在しない。`claude-config` の `claude/hooks/record/` を実機へコピーして配置する。Windows PC へは `sync.ps1 push` で配布される（`hooks` は `$Targets` に含まれている）。
+
+- [ ] **Step 1: スクリプトを実機へ配置する**
+
+```bash
+mkdir -p /Users/yohira/.claude/hooks/record
+cp /Users/yohira/git/claude-config/claude/hooks/record/*.sh /Users/yohira/.claude/hooks/record/
+chmod +x /Users/yohira/.claude/hooks/record/*.sh
+ls -l /Users/yohira/.claude/hooks/record/
+```
+
+期待: `lib.sh` / `session-start-context.sh` / `stop-record-decisions.sh` の3本が実行権付きで並ぶ。
+
+- [ ] **Step 2: 実機の settings.json に hook を登録する**
+
+既存の SessionEnd（daily log sync）は消さないこと。
+
+```bash
+python3 - <<'EOS'
+import json, io
+p = '/Users/yohira/.claude/settings.json'
+s = json.load(io.open(p, encoding='utf-8'))
+hooks = s.setdefault('hooks', {})
+hooks['SessionStart'] = [{
+    "hooks": [{
+        "type": "command",
+        "shell": "bash",
+        "command": "\"$HOME/.claude/hooks/record/session-start-context.sh\"",
+        "timeout": 10
+    }]
+}]
+hooks['Stop'] = [{
+    "hooks": [{
+        "type": "command",
+        "shell": "bash",
+        "command": "\"$HOME/.claude/hooks/record/stop-record-decisions.sh\"",
+        "timeout": 10
+    }]
+}]
+io.open(p, 'w', encoding='utf-8').write(json.dumps(s, ensure_ascii=False, indent=2) + "\n")
+print("ok")
+EOS
+python3 -c "import json;json.load(open('/Users/yohira/.claude/settings.json'));print('valid json')"
+jq -r '.hooks | keys[]' /Users/yohira/.claude/settings.json
+```
+
+期待: `valid json` と、`SessionEnd` / `SessionStart` / `Stop` の3つが出力される。
+
+- [ ] **Step 3: CLAUDE.md の文言を修正する**
+
+```bash
+python3 - <<'EOS'
+import io
+old = "- 結論は、コマンドライン上だけでは流れるので、conversations.mdに残してください。\n"
+new = ("- 会話で確定した内容は、コマンドライン上だけでは流れるので、必ずファイルに残してください。"
+       "書き先は次のとおり分けます。\n"
+       "  - **日付・時刻・実行順序が確定した段取り** → `.claude/active-plan` が指す計画ファイル"
+       "（宣言が無ければ conversations.md）。「まだ完了していない」ことは記録しない理由になりません。\n"
+       "  - **承認・go サイン / 方針変更 / やらないと決めたこと** → conversations.md\n"
+       "  - **効いた型・失敗・業務知識** → LEARNINGS.md（あるリポジトリのみ）\n")
+for p in ('/Users/yohira/.claude/CLAUDE.md',
+          '/Users/yohira/git/claude-config/claude/CLAUDE.md'):
+    s = io.open(p, encoding='utf-8').read()
+    assert old in s, p
+    io.open(p, 'w', encoding='utf-8').write(s.replace(old, new))
+    print("patched", p)
+EOS
+diff /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md && echo "SAME"
+```
+
+期待: 2ファイルとも `patched` と表示され、最後に `SAME`。
+
+- [ ] **Step 4: 実機の settings.json を repo へ同期する**
+
+```bash
+cp /Users/yohira/.claude/settings.json /Users/yohira/git/claude-config/claude/settings.json
+diff /Users/yohira/.claude/settings.json /Users/yohira/git/claude-config/claude/settings.json && echo "SAME"
+```
+
+期待: `SAME`
+
+- [ ] **Step 5: 新しいセッションで発火を確認する**
+
+Claude Code を新しいセッションで `~/git/coopinf` を対象に起動し、次の2点を目視で確認する。
+
+1. 冒頭で LEARNINGS.md の内容を要約した報告が出る（SessionStart hook）
+2. 1ターン応答させたあと、記録を促す動きが入る（Stop hook）
+
+**PASS基準:** 上記2点が確認でき、かつセッションがエラーで停止しないこと。
+
+- [ ] **Step 6: コミットする**
+
+```bash
+cd /Users/yohira/git/claude-config
+git add claude/settings.json claude/CLAUDE.md
+git commit -m "feat: record hooks を settings.json に登録し、CLAUDE.md の記録ルールを具体化"
+git push
+```
+
+---
+
+### Task 6: coopinf の既存 hook を撤去し `active-plan` を設置する
+
+**Files:**
+- Delete: `/Users/yohira/git/coopinf/.claude/hooks/session-start-learnings.sh`
+- Delete: `/Users/yohira/git/coopinf/.claude/hooks/stop-learnings-reflect.sh`
+- Modify: `/Users/yohira/git/coopinf/.claude/settings.local.json`
+- Create: `/Users/yohira/git/coopinf/.claude/active-plan`
+
+**Interfaces:**
+- Consumes: Task 5 で稼働したグローバル hook
+- Produces: coopinf でグローバル hook のみが単独で動作する状態
+
+**注意:** coopinf の現在ブランチは `feature/learnings-cfn-non-ascii`。CLAUDE.md のルールにより、feature ブランチならそのまま作業する。ただし着手前に対象 PR がマージ済みでないか確認すること。
+
+- [ ] **Step 1: ブランチと PR の状態を確認する**
+
+```bash
+cd /Users/yohira/git/coopinf
+git rev-parse --abbrev-ref HEAD
+gh pr list --state all --limit 5
+```
+
+期待: カレントブランチが表示される。該当 PR が `MERGED` なら、main から新しい feature ブランチを切り直してから以降を実施する。
+
+- [ ] **Step 2: 既存 hook を削除する**
+
+```bash
+cd /Users/yohira/git/coopinf
+git rm .claude/hooks/session-start-learnings.sh .claude/hooks/stop-learnings-reflect.sh
+```
+
+期待: 2ファイルが削除される。
+
+- [ ] **Step 3: settings.local.json の hooks 節を削除する**
+
+このファイルは gitignore 対象（`.gitignore:57`）なので git 管理外。実機のみ編集する。
+
+```bash
+python3 - <<'EOS'
+import json, io
+p = '/Users/yohira/git/coopinf/.claude/settings.local.json'
+s = json.load(io.open(p, encoding='utf-8'))
+s.pop('hooks', None)
+io.open(p, 'w', encoding='utf-8').write(json.dumps(s, ensure_ascii=False, indent=2) + "\n")
+print("ok")
+EOS
+cat /Users/yohira/git/coopinf/.claude/settings.local.json
+```
+
+期待: `hooks` キーが消えている。
+
+- [ ] **Step 4: `active-plan` を設置する**
+
+```bash
+cat > /Users/yohira/git/coopinf/.claude/active-plan <<'EOS'
+# Phase 4: coop-batch 本番カットオーバー
+migration/cutover-plan.md
+EOS
+file /Users/yohira/git/coopinf/.claude/active-plan
+```
+
+期待: `UTF-8 text`（または `ASCII text` を含む Unicode text）と表示される。
+
+- [ ] **Step 5: 二重発火していないこと・計画が注入されることを確認する**
+
+```bash
+cd /Users/yohira/git/coopinf
+/Users/yohira/.claude/hooks/record/session-start-context.sh </dev/null | jq -r '.hookSpecificOutput.additionalContext' | grep -E '実行中の計画|cutover-plan|未完了'
+```
+
+期待: `### migration/cutover-plan.md（未完了 19 件）` を含む行が出力される。
+
+- [ ] **Step 6: コミットして Draft PR を作成する**
+
+```bash
+cd /Users/yohira/git/coopinf
+git add .claude/active-plan
+git commit -m "chore: ローカルhookをグローバルhookへ移行し、active-planを設置
+
+- .claude/hooks/ の2本は ~/.claude/hooks/record/ のグローバル版に置き換わったため削除
+- .claude/active-plan で実行中の計画ファイル(cutover-plan.md)を宣言"
+git push -u origin HEAD
+gh pr create --draft --title "ローカルhookをグローバルhookへ移行し active-plan を設置" --body "設計書: Obsidian Vault \`00_Claude/specs/2026-09-07-decision-record-hooks-design.md\`
+
+\`claude-config\` 側で導入したグローバル hook に移行する。二重発火を防ぐためローカル hook を撤去し、
+実行中の計画ファイルを \`.claude/active-plan\` で宣言する。"
+```
+
+期待: PR の URL が出力される。既に PR がある場合は push のみで足りる。
+
+---
+
+### Task 7: 横展開の確認
+
+**Files:**
+- Create: `/Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md` へ本件の結論を追記
+
+**Interfaces:**
+- Consumes: Task 5 で稼働したグローバル hook
+
+- [ ] **Step 1: 全対象リポジトリで受け皿が正しく解決されることを確認する**
+
+```bash
+for r in /Users/yohira/git/coopinf /Users/yohira/git/coopbatch /Users/yohira/git/coopcdebatch \
+         /Users/yohira/git/alphasystem /Users/yohira/git/alphacdk \
+         /Users/yohira/Documents/Obsidian-Vault; do
+  echo "===== $r"
+  (cd "$r" && echo '{}' | /Users/yohira/.claude/hooks/record/stop-record-decisions.sh \
+     | jq -r '.reason' | grep -E 'conversations\.md|LEARNINGS\.md|plan\.md' | sed 's/^/  /')
+done
+```
+
+期待:
+
+| リポジトリ | 出力に含まれるべきパス |
+| - | - |
+| coopinf | `conversations.md` / `migration/LEARNINGS.md` / `migration/cutover-plan.md` |
+| coopbatch | `conversations.md` |
+| coopcdebatch | `conversations.md` |
+| alphasystem | `docs/conversations.md` と `alphabsmail/docs/conversations.md` の両方 |
+| alphacdk | `conversations.md` |
+| Obsidian Vault | `00_Claude/conversations.md` |
+
+- [ ] **Step 2: git 管理外で発火しないことを確認する**
+
+```bash
+cd /tmp && echo '{}' | /Users/yohira/.claude/hooks/record/stop-record-decisions.sh; echo "exit=$?"
+```
+
+期待: 何も出力されず `exit=0`。
+
+- [ ] **Step 3: 本件の結論を Vault の conversations.md に追記する**
+
+```bash
+python3 - <<'EOS'
+import io, datetime
+p = '/Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md'
+s = io.open(p, encoding='utf-8').read()
+add = """
+## 2026-09-07 会話の決定・段取りが記録されずに流れる問題への対策
+
+### 事象
+
+coopinf の Phase 4 カットオーバーで 9/7・9/8 の段取りを会話で何度も詰めたが、
+`conversations.md` には本筋から外れた CloudFormation 文字化けの件しか残らなかった。
+
+### 原因
+
+自動トリガー（Stop hook）を持つ `LEARNINGS.md` だけが埋まり、
+宣言的ルールに委ねた `conversations.md` は「完結した調査の結論」しか拾えていなかった。
+9/7・9/8 の段取りは未完了の合意であるため「結論」と判定されず落ちた。
+CLAUDE.md の文言強化だけでは不十分（Draft PR ルールが明文化済みでも守られなかった前例がある）。
+
+### 対応
+
+グローバル hook 2本（`~/.claude/hooks/record/`）を `claude-config` で版管理し、全リポジトリに適用。
+
+- **Stop hook** … 毎ターン「日付付き段取り / 決定・合意 / 学び」の3観点を自問させる。
+  受け皿の実在パスを hook 側で解決して指示文に埋め込む
+- **SessionStart hook** … `LEARNINGS.md` と、`.claude/active-plan` が指す計画ファイルの
+  未チェック Step を注入する（1ファイル20件・合計60件が上限）
+- **`.claude/active-plan`** … 実行中の計画ファイルを1行1パスで複数宣言。
+  `#` コメント・空行・実在しないパスは無視するため、更新漏れでも壊れない
+
+### 副次的に判明した問題（対応済み）
+
+- `claude-config/claude/CLAUDE.md` が実機より9行古く、他PCで `sync.ps1 push` すると
+  個人ルールが5行に巻き戻る状態だった
+- `claude-config/claude/hooks/` に everything-claude-code の生成物が残っており、
+  リポジトリ自身の方針（生成物は管理しない）に反していた
+
+### 限界（合意済み）
+
+hook が保証するのは「毎ターン必ず判定が走る」ことであり、書き込みの強制ではない。
+記録すべきかの最終判断は Claude 側に残る。
+"""
+io.open(p, 'w', encoding='utf-8').write(s.rstrip("\n") + "\n" + add)
+print("ok")
+EOS
+file /Users/yohira/Documents/Obsidian-Vault/00_Claude/conversations.md
+```
+
+期待: `UTF-8 text` と表示される。
+
+- [ ] **Step 4: Vault をコミットする**
+
+Vault は obsidian-git が main を直接同期する運用のため、feature ブランチは切らない。
+
+```bash
+cd /Users/yohira/Documents/Obsidian-Vault
+git add 00_Claude/conversations.md
+git commit -m "docs: 会話の決定・段取りが記録されずに流れる問題への対策を記録"
+```
+
+---
+
+## タスク依存関係
+
+```
+Task 1（claude-config を安全な状態に）
+   └→ Task 2（lib.sh + テスト）
+        ├→ Task 3（SessionStart hook）─┐
+        └→ Task 4（Stop hook）─────────┴→ Task 5（settings.json + CLAUDE.md + 実機確認）
+                                              ├→ Task 6（coopinf 移行）
+                                              └→ Task 7（横展開の確認）
+```
+
+Task 3 と Task 4 は独立して並行実施できる。Task 6 と Task 7 も Task 5 完了後は並行可能。
