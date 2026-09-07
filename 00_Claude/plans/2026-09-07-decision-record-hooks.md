@@ -101,16 +101,59 @@ gh pr create --draft --title "決定・段取りの記録漏れを防ぐ hook �
 
 期待: PR の URL が出力される。
 
+- [ ] **Step 6: 改行コードを LF に統一し、再発を防ぐ**
+
+**背景（レビューで判明した不良の修正）:** Step 3 の `cp` は、実機の `CLAUDE.md` が CRLF だったため、**それまで LF だった repo 側を CRLF に退行させた**。repo 内の他ファイル（`settings.json` / `AGENTS.md` / `keybindings.json` / `README.md` / `sync.ps1` / `commands/daily-sync.md`）はすべて LF であり、実機側も `CLAUDE.md` 以外は LF。異常なのは実機の `CLAUDE.md` だけである。両方を LF に統一し、`.gitattributes` で再発を止める（2026-09-07 ユーザー判断）。
+
+`* text=auto eol=lf` は Obsidian Vault で既に採用されている設定と同じ。`*.sh` が CRLF でチェックアウトされると `#!/bin/bash\r` と解釈され、後続タスクで作る hook が Windows で「bad interpreter」になるため、これは必須である。
+
+```bash
+cd /Users/yohira/git/claude-config
+cat > .gitattributes <<'EOS'
+# 改行は LF に統一する。
+# 特に *.sh は CRLF だと shebang が壊れ、Windows で hook が起動しない。
+* text=auto eol=lf
+EOS
+python3 - <<'EOS'
+import io
+for p in ('/Users/yohira/.claude/CLAUDE.md',
+          '/Users/yohira/git/claude-config/claude/CLAUDE.md'):
+    raw = io.open(p, 'rb').read()
+    io.open(p, 'wb').write(raw.replace(b'\r\n', b'\n'))
+    print("normalized", p)
+EOS
+file /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md
+diff /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md && echo "SAME"
+```
+
+期待: `file` の出力に **CRLF が現れない**（`Unicode text, UTF-8 text` のみ）。`SAME` が出る。
+
+- [ ] **Step 7: 全ファイルが LF であることを確認してコミットする**
+
+```bash
+cd /Users/yohira/git/claude-config
+git add -A
+git ls-files --eol | grep -v 'w/lf' || echo "全ファイル LF"
+git commit -m "fix: CLAUDE.md の改行を LF に戻し、.gitattributes で LF を強制
+
+Step 3 の cp で、LF だった repo 側 CLAUDE.md に実機の CRLF が混入していた。
+repo 内の他ファイルは全て LF のため LF へ統一する。
+*.sh が CRLF になると shebang が壊れ Windows で hook が起動しないため、
+.gitattributes で恒久的に防ぐ。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push
+```
+
+期待: `全ファイル LF` と表示され、コミット・push が成功する。
+
 ---
 
 ### Task 2: 共通ライブラリ `lib.sh` とテストハーネス
 
 **Files:**
 - Create: `/Users/yohira/git/claude-config/claude/hooks/record/lib.sh`
-- Create: `/Users/yohira/git/claude-config/.gitattributes`
 - Test: `/Users/yohira/git/claude-config/tests/test-record-hooks.sh`
-
-**なぜ `.gitattributes` が要るか（Task 1 の実測で判明）:** このリポジトリには `.gitattributes` が無く、実機の `CLAUDE.md` は **CRLF** で保存されている。Windows PC が `core.autocrlf=true` でチェックアウトすると `*.sh` も CRLF になり、`#!/bin/bash\r` として解釈されて **hook が「bad interpreter」で起動しなくなる**。Global Constraints の「Windows PC と共用するため」を成立させるために必須。既存ファイルの改行は変えず、`*.sh` のみ LF に固定する。
 
 **Interfaces:**
 - Produces: 以下4関数。Task 3・Task 4 の両スクリプトが `. "$SCRIPT_DIR/lib.sh"` で読み込んで使う。
@@ -252,21 +295,7 @@ unchecked_count() {
 EOS
 ```
 
-- [ ] **Step 4: `.gitattributes` を作成して `*.sh` を LF に固定する**
-
-```bash
-cat > /Users/yohira/git/claude-config/.gitattributes <<'EOS'
-# hook スクリプトは Windows でも LF でなければ shebang が壊れる
-*.sh text eol=lf
-EOS
-cd /Users/yohira/git/claude-config
-git add .gitattributes claude/hooks/record/lib.sh
-git ls-files --eol claude/hooks/record/lib.sh
-```
-
-期待: `w/lf` を含む行が表示される（ワーキングツリー上が LF）。
-
-- [ ] **Step 5: テストを実行して通ることを確認する**
+- [ ] **Step 4: テストを実行して通ることを確認する**
 
 ```bash
 /Users/yohira/git/claude-config/tests/test-record-hooks.sh
@@ -274,15 +303,12 @@ git ls-files --eol claude/hooks/record/lib.sh
 
 期待: `PASS=6 FAIL=0` と表示され、終了コード0。
 
-- [ ] **Step 6: コミットする**
+- [ ] **Step 5: コミットする**
 
 ```bash
 cd /Users/yohira/git/claude-config
-git add .gitattributes claude/hooks/record/lib.sh tests/test-record-hooks.sh
-git commit -m "feat: record hooks の共通パス解決ライブラリとテストを追加
-
-Windows で .sh が CRLF チェックアウトされ shebang が壊れるのを防ぐため
-.gitattributes で *.sh を LF に固定する。"
+git add claude/hooks/record/lib.sh tests/test-record-hooks.sh
+git commit -m "feat: record hooks の共通パス解決ライブラリとテストを追加"
 ```
 
 ---
@@ -740,7 +766,7 @@ jq -r '.hooks | keys[]' /Users/yohira/.claude/settings.json
 
 - [ ] **Step 3: CLAUDE.md の文言を修正する**
 
-**注意:** この2ファイルは **CRLF** で保存されている（Task 1 の実測で判明）。Python のテキストモードで読み書きすると改行が LF へ黙って変換され、全14行が差分として出てしまう。既存ファイルの改行は変えないため、下記は元の改行コードを検出して復元する。
+**前提:** Task 1 の修正で両ファイルとも LF に統一済み。`.gitattributes` の `* text=auto eol=lf` により、以降 CRLF が混入してもコミット時に正規化される。
 
 ```bash
 python3 - <<'EOS'
@@ -754,21 +780,17 @@ new = ("- 会話で確定した内容は、コマンドライン上だけでは�
        "  - **効いた型・失敗・業務知識** → LEARNINGS.md（あるリポジトリのみ）\n")
 for p in ('/Users/yohira/.claude/CLAUDE.md',
           '/Users/yohira/git/claude-config/claude/CLAUDE.md'):
-    raw = io.open(p, 'rb').read()
-    crlf = b'\r\n' in raw
-    s = raw.decode('utf-8').replace('\r\n', '\n')
+    s = io.open(p, encoding='utf-8', newline='').read()
     assert old in s, p
-    s = s.replace(old, new)
-    out = s.replace('\n', '\r\n') if crlf else s
-    io.open(p, 'wb').write(out.encode('utf-8'))
-    print("patched", p, "crlf=" + str(crlf))
+    io.open(p, 'w', encoding='utf-8', newline='').write(s.replace(old, new))
+    print("patched", p)
 EOS
 diff /Users/yohira/.claude/CLAUDE.md /Users/yohira/git/claude-config/claude/CLAUDE.md && echo "SAME"
 file /Users/yohira/git/claude-config/claude/CLAUDE.md
 cd /Users/yohira/git/claude-config && git diff --stat claude/CLAUDE.md
 ```
 
-期待: 2ファイルとも `patched ... crlf=True`、`SAME`、`with CRLF line terminators`。`git diff --stat` の変更行数が **1行削除・4行追加程度**に収まっていること（全14行が差分になっていたら改行変換が起きている）。
+期待: 2ファイルとも `patched`、`SAME`、`file` の出力に **CRLF が現れない**こと、`git diff --stat` が **1行削除・4行追加**であること（全行が差分なら改行が壊れている）。
 
 - [ ] **Step 4: 実機の settings.json を repo へ同期する**
 
