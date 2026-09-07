@@ -333,7 +333,8 @@
       },
       "images": [],
       "contentDigest": "d6e7626306750eb4e3fbfcc30c547bb296f11b916d05f85488e615b78ea43fe8",
-      "providerUserMessageId": "0584ed66-2111-4936-811e-45cd5ecd9444"
+      "providerUserMessageId": "0584ed66-2111-4936-811e-45cd5ecd9444",
+      "providerAssistantMessageId": "987d676f-50d2-4abc-bc1a-308a9f8e9ec2"
     },
     {
       "schemaVersion": 1,
@@ -362,6 +363,61 @@
       "contentDigest": "32925e5fe26bd5b8f29edc22d71ea8364cef3983a57a044e811cedd058ad63d7",
       "providerUserMessageId": "b833deae-6af2-4f84-b0d4-111197683617",
       "providerAssistantMessageId": "084d643a-3bfc-4425-9d42-371d35f89271"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788739668250-9lymwnp",
+      "userTurnOrdinal": 18,
+      "state": "accepted",
+      "localMessageId": "msg-1788739668139-kw2gq5e",
+      "timestamp": 1788739668139,
+      "rawDisplayText": "9/7 のDailyページを作成しましたが、 Claude作業ログは挿入されません。",
+      "canonicalText": "9/7 のDailyページを作成しましたが、 Claude作業ログは挿入されません。",
+      "images": [],
+      "contentDigest": "a0a107f870986f3f6634d92a39e87e1b146ac277220a6b2625bd354614dc7db1",
+      "providerUserMessageId": "5f1f562f-67b6-47d0-9031-c917698f7391"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788739893008-rlgocke",
+      "userTurnOrdinal": 19,
+      "state": "accepted",
+      "localMessageId": "msg-1788739892993-2vkow1j",
+      "timestamp": 1788739892993,
+      "rawDisplayText": "exit",
+      "canonicalText": "exit",
+      "images": [],
+      "contentDigest": "26c52903d6fe06ff117da572f3b6f8a5018993f4595f8427b7d717971420c473",
+      "providerUserMessageId": "0352ac9e-fe1c-4533-ab9a-9788895dc189",
+      "providerAssistantMessageId": "1f6a7247-a0fc-47c4-87d1-098f60189760"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788739928289-xuhluh5",
+      "userTurnOrdinal": 20,
+      "state": "accepted",
+      "localMessageId": "msg-1788739928287-ajlazkp",
+      "timestamp": 1788739928287,
+      "rawDisplayText": "/exit\n\n/exit",
+      "canonicalText": "/exit\n\n/exit",
+      "images": [],
+      "contentDigest": "a7f859fab07277489e4d68ff141a5387bee60e0b71c0b89c23f24e77b1a4cdc1",
+      "providerUserMessageId": "26d498b0-15f5-4d54-b93b-af1daf2aedd3",
+      "providerAssistantMessageId": "1c264130-c1c2-47dd-9143-6f77f99571a9"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788739958501-0acxcr1",
+      "userTurnOrdinal": 21,
+      "state": "accepted",
+      "localMessageId": "msg-1788739958489-44ljvmu",
+      "timestamp": 1788739958489,
+      "rawDisplayText": "プラグインから、/exitは発行できないのでしょうか？",
+      "canonicalText": "プラグインから、/exitは発行できないのでしょうか？",
+      "images": [],
+      "contentDigest": "1ae2be71c08acfc0dfde3513e823d925e2aa05bf677dddb963a5a3adc86d98cf",
+      "providerUserMessageId": "91b584d3-6900-4f1c-b4b0-b280fa101319",
+      "providerAssistantMessageId": "9c200455-6584-4192-b79f-0f82f8ef474e"
     }
   ]
 }
