@@ -595,8 +595,36 @@ coop-prd-batch-schedule    (新)  State: ENABLED   cron(30 0 * * ? *) = JST 09:3
 旧バッチをprdでオンデマンド実行 → 旧バッチのスケジュール有効化 → 4テーブルの件数確認。
 発動条件は「9/8の実行が失敗し、当日中に原因を解決できる見込みがない場合」。
 
-### 未解決: 記録が未コミット
+### 記録の保全（完了・2026-09-07）
 
-`conversations.md`(+16行) / `migration/LEARNINGS.md`(+10行) / `migration/cutover-plan.md`(+48行)
-がいずれも**未コミット**で、coopinf は **main ブランチ**にいる。
-本番切り替えを実施した記録が作業ツリーにしか無い状態。保全が最優先。
+3ファイル（`conversations.md` / `migration/LEARNINGS.md` / `migration/cutover-plan.md`）が
+未コミットで main の作業ツリーにしか無い状態だったため、`feature/cutover-task4-5-done` を
+切って保全した（**coopinf PR #36**）。本文は一切変更せず、`conversations.md` の
+**見出し書式のみ**日付先頭形式に修正した。
+
+### 根本原因が実証された
+
+見出しを直して daily-sync を再実行したところ、端から端まで通った。
+
+```
+ミラー: 追加 2 / 置換 0
+Daily: 更新しました
+警告 1 件:      ← coopinf の「日付なし見出し 2 件」が消えた
+```
+
+```
+01_Daily/2026-09-07.md:
+- **coopinf** — 2026-09-07 [[00_Claude/projects/coopinf#2026-09-07 Phase 4 Task 5: カットオーバー実施go|…]]
+```
+
+| | 見出し | パーサ |
+| - | - | - |
+| 修正前 | `## Phase 4 Task 4: …の実施go(2026-09-07)` | NO MATCH → スキップ |
+| 修正後 | `## 2026-09-07 Phase 4 Task 4: …の実施go` | MATCH → 反映 |
+
+診断（見出し書式が原因）が、修正 → 反映という形で裏付けられた。
+
+### 残る警告（本件とは独立）
+
+`alphasystem/alphabsmail/docs/conversations.md` の**日付なし見出し 10 件**は以前から出ている。
+未対応。
