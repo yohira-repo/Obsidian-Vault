@@ -446,6 +446,24 @@ chmod +x ~/.claude/hooks/record/*.sh
   → **マージ済み（2026-09-07）。** 全 PR がマージされ open はゼロ。
   README に書いた確認手順を実際に回して6項目すべて `OK` を確認した
 - **Stop hook の Windows 対話セッションでの確認**が未実施。RDP 経由で送信キーが効かない問題（別エントリ参照）が解決してから
+- **Windows 側の同期が未実施**（2026-09-07 時点）。PR #9（見出し併記・コードフェンス対応）で
+  `claude/hooks/record/lib.sh` と `session-start-context.sh` が変わったため、Windows では
+  `git pull` → `.\sync.ps1 push` → Claude Code 再起動が必要。
+  **放置すると Windows だけ見出しの付かない旧版で動き続ける**（無言の乖離。同種の事故を
+  macOS の hook 古残りと `AGENTS.md` 乖離で2回起こしている）。
+  coopinf 側も `.claude/active-plan` を含む PR #35 がマージ済みなので `git pull` が必要。
+
+### 同期が必要かどうかの判定方法
+
+`sync.ps1` の同期対象は `claude/` 配下のみ。`README.md` や `tests/` の変更では同期不要。
+
+```sh
+cd ~/git/claude-config
+git diff --stat <前回同期時のコミット> HEAD -- claude/
+```
+
+ここに差分が出れば `sync.ps1 push`（Windows）または README 記載の手動コピー（macOS）が必要。
+`$Targets` の6項目に該当するかで判断する。
 
 ### 完了時点の状態（2026-09-07）
 
