@@ -1739,6 +1739,365 @@ gh pr create --draft --title "feat: macOS/Linux 用の sync.sh を追加し対�
 期待: PR の URL が出力される。
 
 
+---
+
+### Task 12: プロジェクト単位の Daily 反映を `/record` に組み込む
+
+**背景（2026-09-08 ユーザー要望）:** 記録を書いた直後に Obsidian へ反映したいが、`/daily-sync` は**全プロジェクト一括**のため、**他プロジェクトの仕掛かり途中のものまで反映されてしまう**。
+
+想定する運用は次のとおり。
+
+- **朝いちばん** … 一括の `/daily-sync` で Daily ブロック全体を確立する
+- **日中** … 各プロジェクトで `/record` を叩くと、**そのプロジェクトの行だけ**が差し替わる
+
+前回 Claude が「`/record` に `/daily-sync` を束ねては」と提案して却下されたのは、**一括処理を束ねようとしたから**である。プロジェクト単位の同期であればスコープが揃うため筋が通る。
+
+**Files:**
+- Modify: `/Users/yohira/Documents/Obsidian-Vault/00_Claude/scripts/claude_daily_log/daily.py`
+- Modify: `/Users/yohira/Documents/Obsidian-Vault/00_Claude/scripts/claude_daily_log/cli.py`
+- Modify: `/Users/yohira/git/claude-config/claude/commands/record.md`
+- Test: `/Users/yohira/Documents/Obsidian-Vault/00_Claude/scripts/claude_daily_log/tests/`
+
+**設計上の判断（2026-09-08 ユーザー判断）:**
+
+| 論点 | 決定 |
+| - | - |
+| 走査範囲 | **そのプロジェクトのみ**。他は読まない（仕掛かり中が混ざらない） |
+| fetch | **しない**。自分が今書いた内容を出すだけなので不要 |
+| Daily ブロック | **該当行だけ差し替え、他の行はそのまま残す** |
+| 該当行が無い場合 | **警告して何もしない**。「先に一括の同期を実行してください」と案内 |
+| 呼び出し手段 | **`/record` に組み込むのみ**。単独コマンドは作らない |
+
+**なぜ「該当行だけ差し替え」か:** 現在の `update_daily` はブロック全体を作り直す。1プロジェクトだけ走査した状態でこれを呼ぶと、**走査しなかったプロジェクトが全部「記録なし」に化ける**。
+
+- [ ] **Step 1: `daily.py` に行差し替えの関数を追加する**
+
+`update_daily` の直後に追加する。**既存の `update_daily` は変更しない。**
+
+```python
+def render_entry_line(source_id: str, entry) -> str:
+    """Daily ブロックの1行を描画する。render_project_lines と同じ書式にすること。"""
+    note = source_id.replace("/", "-")
+    title = sections_module.sanitize_title(entry.title)
+    return (
+        "- **%s** — %s [[00_Claude/projects/%s#%s %s|%s]]"
+        % (source_id, entry.date, note, entry.date, title, title)
+    )
+
+
+def update_daily_sources(
+    vault: str,
+    date: str,
+    latest_entries: Dict[str, object],
+) -> Tuple[bool, List[str]]:
+    """指定ソースの行だけを差し替える。他の行には一切触れない。
+
+    プロジェクト単位の同期用。ブロック全体を作り直すと、走査しなかった
+    プロジェクトが「記録なし」に化けるため、行単位の置換にしている。
+
+    該当行が無いソースは警告を返し、その行は作らない（挿入位置を決めるには
+    グループ化と並び替えが必要になり、複雑さのわりに使う場面が限られるため）。
+    戻り値は (書き換えが発生したか, 警告一覧)。
+    """
+    warnings: List[str] = []
+    path = os.path.join(vault, daily_relpath(date))
+    if not os.path.exists(path):
+        return False, ["%s が存在しません" % daily_relpath(date)]
+
+    with open(path, encoding="utf-8") as handle:
+        original = handle.read()
+    lines = original.splitlines()
+
+    start_indices = _marker_indices(lines, START_MARKER)
+    end_indices = _marker_indices(lines, END_MARKER)
+    if len(start_indices) != 1 or len(end_indices) != 1 or end_indices[0] < start_indices[0]:
+        raise DailyMarkerError(
+            _marker_error_message(
+                daily_relpath(date),
+                len(start_indices),
+                len(end_indices),
+                order_wrong=bool(start_indices and end_indices and end_indices[0] < start_indices[0]),
+            )
+        )
+
+    low = start_indices[0] + 1
+    high = end_indices[0]
+
+    for source_id in sorted(latest_entries):
+        entry = latest_entries[source_id]
+        prefix = "- **%s** — " % source_id
+        target = None
+        for index in range(low, high):
+            if lines[index].startswith(prefix):
+                target = index
+                break
+        if target is None:
+            warnings.append(
+                "%s: Daily に該当行がありません。先に一括の同期（/daily-sync）を実行してください"
+                % source_id
+            )
+            continue
+        lines[target] = render_entry_line(source_id, entry)
+
+    new_text = "\n".join(lines).rstrip("\n") + "\n"
+    if original == new_text:
+        return False, warnings
+
+    atomicio.write_text_atomic(path, new_text)
+    return True, warnings
+```
+
+- [ ] **Step 2: `cli.py` に `--project` を追加する**
+
+`run_sync` の直後に `run_sync_project` を追加する。**`run_sync` は変更しない。**
+
+```python
+def run_sync_project(vault: str, git_root: str, date: str, project_name: str) -> Dict:
+    """1プロジェクトだけを走査し、Daily の該当行だけを差し替える。
+
+    全体を走査しないため、他プロジェクトの仕掛かり途中の記録は混ざらない。
+    fetch もしない（自分が今書いた内容を反映するだけのため）。
+    """
+    report = {
+        "date": date,
+        "project": project_name,
+        "sources": 0,
+        "entries": 0,
+        "mirror_added": 0,
+        "mirror_replaced": 0,
+        "daily_changed": False,
+        "daily_skipped": False,
+        "daily_missing": False,
+        "warnings": [],
+    }
+    if not os.path.isdir(vault):
+        report["warnings"].append("Vault が見つかりません: %s" % vault)
+        return report
+
+    matched = [
+        project
+        for project in projects_module.list_projects(git_root)
+        if project.name == project_name
+    ]
+    if not matched:
+        report["warnings"].append(
+            "%s は構成テーブルに載っていません（~/git/alphasystem/CLAUDE.md, ~/git/coop/CLAUDE.md）"
+            % project_name
+        )
+        return report
+    project = matched[0]
+    if not project.exists:
+        report["warnings"].append("%s: リポジトリが見つかりません (%s)" % (project_name, project.path))
+        return report
+
+    try:
+        entries, warnings = sources_module.collect_entries(project.path, project.name, target_date=None)
+    except Exception as error:
+        report["warnings"].append("%s: 収集に失敗しました (%s)" % (project_name, error))
+        return report
+    report["warnings"].extend(warnings)
+
+    all_entries = sources_module.dedupe(entries)
+    report["entries"] = len(all_entries)
+
+    by_source: Dict[str, List] = {}
+    for entry in all_entries:
+        by_source.setdefault(entry.source_id, []).append(entry)
+    report["sources"] = len(by_source)
+
+    for source_id in sorted(by_source):
+        try:
+            added, replaced = mirror_module.update_mirror(vault, source_id, by_source[source_id])
+        except OSError as error:
+            report["warnings"].append("%s: ミラー更新に失敗しました (%s)" % (source_id, error))
+            continue
+        report["mirror_added"] += added
+        report["mirror_replaced"] += replaced
+
+    latest_by_source: Dict[str, object] = {}
+    for entry in all_entries:
+        if entry.date > date:
+            continue
+        current = latest_by_source.get(entry.source_id)
+        if current is None or (entry.date, entry.order) > (current.date, current.order):
+            latest_by_source[entry.source_id] = entry
+
+    if not latest_by_source:
+        report["daily_skipped"] = True
+        return report
+
+    try:
+        changed, daily_warnings = daily_module.update_daily_sources(vault, date, latest_by_source)
+    except daily_module.DailyMarkerError as error:
+        report["warnings"].append(str(error))
+        return report
+    report["daily_changed"] = changed
+    report["warnings"].extend(daily_warnings)
+    if any("が存在しません" in warning for warning in daily_warnings):
+        report["daily_missing"] = True
+    return report
+```
+
+引数と分岐を追加する。
+
+```python
+    parser.add_argument("--project", default=None, help="このプロジェクトだけを同期する（fetch しない）")
+```
+
+`run_sync` を呼んでいる箇所を次のように分岐させる。
+
+```python
+        if args.project:
+            report = run_sync_project(args.vault, args.git_root, date, args.project)
+        else:
+            report = run_sync(args.vault, args.git_root, date)
+```
+
+- [ ] **Step 3: テストを追加する**
+
+既存のテストディレクトリの規約に合わせて追加する。まず既存のテストの書き方を確認すること。
+
+```bash
+ls /Users/yohira/Documents/Obsidian-Vault/00_Claude/scripts/claude_daily_log/tests/
+sed -n '1,40p' /Users/yohira/Documents/Obsidian-Vault/00_Claude/scripts/claude_daily_log/tests/test_daily.py
+```
+
+`update_daily_sources` について次を検査するテストを、既存の書き方に合わせて追加する。
+
+- 指定ソースの行だけが差し替わり、**他の行は1文字も変わらない**
+- 該当行が無いソースは**警告を返し、Daily を変更しない**
+- 同じ内容を再適用すると `changed=False`（冪等）
+- **管理ブロックの外にある同名の行は触らない**
+- マーカーが壊れている場合は `DailyMarkerError`
+- Daily ノートが存在しない場合は警告を返し `changed=False`
+
+- [ ] **Step 4: テストを実行する**
+
+```bash
+cd /Users/yohira/Documents/Obsidian-Vault/00_Claude/scripts/claude_daily_log
+python3 -m pytest tests/ -q 2>&1 | tail -5 || python3 -m unittest discover -s tests -q 2>&1 | tail -5
+```
+
+期待: すべて成功。実行方法は既存テストの構成に合わせること。
+
+- [ ] **Step 5: 実際の Daily ノートで動作を確認する**
+
+**注意: 実ファイルを書き換える。** 事前に内容を控えておくこと。
+
+```bash
+V=/Users/yohira/Documents/Obsidian-Vault
+cp "$V/01_Daily/$(date +%F).md" /tmp/daily-backup.md
+grep -c "^- \*\*" "$V/01_Daily/$(date +%F).md" | xargs echo "実行前の行数:"
+python3 "$V/00_Claude/scripts/claude_daily_log/cli.py" sync --project coopinf --report
+echo "--- 差分 ---"
+diff /tmp/daily-backup.md "$V/01_Daily/$(date +%F).md" || true
+```
+
+期待: `coopinf` の行だけが変わるか、既に最新なら差分なし。**他のプロジェクトの行が「記録なし」に化けていないこと。**
+
+- [ ] **Step 6: `/record` に組み込む**
+
+`claude-config` の `claude/commands/record.md` の「## 記録後」節を差し替える。
+
+```bash
+cd /Users/yohira/git/claude-config
+python3 - <<'EOS'
+import io
+p = 'claude/commands/record.md'
+s = io.open(p, encoding='utf-8').read()
+old = """## 記録後
+
+Obsidian の Daily ノートへ反映するには `/daily-sync` を実行します。
+前日以前の分を反映する場合は `/daily-sync YYYY-MM-DD` のように日付を指定してください。"""
+new = """## 記録後: Obsidian へ反映する
+
+`conversations.md` を更新したら、**そのプロジェクトだけ**を Obsidian の Daily ノートへ反映します。
+
+```
+V="$HOME/Documents/Obsidian-Vault"
+P=$(basename "$(git rev-parse --show-toplevel)")
+/usr/bin/python3 "$V/00_Claude/scripts/claude_daily_log/cli.py" sync --project "$P" --report
+```
+
+`--project` は**そのプロジェクトだけを走査し、Daily の該当行だけを差し替えます**。
+他プロジェクトの仕掛かり途中の記録は混ざりません。fetch もしないため数秒で終わります。
+
+**「Daily に該当行がありません」と警告が出た場合**は、その日の Daily ブロックがまだ
+作られていません。`/daily-sync` を実行してブロック全体を確立してから、もう一度実行してください。
+
+全プロジェクトを一括で反映したい場合（朝いちばんなど）は `/daily-sync` を使います。
+前日以前の分は `/daily-sync YYYY-MM-DD` のように日付を指定してください。"""
+assert old in s
+s = s.replace(old, new, 1)
+io.open(p, 'w', encoding='utf-8').write(s)
+print("record.md を更新")
+EOS
+./sync.sh push --force >/dev/null && echo "実機へ配布: OK"
+diff ~/.claude/commands/record.md claude/commands/record.md && echo "SAME"
+```
+
+- [ ] **Step 7: コミットする（2リポジトリ）**
+
+Vault は obsidian-git が main を直接同期する運用のため feature ブランチを切らない。claude-config は feature ブランチと Draft PR を作る。
+
+```bash
+cd /Users/yohira/Documents/Obsidian-Vault
+git add 00_Claude/scripts/claude_daily_log/
+git commit -m "feat: プロジェクト単位の Daily 反映(--project)を追加
+
+/daily-sync は全プロジェクト一括のため、記録直後に反映しようとすると
+他プロジェクトの仕掛かり途中のものまで入ってしまう。1プロジェクトだけを
+走査し Daily の該当行だけを差し替える --project を追加した。
+
+ブロック全体を作り直すと走査しなかったプロジェクトが「記録なし」に化けるため、
+行単位の置換にしている。該当行が無い場合は警告して何もしない
+(挿入位置の決定にはグループ化と並び替えが必要で、複雑さのわりに使う場面が限られる)。"
+
+cd /Users/yohira/git/claude-config
+git checkout main && git pull
+git checkout -b feature/record-project-sync
+git add claude/commands/record.md
+git commit -m "feat: /record にプロジェクト単位の Daily 反映を組み込む
+
+記録を書いた直後に Obsidian へ反映したいが、/daily-sync は一括のため
+他プロジェクトの仕掛かり中のものまで入る。cli.py に追加した --project を
+呼び、そのプロジェクトの行だけを差し替える。
+
+スコープが /record と揃っているため束ねても筋が通る(一括処理を束ねようとした
+前回の提案が却下されたのはスコープが異なったため)。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+git push -u origin feature/record-project-sync
+gh pr create --draft --title "feat: /record にプロジェクト単位の Daily 反映を組み込む" --body "実装計画: Obsidian Vault \`00_Claude/plans/2026-09-07-decision-record-hooks.md\` の Task 12
+
+## 背景
+
+記録を書いた直後に Obsidian へ反映したいが、\`/daily-sync\` は**全プロジェクト一括**のため、他プロジェクトの**仕掛かり途中のものまで反映されてしまう**。
+
+## 運用
+
+- **朝いちばん** … 一括の \`/daily-sync\` で Daily ブロック全体を確立
+- **日中** … 各プロジェクトで \`/record\` を叩くと、**そのプロジェクトの行だけ**が差し替わる
+
+## 実装
+
+Vault 側の \`cli.py\` に \`--project\` を追加し（別コミット）、\`/record\` からそれを呼ぶ。
+
+| 論点 | 決定 |
+|---|---|
+| 走査範囲 | そのプロジェクトのみ |
+| fetch | しない（数秒で完了） |
+| Daily ブロック | **該当行だけ差し替え、他は触らない** |
+| 該当行が無い場合 | 警告して何もしない |
+
+ブロック全体を作り直すと、走査しなかったプロジェクトが**「記録なし」に化ける**ため行単位の置換にしている。
+
+## 補足
+
+前回「\`/record\` に \`/daily-sync\` を束ねては」と提案して却下された。理由は**一括処理を束ねようとしたから**。プロジェクト単位であればスコープが揃うため筋が通る。"
+```
+
+
 ## タスク依存関係
 
 ```
