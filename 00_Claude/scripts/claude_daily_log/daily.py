@@ -1,6 +1,6 @@
 """Daily ノート（01_Daily/YYYY-MM-DD.md）の管理ブロック更新。"""
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import atomicio
 import sections as sections_module
@@ -210,3 +210,75 @@ def update_daily(
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomicio.write_text_atomic(path, new_text)
     return True
+
+
+def render_entry_line(source_id: str, entry) -> str:
+    """Daily ブロックの1行を描画する。render_project_lines と同じ書式にすること。"""
+    note = source_id.replace("/", "-")
+    title = sections_module.sanitize_title(entry.title)
+    return (
+        "- **%s** — %s [[00_Claude/projects/%s#%s %s|%s]]"
+        % (source_id, entry.date, note, entry.date, title, title)
+    )
+
+
+def update_daily_sources(
+    vault: str,
+    date: str,
+    latest_entries: Dict[str, object],
+) -> Tuple[bool, List[str]]:
+    """指定ソースの行だけを差し替える。他の行には一切触れない。
+
+    プロジェクト単位の同期用。ブロック全体を作り直すと、走査しなかった
+    プロジェクトが「記録なし」に化けるため、行単位の置換にしている。
+
+    該当行が無いソースは警告を返し、その行は作らない（挿入位置を決めるには
+    グループ化と並び替えが必要になり、複雑さのわりに使う場面が限られるため）。
+    戻り値は (書き換えが発生したか, 警告一覧)。
+    """
+    warnings: List[str] = []
+    path = os.path.join(vault, daily_relpath(date))
+    if not os.path.exists(path):
+        return False, ["%s が存在しません" % daily_relpath(date)]
+
+    with open(path, encoding="utf-8") as handle:
+        original = handle.read()
+    lines = original.splitlines()
+
+    start_indices = _marker_indices(lines, START_MARKER)
+    end_indices = _marker_indices(lines, END_MARKER)
+    if len(start_indices) != 1 or len(end_indices) != 1 or end_indices[0] < start_indices[0]:
+        raise DailyMarkerError(
+            _marker_error_message(
+                daily_relpath(date),
+                len(start_indices),
+                len(end_indices),
+                order_wrong=bool(start_indices and end_indices and end_indices[0] < start_indices[0]),
+            )
+        )
+
+    low = start_indices[0] + 1
+    high = end_indices[0]
+
+    for source_id in sorted(latest_entries):
+        entry = latest_entries[source_id]
+        prefix = "- **%s** — " % source_id
+        target = None
+        for index in range(low, high):
+            if lines[index].startswith(prefix):
+                target = index
+                break
+        if target is None:
+            warnings.append(
+                "%s: Daily に該当行がありません。先に一括の同期（/daily-sync）を実行してください"
+                % source_id
+            )
+            continue
+        lines[target] = render_entry_line(source_id, entry)
+
+    new_text = "\n".join(lines).rstrip("\n") + "\n"
+    if original == new_text:
+        return False, warnings
+
+    atomicio.write_text_atomic(path, new_text)
+    return True, warnings

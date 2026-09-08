@@ -260,5 +260,99 @@ class MarkerWhitespaceTest(unittest.TestCase):
         self.assertIn("coopinf", text)
 
 
+MULTI_SOURCE = """- [ ] 手書きタスク
+- **coopinf** — outside の同名行（触ってはいけない）
+
+## Claude作業ログ
+
+<!-- claude-log:start -->
+- **coopinf** — 2026-09-01 [[00_Claude/projects/coopinf#2026-09-01 旧|旧]]
+- **alphasystem** — 2026-08-30 [[00_Claude/projects/alphasystem#2026-08-30 別件|別件]]
+<!-- claude-log:end -->
+"""
+
+
+class UpdateDailySourcesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+        os.makedirs(os.path.join(self.vault, daily.DAILY_DIR))
+        self.path = os.path.join(self.vault, daily.daily_relpath("2026-09-06"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        with open(self.path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def write(self, text):
+        with open(self.path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+
+    def test_only_target_source_line_changes_others_untouched_exactly(self):
+        self.write(MULTI_SOURCE)
+        before_lines = MULTI_SOURCE.splitlines()
+        changed, warnings = daily.update_daily_sources(
+            self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新"))
+        )
+        self.assertTrue(changed)
+        self.assertEqual(warnings, [])
+        after_lines = self.read().splitlines()
+        self.assertEqual(len(before_lines), len(after_lines))
+        diff_indices = [i for i in range(len(before_lines)) if before_lines[i] != after_lines[i]]
+        self.assertEqual(len(diff_indices), 1)
+        self.assertTrue(after_lines[diff_indices[0]].startswith("- **coopinf** — "))
+        self.assertIn(
+            "- **alphasystem** — 2026-08-30 [[00_Claude/projects/alphasystem#2026-08-30 別件|別件]]",
+            after_lines,
+        )
+
+    def test_missing_source_line_warns_and_does_not_change(self):
+        self.write(MULTI_SOURCE)
+        before = self.read()
+        changed, warnings = daily.update_daily_sources(
+            self.vault, "2026-09-06", latest(entry(source_id="coopcdeweb"))
+        )
+        self.assertFalse(changed)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("coopcdeweb", warnings[0])
+        self.assertIn("該当行がありません", warnings[0])
+        self.assertEqual(self.read(), before)
+
+    def test_second_run_with_same_input_reports_no_change(self):
+        self.write(MULTI_SOURCE)
+        daily.update_daily_sources(self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新")))
+        before = self.read()
+        changed, warnings = daily.update_daily_sources(
+            self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新"))
+        )
+        self.assertFalse(changed)
+        self.assertEqual(warnings, [])
+        self.assertEqual(self.read(), before)
+
+    def test_line_with_same_prefix_outside_block_is_untouched(self):
+        self.write(MULTI_SOURCE)
+        daily.update_daily_sources(self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新")))
+        text = self.read()
+        self.assertIn("- **coopinf** — outside の同名行（触ってはいけない）", text)
+
+    def test_malformed_markers_raise(self):
+        self.write("手書き\n<!-- claude-log:end -->\n中身\n<!-- claude-log:start -->\n")
+        before = open(self.path, "rb").read()
+        with self.assertRaises(daily.DailyMarkerError):
+            daily.update_daily_sources(self.vault, "2026-09-06", latest(entry(source_id="coopinf")))
+        self.assertEqual(open(self.path, "rb").read(), before)
+
+    def test_missing_daily_note_warns_and_reports_no_change(self):
+        changed, warnings = daily.update_daily_sources(
+            self.vault, "2026-09-07", latest(entry(source_id="coopinf"))
+        )
+        self.assertFalse(changed)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("が存在しません", warnings[0])
+        self.assertFalse(os.path.exists(os.path.join(self.vault, daily.daily_relpath("2026-09-07"))))
+
+
 if __name__ == "__main__":
     unittest.main()

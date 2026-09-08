@@ -285,6 +285,92 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
     return report
 
 
+def run_sync_project(vault: str, git_root: str, date: str, project_name: str) -> Dict:
+    """1プロジェクトだけを走査し、Daily の該当行だけを差し替える。
+
+    全体を走査しないため、他プロジェクトの仕掛かり途中の記録は混ざらない。
+    fetch もしない（自分が今書いた内容を反映するだけのため）。
+    """
+    report = {
+        "date": date,
+        "project": project_name,
+        "sources": 0,
+        "entries": 0,
+        "mirror_added": 0,
+        "mirror_replaced": 0,
+        "daily_changed": False,
+        "daily_skipped": False,
+        "daily_missing": False,
+        "warnings": [],
+    }
+    if not os.path.isdir(vault):
+        report["warnings"].append("Vault が見つかりません: %s" % vault)
+        return report
+
+    matched = [
+        project
+        for project in projects_module.list_projects(git_root)
+        if project.name == project_name
+    ]
+    if not matched:
+        report["warnings"].append(
+            "%s は構成テーブルに載っていません（~/git/alphasystem/CLAUDE.md, ~/git/coop/CLAUDE.md）"
+            % project_name
+        )
+        return report
+    project = matched[0]
+    if not project.exists:
+        report["warnings"].append("%s: リポジトリが見つかりません (%s)" % (project_name, project.path))
+        return report
+
+    try:
+        entries, warnings = sources_module.collect_entries(project.path, project.name, target_date=None)
+    except Exception as error:
+        report["warnings"].append("%s: 収集に失敗しました (%s)" % (project_name, error))
+        return report
+    report["warnings"].extend(warnings)
+
+    all_entries = sources_module.dedupe(entries)
+    report["entries"] = len(all_entries)
+
+    by_source: Dict[str, List] = {}
+    for entry in all_entries:
+        by_source.setdefault(entry.source_id, []).append(entry)
+    report["sources"] = len(by_source)
+
+    for source_id in sorted(by_source):
+        try:
+            added, replaced = mirror_module.update_mirror(vault, source_id, by_source[source_id])
+        except OSError as error:
+            report["warnings"].append("%s: ミラー更新に失敗しました (%s)" % (source_id, error))
+            continue
+        report["mirror_added"] += added
+        report["mirror_replaced"] += replaced
+
+    latest_by_source: Dict[str, object] = {}
+    for entry in all_entries:
+        if entry.date > date:
+            continue
+        current = latest_by_source.get(entry.source_id)
+        if current is None or (entry.date, entry.order) > (current.date, current.order):
+            latest_by_source[entry.source_id] = entry
+
+    if not latest_by_source:
+        report["daily_skipped"] = True
+        return report
+
+    try:
+        changed, daily_warnings = daily_module.update_daily_sources(vault, date, latest_by_source)
+    except daily_module.DailyMarkerError as error:
+        report["warnings"].append(str(error))
+        return report
+    report["daily_changed"] = changed
+    report["warnings"].extend(daily_warnings)
+    if any("が存在しません" in warning for warning in daily_warnings):
+        report["daily_missing"] = True
+    return report
+
+
 def format_report(report: Dict) -> str:
     lines = [
         "対象日: %s" % report["date"],
@@ -312,6 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vault", default=os.environ.get("CLAUDE_DAILY_LOG_VAULT", DEFAULT_VAULT))
     parser.add_argument("--git-root", default=os.environ.get("CLAUDE_DAILY_LOG_GIT_ROOT", DEFAULT_GIT_ROOT))
     parser.add_argument("--report", action="store_true", help="結果を標準出力に表示する")
+    parser.add_argument("--project", default=None, help="このプロジェクトだけを同期する（fetch しない）")
     return parser
 
 
@@ -358,7 +445,10 @@ def main(argv=None) -> int:
                     "cloned": 0,
                     "warnings": ["fetch 処理で予期しないエラー (%s)" % error],
                 }
-        report = run_sync(args.vault, args.git_root, date)
+        if args.project:
+            report = run_sync_project(args.vault, args.git_root, date, args.project)
+        else:
+            report = run_sync(args.vault, args.git_root, date)
         if fetch_report is not None:
             report["fetched"] = fetch_report["fetched"]
             report["cloned"] = fetch_report["cloned"]
