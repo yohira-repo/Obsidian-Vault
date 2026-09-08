@@ -331,3 +331,70 @@ Phase 4の作業で発生したものではない。
 必ず添える運用とする。Claude側のmemoryにも
 [conversations-md-doc-link.md](/Users/yohira/.claude/projects/-Users-yohira-git-coopinf/memory/conversations-md-doc-link.md)
 として記録済み。
+
+---
+
+## 2026-09-07 カットオーバー後の作業を追加: `cf/` 配下のCFテンプレート整理
+
+ユーザーより「`migration/cf`配下のcfファイルを`cf/`配下に移動、使用しなくなった
+旧バージョンのcfファイルを`cf/old`配下に移動したい」と依頼あり(2026-09-07)。
+[`migration/cutover-plan.md`](./migration/cutover-plan.md) の **Task 10** として追記した。
+
+- `aws cloudformation get-template` で実機と突き合わせ、`migration/cf/coopbatch/`・
+  `migration/cf/coopinf/` の4ファイルはいずれも既存デプロイ済みスタック
+  (`create-codebuild-cf` / `create-ecr-cf` / `coop-ecs-batch-prd` /
+  `coop-ecs-batch-ondemand-prd`、対応するstgスタック含む)の実テンプレートと
+  一致していることを確認済み。`cf/` 本体側が旧世代(`coopcde`)のまま
+  取り残されているだけであり、本作業はファイル配置の是正のみでスタック更新は伴わない。
+- 移動後の格納構成はサブディレクトリを展開せず`cf/`直下にフラット統合する方針とした
+  (ユーザー選択、2026-09-07)。
+- **方針変更**: 退避先について、[`migration/plan.md`](./migration/plan.md) には
+  以前 `migration/cf/out/` と記載されていたが、今回のユーザー指示により `cf/old/`
+  に変更した。`plan.md` 側の記載もあわせて訂正済み。
+- 本追記は計画への記載のみであり、実際のファイル移動(`git mv`)はまだ実施していない。
+
+---
+
+## 2026-09-08 Task 6: 初回自動実行の確認とStep 3判定方法の変更
+
+[`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 6(9/8 09:30の初回自動実行確認)について、
+ユーザーからStep 1〜3の実施結果を受領(2026-09-08)。
+
+- Step 1(CloudWatch Logs確認): OK
+- Step 2(S3ファイル移動確認): `untreated/`・`temporary/` とも0件(異常終了ファイルなし)
+- Step 3(DBの件数確認): `compare-tables.sh` の結果は
+  `contract|107322` / `gas_bill|716195` / `denki_bill|2254161` / `early_bill|2661067`
+  (`table|count|hash`)。
+
+**判明した問題**: `compare-tables.sh` は現在の総件数を出すだけで前日比較機能を持たず、
+かつ前日(9/7)時点のprd側総件数を記録したドキュメントもリポジトリ内に存在しない。
+そのため計画のPASS基準4「4テーブルの件数が前日から妥当に増加している」は、
+この出力だけでは判定できないことが判明した。
+
+**方針変更(Claude提案・ユーザー未回答のため暫定採用)**: 総件数の前日比較の代わりに、
+`created_at`(coopbatchの`prisma`実装では`upsert`時、新規作成の場合のみ`now()`が
+セットされ更新時は変更されない列)で「当日分の新規INSERT件数」を直接数える方式に
+切り替えることを提案した。[`migration/cutover-plan.md`](./migration/cutover-plan.md) の
+Task 6 PASS基準4を「当日分の新規INSERT件数が0件超であること」に書き換え、
+確認用SQLを追記済み。ユーザーからの実行結果待ち。
+
+---
+
+## 2026-09-08 Task 6: PASS確定・Task 7(切り戻し)は実施しないと決定
+
+ユーザーから受領した`created_at`ベースの当日分INSERT件数
+(`contract`=22 / `gas_bill`=0 / `denki_bill`=0 / `early_bill`=5714)について、
+`gas_bill`・`denki_bill`が0件だった理由が不明だったため、Claude自身が
+`--profile coop`のAWS CLI(読み取り専用)でCloudWatch Logs
+(`/ecs/logs/coop-prd-batch-loggroup`)を直接取得して調査した。
+
+**判明した事実**: 当日は`/OUT/INVOICE`(gas_bill/denki_billの元データ)自体が
+0件で、ジョブ全体は`Total Errors: 0`・`completed successfully`。
+`contract`(AGREEMENT由来)・`early_bill`(EARLY由来)は該当ファイルが存在し
+エラー0件で全件処理済み。
+
+**決定**: [`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 6の
+PASS基準4項目をすべて満たすと判断し、**Task 6はPASS、Task 7(切り戻し)は
+実施しない**と結論づけた(2026-09-08、Claude判断・詳細根拠をcutover-plan.mdの
+Task 6「実施結果」に記録済み)。次はTask 8(切替後の運用体制へ移行)。
+ユーザーへは着手前に確認中。

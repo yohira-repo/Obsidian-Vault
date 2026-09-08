@@ -237,3 +237,41 @@ AWS CLI（`coop`プロファイル）で本番・STGの実バケット（`coopcd
 
 ### ステータス
 実装・PR更新（Draft）完了。マージ前提ではなく、実運用への組み込み（本番投入時のリトライ上限・エスカレーション等）は新人が別途対応する。
+
+## 2026-09-08 ローカルSFTP環境（local/sftp/README.md）接続時にパスワードを聞かれる問題の調査
+
+### 症状
+`local/sftp/README.md`の手順通り環境構築後、動作確認の`sftp -i ./local/sftp/keys/id_sftp_test -P 2222 sftp-user@localhost`で、鍵のパスフレーズ入力後に`sftp-user@localhost's password:`と聞かれてしまい、公開鍵認証で接続できない。
+
+### 調査の経緯（注意点）
+ユーザーの実行環境はWindows（PowerShell、`C:\Users\yohira\git\coopbatch`）だが、本セッションのBashツールはmac（Darwin）側で動いており別環境。当初この違いに気づかず、mac側でコンテナを再作成して検証し「鍵設定は正しいはず」と回答したが、これはユーザーの実機の状態を反映しておらず無意味な検証だった。以降はユーザーに直接コマンド実行・結果貼り付けを依頼する形で切り分けを継続。
+
+- `authorized_keys`とローカルの`.pub`ファイルの中身は完全一致（鍵の取り違え・マウント不具合ではない）
+- `docker logs`に`Failed publickey`の記録が一切なく`Failed password`のみ→クライアントが鍵をサーバーに提示できていない
+- `ssh-keygen -y -f ...`単体では正しいパスフレーズで復号成功（鍵ファイル自体は壊れていない）
+- 最終的にユーザー自身が判明: SFTP接続時のパスフレーズ入力を、値（`coopcde-local-sftp-passphrase`）だと認識せず空Enterで飛ばしていたことが原因。空パスフレーズだと鍵の再試行なしに即座にpassword認証へフォールバックするため、この症状になっていた。
+
+### 結論・対応不要の判断
+`README.md`の動作確認セクションには元々「秘密鍵作成時に使用したパスフレーズ（`coopcde-local-sftp-passphrase`）を入力」とコメントで明記されており、ドキュメント自体に不備はなかった（読み落としが原因）。ユーザーより「README.mdをよく読めば読めばわかる話でした」との申し出があり、README修正は不要と判断。追記・修正は行わない。
+
+## 2026-09-08 ローカルLocalStack環境でSecrets Managerが空になる問題の調査（本日中断・明日再開）
+
+### 症状
+`local/localstack/README.md`手順に沿って構築したが、`secretsmanager list-secrets`が常に空（`{"SecretList": []}`）で、`assets/`配下に秘密情報ファイルを配置しても解消しない。
+
+### 調査で判明・解決した問題（3つ）
+1. **README記載不備**: 「Secrets Manager用ファイルの配置」セクションが`coopcde-sftp-secret.txt`（1ファイル）とだけ書かれているが、実際の`docker-compose.yml`は`coopcde-local-sftp-secret.txt`と`coopcde-local-sftp-passphrase.json`の**2ファイル**（ファイル名も"local"抜けで不一致）を要求している。`git log`確認により、この機能を追加した最初のコミットから存在する長年のバグと判明。README修正は別途相談（未着手）。
+2. **`init-aws.sh`のCRLF化**: リポジトリに`.gitattributes`が存在せず、Windows環境でのgitチェックアウト時にシバン行が`#!/bin/bash\r\n`に化け、`[Errno 2] No such file or directory`エラーに。ユーザー側でLF変換して解消。恒久対応として`.gitattributes`追加を提案中（未承認・未着手）。
+3. **`Set-Content -Encoding utf8`のBOM付与**: Windows PowerShellの`-Encoding utf8`がUTF-8 BOMを付与し、シバン行破壊で`[Errno 8] Exec format error`に。`-Encoding ascii`に変更して解消。
+
+### 未解決の問題
+上記3点を解消後、`init-aws.sh`自体は正常に完走する（`[end] localstack:init-aws`まで到達、エラーなし）が、`secretsmanager list-secrets`は依然として空のまま。コンテナ内で`awslocal`コマンドを直接実行すると`exec /root/.local/bin/awslocal: exec format error`が発生。イメージ・実行環境のアーキテクチャは双方`amd64`で一致しており、イメージを削除して再取得しても再現するため、イメージ破損でもアーキテクチャ不一致でもない。一方、ホスト側からの`aws --endpoint-url=http://localhost:4566 ...`は正常に動作しており、LocalStack本体（APIサーバー）自体は正常。`awslocal`ラッパースクリプト固有の問題と推測し、コンテナ内で素の`aws --endpoint-url=...`コマンド（`awslocal`を介さない）が動作するか検証を依頼した直後に、ユーザーより本日はここで中断する旨の申し出があった。
+
+### 次の一手（再開時にまず試すこと）
+1. コンテナ内で`docker exec coopcde_localstack aws --endpoint-url=http://localhost:4566 secretsmanager list-secrets`（`awslocal`を使わない）が動作するか確認
+2. 動作すれば、`init-aws.sh`内の`awslocal`呼び出しを`aws --endpoint-url=http://localhost:4566 ...`への書き換えに変更する対応を検討（要承認）
+
+### ステータス
+ユーザーより「本作業明日に送ります。本日これ以上、この問題に関わっている時間がありません」との申し出があり、`awslocal` exec format error自体の調査は本日中断・明日以降に持ち越し。
+
+ただし`.gitattributes`追加（改行コードLF強制）についてのみ、ユーザーより「改行コードの件は、PR作成しておいてください」と承認があったため、`fix/add-gitattributes-lf`ブランチで対応しDraft PR #23作成済み。README修正・`init-aws.sh`書き換えは引き続き未承認・未着手。
