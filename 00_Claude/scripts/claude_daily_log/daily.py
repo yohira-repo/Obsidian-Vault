@@ -247,14 +247,18 @@ def update_daily_sources(
 
     start_indices = _marker_indices(lines, START_MARKER)
     end_indices = _marker_indices(lines, END_MARKER)
-    if len(start_indices) != 1 or len(end_indices) != 1 or end_indices[0] < start_indices[0]:
+    start_count = len(start_indices)
+    end_count = len(end_indices)
+    # order_wrong は「開始・終了ともにちょうど1個」のときだけ判定する。
+    # update_daily と同じ条件にしないと、マーカー重複時に
+    # 「順序が逆」と「重複している」で異なるメッセージが出る。
+    if start_count != 1 or end_count != 1:
         raise DailyMarkerError(
-            _marker_error_message(
-                daily_relpath(date),
-                len(start_indices),
-                len(end_indices),
-                order_wrong=bool(start_indices and end_indices and end_indices[0] < start_indices[0]),
-            )
+            _marker_error_message(daily_relpath(date), start_count, end_count, order_wrong=False)
+        )
+    if end_indices[0] < start_indices[0]:
+        raise DailyMarkerError(
+            _marker_error_message(daily_relpath(date), start_count, end_count, order_wrong=True)
         )
 
     low = start_indices[0] + 1

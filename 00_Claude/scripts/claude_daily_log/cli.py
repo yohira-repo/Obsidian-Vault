@@ -307,6 +307,12 @@ def run_sync_project(vault: str, git_root: str, date: str, project_name: str) ->
         report["warnings"].append("Vault が見つかりません: %s" % vault)
         return report
 
+    if not project_name.strip():
+        report["warnings"].append(
+            "--project にプロジェクト名が渡されていません（呼び出し元で名前の取得に失敗した可能性があります）"
+        )
+        return report
+
     matched = [
         project
         for project in projects_module.list_projects(git_root)
@@ -362,7 +368,10 @@ def run_sync_project(vault: str, git_root: str, date: str, project_name: str) ->
     try:
         changed, daily_warnings = daily_module.update_daily_sources(vault, date, latest_by_source)
     except daily_module.DailyMarkerError as error:
-        report["warnings"].append(str(error))
+        report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
+        return report
+    except OSError as error:
+        report["warnings"].append("Daily 更新に失敗しました (%s)" % error)
         return report
     report["daily_changed"] = changed
     report["warnings"].extend(daily_warnings)
@@ -445,7 +454,9 @@ def main(argv=None) -> int:
                     "cloned": 0,
                     "warnings": ["fetch 処理で予期しないエラー (%s)" % error],
                 }
-        if args.project:
+        if args.project is not None:
+            # 空文字を「未指定」と同じに扱うと、呼び出し元でプロジェクト名の取得に
+            # 失敗したときに黙って全件走査へ化ける（--project の存在理由が消える）。
             report = run_sync_project(args.vault, args.git_root, date, args.project)
         else:
             report = run_sync(args.vault, args.git_root, date)
