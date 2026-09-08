@@ -892,3 +892,71 @@ Critical の修正後にもう一度レビューを回したところ、**2件�
 
 **PR #14 は Draft のまま**、3コミット（実装 + 修正2回）が載っている。
 **上記2件の修正後の再レビュー承認はまだ取っていない。** マージ前にもう一度回すかは判断待ち。
+
+## 2026-09-08 Daily の Claude作業ログに反映されない条件（コードから確定）
+
+`conversations.md` に日付付き見出しで書いても Daily に出ないことがある。
+`00_Claude/scripts/claude_daily_log/` のコードを読み、9つの条件を確定させた。
+
+### A. そもそも走査されない
+
+**1. プロジェクトが構成テーブルに載っていない**
+
+対象は `~/git/alphasystem/CLAUDE.md` と `~/git/coop/CLAUDE.md` の表に書かれたものだけ
+（`projects.py` の `DEFAULT_CONFIG_FILES`）。`| 名前 | ../パス |` 形式で、
+パスが `../` で始まる行のみ採用（`ROW_RE`）。現在16件。
+
+`~/git` 配下にあるのに表に無いリポジトリ（2026-09-08 時点で7件）:
+
+```
+alpha-ai-system / alphapweb / aws-minimal-ha-cdk / betasite
+claude-config / everything-claude-code / studySession
+```
+
+**2. リポジトリが `~/git/<名前>/.git` に無い**
+
+`Project.exists` が `.git` の存在を要求する。**Obsidian Vault 自身は `~/git` 配下にないため
+永久に対象外**。`00_Claude/conversations.md` に書いた内容は Daily に出ない。
+
+**3. `conversations.md` が gitignore されている**
+
+収集は `git ls-files` と `--others --exclude-standard` を使う（`sources.py` の `local_files`）。
+**ignore されたファイルは拾えない**（実測で確認）。
+パスに `node_modules` / `dist` / `build` / `.next` / `vendor` を含む場合も除外。
+
+### B. 拾われるが見出しとして認識されない
+
+**4. 日付が見出しの先頭にない** — `sections.py` の `DATED_H2_RE`。2026-09-07 に実害。
+
+### C. 認識されるが Daily の1行に選ばれない
+
+**5. 同じプロジェクトにより新しい日付のエントリがある**
+
+Daily は **1プロジェクトにつき1行、最新1件だけ**（`cli.py` の `latest_by_source`）。
+同じ日に3件書いても出るのは最後の1件。古いものはミラー（`00_Claude/projects/<name>.md`）
+には入るが Daily の行には出ない。
+
+**6. エントリの日付が対象日より後** — `entry.date > date` は除外（as-of 表示）。
+
+### D. 書き込み側の条件
+
+**7. Daily ノートが存在しない** — `update_daily` は何も作らない（別エントリ参照）。
+**8. マーカーが壊れている** — `<!-- claude-log:start -->` / `end` が1つずつ・正しい順序でないとエラー。
+**9. 同期が走っていない** — `SessionEnd` か `/daily-sync` の実行が必要。
+
+### いま起きていることの説明
+
+- `coopinf` の行が 2026-09-07 のまま = **条件5**。今日はまだ coopinf 側に何も書いていない
+- **この2日間の作業記録の大半が Daily に出ていない = 条件2**。
+  すべて Vault の `00_Claude/conversations.md` に書いており、そこは同期元ではない
+
+### 対応は未決定
+
+どれを直すかは判断待ち。
+
+| 条件 | 想定される対応 |
+| - | - |
+| 2（Vault が対象外） | Vault 自身を同期元に加える / Vault の記録は Daily に出さない運用と割り切る |
+| 1（表に無いリポジトリ） | `claude-config` 等を構成テーブルに追加する |
+| 5（1プロジェクト1行） | その日のエントリを全部出す仕様に変える |
+| 7・9（同期タイミング） | SessionStart でも走らせる |
