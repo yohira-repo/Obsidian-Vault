@@ -16,7 +16,7 @@
 | `<IF_ID>` | インターフェースID | **OCN開通通知** |
 | `<TUNNEL_DST>` | Tunnel Destination（対向IPv6） | **OCN開通通知** |
 | `<GLOBAL_IP>` | 固定グローバルIPv4アドレス | **OCN開通通知** |
-| `<DNS1>` `<DNS2>` | パブリックDNS（例 `8.8.8.8` / `1.1.1.1`） | 社内決定 |
+| `<DNS1>` `<DNS2>` | **確定**：OCN指定DNS（東日本）優先＋パブリックDNSをフォールバック → 6章参照（`210.145.254.170` / `125.170.93.234` / `8.8.8.8` / `1.1.1.1`） | OCN_settei_Ver1.7 |
 | `<MAC_xx>` | DHCP予約対象PCのMACアドレス | 実機確認 |
 | `<L2TP_PSK>` | L2TP/IPsec 事前共有鍵 | 社内 |
 | `<VPN_USER_x>` / `<VPN_PASS_x>` | VPNユーザー名・パスワード | 社内 |
@@ -62,6 +62,8 @@ ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
 ```
 
 > **最重要**：`ra-prefix@lan2` を `dhcp-prefix@lan2` にしないこと。HGW配下ではDHCPv6-PDでプレフィックスを取得できず、MAPルール／トンネルが成立せず **「IPv6は通るがIPv4が全く通らない」** 状態になります（→ [[切替・障害切り分け手順]] 5-1）。
+>
+> **OCN公式の裏付け（2026-09-09 突き合わせ）**：`OCNIPoE_v1.1.pdf` に「XG-100NE配下にIPoE対応ルーターを接続するとIPv6配布方式が**RA方式に変換される**」と明記。RA方式は本設計の独自判断ではなく **OCN公式準拠**です（→ [[OCN_DOC突き合わせ結果]] #1）。
 
 ### 3-3. LAN3：コアスイッチ幹線（タグVLAN）
 
@@ -115,7 +117,10 @@ nat descriptor address inner 1 auto
 
 ```
 # ★ 自動設定の "dhcp lan2" は使わない（HGWをDNSサーバとして参照し名前解決に失敗する既知事象の回避）
-dns server <DNS1> <DNS2>
+# DNSは OCN指定（東日本）を優先し、パブリックDNSをフォールバックに併記（社内はIPv4のみ運用）
+#   OCN指定：210.145.254.170 / 125.170.93.234（OCN_settei_Ver1.7）
+#   フォールバック：8.8.8.8 / 1.1.1.1
+dns server 210.145.254.170 125.170.93.234 8.8.8.8 1.1.1.1
 dns service recursive
 ```
 
@@ -129,15 +134,15 @@ dhcp server rfc2131 compliant except remain-silent
 
 # VLAN 10（営業・総務管理）
 dhcp scope 10 192.168.128.100-192.168.128.199/24 gateway 192.168.128.1 expire 12
-dhcp scope option 10 dns=<DNS1>,<DNS2>
+dhcp scope option 10 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 
 # VLAN 20（社内開発・試験）
 dhcp scope 20 192.168.64.100-192.168.64.199/24 gateway 192.168.64.1 expire 12
-dhcp scope option 20 dns=<DNS1>,<DNS2>
+dhcp scope option 20 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 
 # VLAN 30（ゲスト）
 dhcp scope 30 192.168.192.100-192.168.192.199/24 gateway 192.168.192.1 expire 4
-dhcp scope option 30 dns=<DNS1>,<DNS2>
+dhcp scope option 30 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 
 # 保守セグメント
 dhcp scope 40 192.168.200.100-192.168.200.199/24 gateway 192.168.200.1 expire 12
@@ -521,3 +526,4 @@ save
 | VPNユーザーの業務／開発区分                                 | **確定**（4名／6アカウント。→ 10章）                                                 |
 | MAP-E／IPIP上でのIKE・ESP通過性                         | OCNへ要確認                                                                 |
 | L2TP/IPsec 同時接続数の上限                             | 機種仕様を要確認                                                                |
+| フレッツID×ルール情報の紐付け                              | **注意**：IPoEはフレッツID（CAF/COP）とルーター内ルール情報の組合せで通信。自営端末（RTX1300）を別回線へ流用（ルール情報未変更）すると IPv4 over IPv6 が不通になる。**切替当日は当該回線の開通情報（`<IF_ID>`/`<TUNNEL_DST>`/`<GLOBAL_IP>`）を投入**。検証で別回線に接続したRTX1300を持ち込む場合は初期化／ルール情報削除が必要（OCN Checklist ◆IPoE通信ご利用時の注意事項 → [[OCN_DOC突き合わせ結果]] #6） |

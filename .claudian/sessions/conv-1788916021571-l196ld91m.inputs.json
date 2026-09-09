@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1788916021571-l196ld91m",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788916022681-bejux4p",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1788916021569-bvwzzt0",
+      "timestamp": 1788916021569,
+      "rawDisplayText": "社内ネットワーク更改作業を実施しています。config 配下に無線AP BE9400 の設定も追加してください。また、OCNからドキュメントが届いたので、02_Note/社内ネットワーク更改/OCN_DOC 配下 に配置しました。",
+      "canonicalText": "社内ネットワーク更改作業を実施しています。config 配下に無線AP BE9400 の設定も追加してください。また、OCNからドキュメントが届いたので、02_Note/社内ネットワーク更改/OCN_DOC 配下 に配置しました。",
+      "context": {
+        "linkedContent": {
+          "path": "02_Note/社内ネットワーク更改/config/config_XG-100NE.md"
+        }
+      },
+      "images": [],
+      "contentDigest": "0183802f50566c31fdd4c490203bf82df743e93fce72d8ded553434cb6bd24d9",
+      "providerUserMessageId": "adad34a6-290c-49ab-8bc9-3d44621578a7",
+      "providerAssistantMessageId": "8e279269-be6d-42aa-8a74-7e0b9f491556"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788916687315-6f1t523",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1788916687310-y5z0xr1",
+      "timestamp": 1788916687310,
+      "rawDisplayText": "EIB-X01A-BT6 60W給電, WBE710は25Wなので大丈夫かと思います。",
+      "canonicalText": "EIB-X01A-BT6 60W給電, WBE710は25Wなので大丈夫かと思います。",
+      "images": [],
+      "contentDigest": "e2edccd48aa8aa25f44972d9777198688cc59dbd9d0caf85685f1c5f0234d4c1",
+      "providerUserMessageId": "20f82a7a-b82a-4de8-9c6d-cd1b70b953bf",
+      "providerAssistantMessageId": "3b8357bf-25ae-4079-bc98-3fca33cfa1ba"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1788916737972-4r09m6k",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1788916737969-vgzjlwj",
+      "timestamp": 1788916737969,
+      "rawDisplayText": "OCN資料の突き合わせお願いします。",
+      "canonicalText": "OCN資料の突き合わせお願いします。",
+      "images": [],
+      "contentDigest": "1305bf8309898238e000631573d8a50d316929af3b7e50e61e9db0a624416809",
+      "providerUserMessageId": "525975be-3752-4990-a216-45b8e286111a",
+      "providerAssistantMessageId": "1916b74b-163f-4a31-800c-2dafb2aa5c46"
+    }
+  ]
+}

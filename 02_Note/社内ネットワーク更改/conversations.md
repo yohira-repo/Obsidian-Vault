@@ -613,3 +613,39 @@ t-yamashita・takebuchi を対象外として問題ないか、念のため確�
 - [[現行config棚卸し]] 5章：ユーザー引き継ぎ表を確定版へ
 - [[社内LANネットワーク設定]] 3-6：アカウント割当表を追加
 - [[インターネット回線更改]]：区分決定を完了、t-yamashita/takebuchi の確認タスクを追加
+
+## 2026-09-09 無線AP BE9400（WBE710）設定手順書を追加
+
+- [[config_BE9400]] を config 配下に新規作成（既存の XS508TM / XG-100NE と同じWeb GUI／NETGEAR Insight手順書形式。BE9400はテキストconfigなし）。
+- 反映した確定値：管理IP `192.168.128.3/24`（GW `192.168.128.1`／管理VLAN 10）、アップリンクは XS508TM Port5 → PoEエクステンダー → AP（2.5GbE, タグVLAN 10/20/30透過）、SSID→VLAN は Office-WiFi=10 / Develop-WiFi=20 / Guest-WiFi=30、APはL2ブリッジ（DHCP・GWはRTX1300）、Guest-WiFiのみクライアント分離ON。
+- SSID PSK・管理者PWは平文で残さず「要記入」とし、パスワード管理台帳で管理する方針。
+
+### 給電方式（確定）
+- PoEエクステンダーは **EIB-X01A-BT6（IEEE 802.3bt / 最大60W給電）**、WBE710 の消費電力は最大約25W。**60W ≫ 25W で給電十分**と確定（当初の PoE++ 要確認事項はクローズ）。[[config_BE9400]] 4章・7章を確定情報へ更新済み。
+
+### 保留（ユーザー承認待ち）
+- OCN_DOC 配下の正式資料（OCN_settei_Ver1.7 / OCNIPoE_v1.1 等）と 既存 [[config_RTX1300]]／[[OCN_Hikari_Cross_RTX1300_Setup_Guide]] の突き合わせ（IPv6取得方式・MAP-E・固定IP設定の差異確認）は、着手可否をユーザーに確認中。未承認。
+
+## 2026-09-09 OCN正式資料とRTX1300 config の突き合わせに着手（承認）
+
+- ユーザー承認を得て、OCN_DOC 配下の正式資料と 既存 [[config_RTX1300]]／[[OCN_Hikari_Cross_RTX1300_Setup_Guide]] の突き合わせを開始。
+- 観点：IPv6取得方式（RA方式 vs 資料記載）、MAP-E／OCNバーチャルコネクト固定IP1のルール、固定IP設定、異常系。
+- 方針：差異を洗い出して報告するところまで実施。config の実修正は差異提示後に別途承認を得てから着手（既存挙動差異が絡むため）。
+
+## 2026-09-09 OCN正式資料との突き合わせ結果と反映（確定）
+
+### 突き合わせ結論
+- **RA方式がOCN公式で裏付け（確定）**：`OCNIPoE_v1.1.pdf` に「XG-100NE配下にIPoE対応ルーターを接続するとIPv6配布方式がRA方式に変換される」と明記。[[config_RTX1300]] 3-2 のRA方式は正。従来の第三者ブログ根拠から一次情報（OCN）へ格上げ。
+- **Setup Guide の「DHCPv6-PD方式」は公式に反する（確定）**：[[OCN_Hikari_Cross_RTX1300_Setup_Guide]] §4.2-A はXG-100NE配下では誤り。既存方針（Guideは参考・RA優先）が正しかったことを確認。
+- **OCN_settei_Ver1.7 は本件（固定IP1/MAP-E）に大半非該当**：IP8/16（unnumbered）＋DNS/ドメイン手続き向け。流用可なのはDNSアドレスのみ。
+- 分析全文は [[OCN_DOC突き合わせ結果]] に保存。config本体の“誤り”修正は無し（注記強化とDNS確定のみ）。
+
+### ユーザー決定（承認）
+- **DNS＝案A優先＋案Bフォールバック**：OCN指定（東日本）`210.145.254.170` / `125.170.93.234` を優先し、`8.8.8.8` / `1.1.1.1` をフォールバックに併記。
+- 注記反映は **B（Setup GuideにPD誤り注記）／A（RTX1300 3-2にOCN根拠追記）／D（フレッツID×ルール情報の注意追記）** を実施で承認。
+
+### 反映ファイル
+- [[config_RTX1300]]：0章プレースホルダ表（DNS確定）、3-2（OCN根拠追記）、6章（`dns server` を OCN優先+public fallback の具体値へ）、7章（DHCP配布DNSを具体値へ、全VLAN）、13章（フレッツID×ルール情報の注意を1行追加）
+- [[OCN_Hikari_Cross_RTX1300_Setup_Guide]]：冒頭に「§4.2-AのPD方式はXG-100NE配下では誤り／RA方式が正」の訂正注記（本文は無修正）
+- [[OCN_DOC突き合わせ結果]]：新規作成（突き合わせ全文・窓口一覧・承認待ちだった反映表）
+- OCN_DOC配下の一時抽出 .txt は削除（PDFのみ残置）

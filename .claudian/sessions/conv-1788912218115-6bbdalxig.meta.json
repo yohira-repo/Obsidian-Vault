@@ -1,0 +1,24 @@
+{
+  "id": "conv-1788912218115-6bbdalxig",
+  "providerId": "claude",
+  "title": "/record command blocked in project conversation...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1788912218154,
+  "lastActivityAt": 1788912631447,
+  "sessionId": "20747616-0952-4898-a07f-42f8f63262ce",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "20747616-0952-4898-a07f-42f8f63262ce"
+  },
+  "linkedContentPath": "01_Daily/2026-09-09.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 1,
+    "cacheCreationInputTokens": 2890,
+    "cacheReadInputTokens": 92218,
+    "contextWindow": 1000000,
+    "contextTokens": 95109,
+    "percentage": 10,
+    "contextWindowIsAuthoritative": true
+  }
+}
