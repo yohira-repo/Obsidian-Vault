@@ -398,3 +398,24 @@ PASS基準4項目をすべて満たすと判断し、**Task 6はPASS、Task 7(�
 実施しない**と結論づけた(2026-09-08、Claude判断・詳細根拠をcutover-plan.mdの
 Task 6「実施結果」に記録済み)。次はTask 8(切替後の運用体制へ移行)。
 ユーザーへは着手前に確認中。
+
+---
+
+## 2026-09-09 Task 8: PASS確定・Task 9は本日ユーザー実施予定・Task 10へ進行を決定
+
+[`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 8(切替後の運用体制へ移行)について、
+ユーザーが `coop-prd-manage`/`coop-stg-manage` 上でStep 1〜3を実施し、結果を受領(2026-09-09)。
+
+- Step 1: `backup-prd-db.sh`(JST 01:00)cronの継続を確認済み(変更不要)。
+- Step 2: `restore-stg-db.sh`(JST 02:00)cronを停止済み。
+- Step 3: 温存対象4点(`coopcde-prd-batch-schedule`・`coopcde-stg-batch-schedule`・
+  ECR `coopcde-batch`とCodeBuildプロジェクト・試験用SFTPコンテナ`coop-stg-sftp`)の
+  残存をすべて確認済み。
+
+PASS基準(温存対象すべて残存・`restore-stg-db.sh`のcronのみ停止)を満たすため
+**Task 8はPASS**(実施結果をcutover-plan.mdのTask 8に記録済み)。
+
+**決定**: Task 9(旧バッチをstgで実行する手順)はユーザー自身が手順確認を行う予定であり、
+実施は本日2026-09-09(ユーザー訂正あり。当初「実施済み」と記録したが誤りで、正しくは
+「本日実施予定」)。Claude側の追加対応は不要。Task 10(`cf/`配下のCloudFormation
+テンプレート整理)はTask 9と作業が重複しないため、ユーザーの指示により着手する(2026-09-09)。

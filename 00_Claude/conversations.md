@@ -1040,3 +1040,22 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 
 スコープの異なる操作を「便利だから」で1つに束ねようとした。
 利用者の側が階層を意識して設計していたのに、実装側がそれを崩しかけた。
+
+## 2026-09-10 daily-sync 自動反映の不具合修正（A′：クロスプラットフォーム・ラッパー化）を承認・実施
+
+### 背景（不具合）
+- 「Claude作業ログ」は Daily ページ作成トリガーではなく、**SessionEnd hook（`~/.claude/settings.json`）＋手動 `/daily-sync`** が daily-sync を起動して既存ノートの `<!-- claude-log -->` ブロックへ反映する設計（ツールはノートを新規作成しない）。
+- 実バグ：SessionEnd hook の `PY=$(command -v python3 || command -v python)` が、**Windows では `python3` が Microsoft Store スタブ**（`…\WindowsApps\python3`）に当たり、実行しても何もせず終了（exit 49）。→ 自動同期が無言で空振りしていた。Mac では `python3` が実体のため正常。
+
+### 決定（ユーザー承認：おすすめ＝A′）
+- **A′：クロスプラットフォームなラッパー `00_Claude/scripts/claude_daily_log/run.sh` を新設し、hook はそれを呼ぶだけにする。** ラッパーは `python3 → python → py` を順に試し、`-c "import sys"` が通るものだけ採用（Store スタブ・python2・Mac の py 不在を自動除外）。OS判定を1ファイルに閉じ込め、Win/Mac 同一挙動。
+- A（Windowsパス直書き）は Mac で壊れるため不採用。B（OSスケジューラ）・C（Templater）は今回見送り（必要時に同ラッパーを再利用して追加）。
+
+### 実施内容
+- 追加：`00_Claude/scripts/claude_daily_log/run.sh`（実行可能）。
+- 修正：`~/.claude/settings.json` の SessionEnd hook を `nohup sh "$VAULT/…/run.sh" auto &` に変更。
+- 検証：この Windows 機で `python3`（スタブ）を弾き `C:\Python313\python` を選択、`sync --report` が正常完走。
+
+### 補足・残
+- `~/.claude/settings.json` はマシンごと（Vault同期対象外の想定）。Mac 側は現状の hook でも動くが、統一したい場合は同じ run.sh 経由スニペットへ差し替え可（run.sh は Vault 同期側にあるため共有される）。
+- 「毎朝・Claude利用に依存せず必ず反映」まで求める場合のみ B（Windows=タスクスケジューラ／Mac=launchd で run.sh を叩く）を追加。

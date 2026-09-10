@@ -3,7 +3,7 @@
 WBE710（BE9400）は **Wi-Fi 7・トライバンド（2.4／5／6GHz）・2.5GbE + PoE 対応のアクセスポイント**です。テキストconfigではなく、**ローカルWeb管理画面**または **NETGEAR Insight（クラウド／アプリ）** で設定します。
 
 - 設計根拠：[[社内LANネットワーク設定]]（無線LAN SSID・VLAN設計、PoEエクステンダー ポート使用図、3-3 固定IP割当）
-- 関連：[[config_XS508TM]] / [[config_RTX1300]] / [[config_XG-100NE]]
+- 関連：[[config_XS508TM]] / [[config_RTX1300]] / [[config_XG-200KI]]
 - 切替当日の位置づけ：[[切替・障害切り分け手順]]（無線LANの疎通確認ステップ）
 
 ---

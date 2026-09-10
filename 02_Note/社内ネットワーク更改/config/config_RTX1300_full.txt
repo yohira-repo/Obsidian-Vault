@@ -13,7 +13,7 @@
 #   <IF_ID>                              : インターフェースID（OCN開通通知）
 #   <TUNNEL_DST>                         : Tunnel Destination 対向IPv6（OCN開通通知）
 #   <GLOBAL_IP>                          : 固定グローバルIPv4（OCN開通通知）
-#   <DNS1> <DNS2>                        : パブリックDNS（例 8.8.8.8 / 1.1.1.1）
+#   （DNSは確定済み：OCN指定[東日本]210.145.254.170/125.170.93.234 ＋ fallback 8.8.8.8/1.1.1.1）
 #   <MAC_01>..<MAC_12>                   : DHCP予約対象PCのMAC（実機確認）
 #   <L2TP_PSK>                           : L2TP/IPsec 事前共有鍵（社内）
 #   <PASS_xxx>                           : 各VPNユーザーのパスワード（社内）
@@ -49,7 +49,7 @@ timezone +09:00
 # --- 3-1. LAN1: 保守セグメント ---
 ip lan1 address 192.168.200.1/24
 
-# --- 3-2. LAN2: WAN（XG-100NE LAN4 と接続）---
+# --- 3-2. LAN2: WAN（XG-200KI LAN4 と接続）---
 # ★ RA方式。dhcp-prefix@ にしないこと（HGW配下ではIPv4が全く通らなくなる）
 ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
 
@@ -90,7 +90,7 @@ nat descriptor address inner 1 auto
 # 6. DNS
 # ============================================================
 # ★ "dhcp lan2" は使わない（HGWをDNS参照して名前解決失敗する既知事象の回避）
-dns server <DNS1> <DNS2>
+dns server 210.145.254.170 125.170.93.234 8.8.8.8 1.1.1.1
 dns service recursive
 
 
@@ -101,13 +101,13 @@ dhcp service server
 dhcp server rfc2131 compliant except remain-silent
 # VLAN 10（営業・総務管理）
 dhcp scope 10 192.168.128.100-192.168.128.199/24 gateway 192.168.128.1 expire 12
-dhcp scope option 10 dns=<DNS1>,<DNS2>
+dhcp scope option 10 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 # VLAN 20（社内開発・試験）
 dhcp scope 20 192.168.64.100-192.168.64.199/24 gateway 192.168.64.1 expire 12
-dhcp scope option 20 dns=<DNS1>,<DNS2>
+dhcp scope option 20 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 # VLAN 30（ゲスト）
 dhcp scope 30 192.168.192.100-192.168.192.199/24 gateway 192.168.192.1 expire 4
-dhcp scope option 30 dns=<DNS1>,<DNS2>
+dhcp scope option 30 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 # 保守セグメント
 dhcp scope 40 192.168.200.100-192.168.200.199/24 gateway 192.168.200.1 expire 12
 # DHCP予約（VPNで接続する対象PCのみ。.100〜.149 から割当）

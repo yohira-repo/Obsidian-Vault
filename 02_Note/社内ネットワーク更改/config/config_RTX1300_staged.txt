@@ -54,7 +54,7 @@ nat descriptor address inner 1 auto
 # STEP 4  DNS
 # ############################################################################
 # ★ "dhcp lan2" は使わない（HGW参照による名前解決失敗の回避）
-dns server <DNS1> <DNS2>
+dns server 210.145.254.170 125.170.93.234 8.8.8.8 1.1.1.1
 dns service recursive
 # 確認: nslookup / ping www.yahoo.co.jp（名前解決できる）
 
@@ -71,11 +71,11 @@ ip lan3/3 address 192.168.192.1/24
 dhcp service server
 dhcp server rfc2131 compliant except remain-silent
 dhcp scope 10 192.168.128.100-192.168.128.199/24 gateway 192.168.128.1 expire 12
-dhcp scope option 10 dns=<DNS1>,<DNS2>
+dhcp scope option 10 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 dhcp scope 20 192.168.64.100-192.168.64.199/24 gateway 192.168.64.1 expire 12
-dhcp scope option 20 dns=<DNS1>,<DNS2>
+dhcp scope option 20 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 dhcp scope 30 192.168.192.100-192.168.192.199/24 gateway 192.168.192.1 expire 4
-dhcp scope option 30 dns=<DNS1>,<DNS2>
+dhcp scope option 30 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 dhcp scope 40 192.168.200.100-192.168.200.199/24 gateway 192.168.200.1 expire 12
 dhcp scope bind 10 192.168.128.101 <MAC_01>
 dhcp scope bind 10 192.168.128.102 <MAC_02>

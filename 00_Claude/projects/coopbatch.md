@@ -275,3 +275,40 @@ AWS CLI（`coop`プロファイル）で本番・STGの実バケット（`coopcd
 ユーザーより「本作業明日に送ります。本日これ以上、この問題に関わっている時間がありません」との申し出があり、`awslocal` exec format error自体の調査は本日中断・明日以降に持ち越し。
 
 ただし`.gitattributes`追加（改行コードLF強制）についてのみ、ユーザーより「改行コードの件は、PR作成しておいてください」と承認があったため、`fix/add-gitattributes-lf`ブランチで対応しDraft PR #23作成済み。README修正・`init-aws.sh`書き換えは引き続き未承認・未着手。
+
+## 2026-09-09 LocalStackからFlociへの移行を承認・実施（2026-09-08のawslocal未解決問題も解消）
+
+### 背景・承認内容
+ユーザーより「LocalStackは有料化されており使いづらい。またSecrets Managerが空振りする件もあり、Flociに変更したい」と相談があり、調査の上で以下を提示・承認を得た。
+1. Dockerイメージは`floci/floci:latest-compat`（AWS CLI/boto3同梱、`awslocal`要件を満たす）を採用 → 承認
+2. `local/localstack/` → `local/floci/` へディレクトリリネーム、npm scriptsも`localstack:*` → `floci:*`に改名 → 承認
+3. review.md指摘済みの`.env.example`不存在・アセット名不一致（Medium項目）も今回まとめて修正 → 承認
+
+### 実施内容・実機検証結果
+- `feature/replace-localstack-with-floci`ブランチで対応し、Draft PR [#24](https://github.com/alphacmc/coopbatch/pull/24) 作成済み。
+- 実際に`docker compose -f local/floci/docker-compose.yml up -d`でコンテナを起動し、`init-aws.sh`（secretsmanager create-secret ×2、sqs create-queue、s3 mb）が全て成功、`aws --endpoint-url=...`での`list-secrets`/`get-secret-value`/`sqs list-queues`/`s3 ls`も正常に値が返ることを確認済み。
+- **2026-09-08に中断した「`awslocal`がLocalStackコンテナ内で`exec format error`を起こし未解決」の問題は、Floci移行により解消したことを実機で確認**（Flociの`latest-compat`イメージに同梱される`awslocal`は正常動作）。あわせて、同日判明していた`init-aws.sh`のCRLF化（シバン行破壊・awslocalの引数崩れ）も今回LF化して修正済み。
+- LOCALSTACK_AUTH_TOKENが不要になったため、関連する環境変数・`.env.example`・`.gitignore`/`.cursorignore`の記載も削除。
+
+### 方針変更: 旧`local/localstack/`フォルダは削除せず参照用に残置
+上記の初回対応では`git mv`で`local/localstack/`を`local/floci/`へリネーム（旧フォルダは消える形）していたが、ユーザーより「旧localstackのフォルダーはそのまま残してもらえませんでしょうか」と申し出があり、承認の上、以下を追加対応（同PR #24に追加コミット）。
+- `local/localstack/`（docker-compose.yml・init-aws.sh・README.md・.env.example）を移行前と同一内容で復元
+- `.gitignore`/`.cursorignore`の`local/localstack/`向け除外設定（assets等）も復元
+- `local/floci/README.md`に「旧構成は参照用に残置」の一文を追記
+- npm scripts（`localstack:*`）・ドキュメント本文の参照先はFloci側のままとし、旧フォルダ向けには復元していない（ユーザーへ確認済み、追加要望があれば対応）
+
+### レビュー指摘への対応・承認事項
+ユーザーが`local/floci/docker-compose.yml`をIDEで確認し、以下2点を指摘。
+1. 「volumesのマウント先が`/etc/localstack/init/...`のまま残っているのは違和感がある」
+2. 「外部から`aws --endpoint-url=http://localhost:4566 secretsmanager list-secrets`での確認を行っているか」
+
+調査の結果、2点とも実際に問題があると判明。
+- ②の再検証で、`local/floci/assets/`配下のファイルが存在しない状態だとDockerが黙って空ディレクトリをbind mountし、`init-aws.sh`が`create-secret --secret-string ""`で失敗、`list-secrets`が空振りする（＝当初の「Secrets Managerが空振りする」症状と同一の罠）ことを実機で再現・確認。
+- さらに、①の対応（マウント先を`/etc/floci/init/ready.d/`ネイティブパスへ変更）を行った際、`init-aws.sh`内部の`cat`パスを追従修正し忘れると同様に空振りすることも実機で発見。
+
+ユーザーに以下2点を確認し、承認・方針決定：
+1. マウント先パスを`/etc/localstack/init/...`から`/etc/floci/init/...`（Flociネイティブパス）へ変更する → **承認**。`docker-compose.yml`・`init-aws.sh`双方を修正し、実機で`list-secrets`/`get-secret-value`等が正常動作することを再検証済み（PR #24に追加コミット `47b9742`）。
+2. 「assetsファイルが無いと黙って空振りする」問題への対策（init-aws.sh側でのファイル存在チェック追加等） → **対策不要と判断**。README記載の手順（事前にassetsへファイルを配置）を守る前提でよいとの回答のため、追加対応はしない。
+
+### 検証完了
+ユーザーが`local/floci/assets/`配下の2ファイルを実ファイルに配置し直し（サイズ463/65バイト、以前のダミーとは別物と確認）、再検証を実施。`secretsmanager create-secret`×2・`sqs create-queue`・`s3 mb`が成功し、外部からの`aws --endpoint-url=... secretsmanager list-secrets`/`get-secret-value`（バイト長一致を確認、内容自体はチャットに非出力）/`sqs list-queues`/`s3 ls`も全て正常動作を確認。PR #24の内容は実ファイルでの実機検証済みの状態。

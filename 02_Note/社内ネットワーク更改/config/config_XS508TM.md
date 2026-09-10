@@ -3,7 +3,7 @@
 XS508TM は **8ポート10G/マルチギガ + SFP+×2 のスマートスイッチ**です。テキストconfigではなくWeb管理画面（またはNETGEAR Insight）で設定します。
 
 - 設計根拠：[[社内LANネットワーク設定]]（XS508TM ポート使用図、3-1 セグメント一覧）
-- 関連：[[config_RTX1300]] / [[config_XG-100NE]]
+- 関連：[[config_RTX1300]] / [[config_XG-200KI]]
 
 ---
 
