@@ -312,3 +312,25 @@ AWS CLI（`coop`プロファイル）で本番・STGの実バケット（`coopcd
 
 ### 検証完了
 ユーザーが`local/floci/assets/`配下の2ファイルを実ファイルに配置し直し（サイズ463/65バイト、以前のダミーとは別物と確認）、再検証を実施。`secretsmanager create-secret`×2・`sqs create-queue`・`s3 mb`が成功し、外部からの`aws --endpoint-url=... secretsmanager list-secrets`/`get-secret-value`（バイト長一致を確認、内容自体はチャットに非出力）/`sqs list-queues`/`s3 ls`も全て正常動作を確認。PR #24の内容は実ファイルでの実機検証済みの状態。
+
+## 2026-09-11 `local/db/`配下にPostgreSQL用docker-compose.ymlを新規作成（承認済み設計）
+
+### 背景
+`prisma/schema.prisma`（`provider = "postgresql"`）・`src/config.ts`（`DATABASE_URL`または`DB_HOST`/`DB_PORT`/`DB_DATABASE`/`DB_USER`/`DB_PASSWORD`から接続文字列を組み立て）に対応するローカルDBコンテナが`local/`配下に存在しなかったため、`local/floci`・`local/sftp`と同じ体裁で新規追加する依頼があった。
+
+### 設計方針（着手前に3点確認・承認取得）
+1. **データ永続化方式**: Docker named volume（`coopcde-db-data`）を採用 → 承認。ただし「ボリューム削除手順もREADME.mdに追加してほしい」との追加要望があり、`docker compose -f local/db/docker-compose.yml down -v`での削除手順をREADMEに明記。
+2. **接続情報（ユーザー名/パスワード/DB名/ポート）**: `local/db/.env`で上書き可能にする方式を採用（`${DB_USER:-coopcde}`等のデフォルト値付き変数展開）。
+3. **Postgresイメージバージョン**: `postgres:16-alpine`を採用。
+
+### 実施内容
+- `local/db/docker-compose.yml`（Postgres 16-alpine、`coopcde_db`コンテナ、named volume `coopcde-db-data`）
+- `local/db/README.md`（構築手順・接続情報のカスタマイズ方法・psql/Prisma Studioでの動作確認・ボリューム削除手順・トラブルシューティング）
+- `package.json`に`db`/`db:start`/`db:down`スクリプトを追加（`floci`/`sftp`と同じ命名パターン）
+- **`.env.example`という名前のファイルはツール側の権限設定（`.env`系ファイルの書き込み拒否ルール）で作成できなかったため、代替として拡張子なしの`local/db/env.example`を作成**（README上で`.env`へのコピー手順を明記）。`.gitignore`/`.cursorignore`は既存の`.env`パターン（拡張子なしの汎用マッチ）でカバー済みのため追加変更なし。
+
+### 未検証事項
+このセッションのBashツールから`docker compose --project-directory local/db up -d`を実行したところ、Docker Desktopの名前付きパイプ（`dockerDesktopLinuxEngine`）に接続できず失敗（`docker compose ... config`によるYAML構文検証は成功）。過去の`local/localstack`調査時と同様、Bashツールの実行環境とユーザーの実機Docker Desktopが一致していない可能性があるため、**実際のコンテナ起動・DB接続確認はユーザー側での実施が必要**。
+
+### ステータス
+PR #24（`feature/replace-localstack-with-floci`ブランチ、未マージ・Draft解除済み）に追加コミットする形で対応。実機での起動確認待ち。

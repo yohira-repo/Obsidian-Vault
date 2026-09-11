@@ -399,8 +399,6 @@ PASS基準4項目をすべて満たすと判断し、**Task 6はPASS、Task 7(�
 Task 6「実施結果」に記録済み)。次はTask 8(切替後の運用体制へ移行)。
 ユーザーへは着手前に確認中。
 
----
-
 ## 2026-09-09 Task 8: PASS確定・Task 9は本日ユーザー実施予定・Task 10へ進行を決定
 
 [`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 8(切替後の運用体制へ移行)について、

@@ -1,0 +1,24 @@
+{
+  "id": "conv-1789122892250-1ykkyy924",
+  "providerId": "claude",
+  "title": "Finding VLAN network port settingsこのターンの振り返り:\n\n...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1789122892270,
+  "lastActivityAt": 1789130350531,
+  "sessionId": "172fa13b-6226-48ab-a211-f657bdcc0853",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "172fa13b-6226-48ab-a211-f657bdcc0853"
+  },
+  "linkedContentPath": "02_Note/社内ネットワーク更改/config/config_XS508TM.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 2,
+    "cacheCreationInputTokens": 1248,
+    "cacheReadInputTokens": 179890,
+    "contextWindow": 1000000,
+    "contextTokens": 181140,
+    "percentage": 18,
+    "contextWindowIsAuthoritative": true
+  }
+}
