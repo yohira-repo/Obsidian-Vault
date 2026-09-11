@@ -4,7 +4,7 @@
   "title": "Add BE9400 wireless AP configurationこのターンを振り返りま...",
   "titleGenerationStatus": "success",
   "createdAt": 1788916021575,
-  "lastActivityAt": 1789087149507,
+  "lastActivityAt": 1789090410804,
   "sessionId": "ad8fad45-2ebe-49a7-be55-853fa41e1d67",
   "selectedModel": "opus",
   "providerState": {
@@ -14,11 +14,11 @@
   "usage": {
     "model": "opus",
     "inputTokens": 1,
-    "cacheCreationInputTokens": 913,
-    "cacheReadInputTokens": 629698,
+    "cacheCreationInputTokens": 1239,
+    "cacheReadInputTokens": 690597,
     "contextWindow": 1000000,
-    "contextTokens": 630612,
-    "percentage": 63,
+    "contextTokens": 691837,
+    "percentage": 69,
     "contextWindowIsAuthoritative": true
   }
 }
