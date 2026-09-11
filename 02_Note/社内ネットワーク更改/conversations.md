@@ -994,3 +994,35 @@ t-yamashita・takebuchi を対象外として問題ないか、念のため確�
   3. VLAN間はRTX1300フィルタで VLAN20/30→VLAN10 遮断済み（多層防御）。
 - 結論：**B案（VLAN10ネイティブ/アンタグ、20/30タグ）で続行確定**。セキュリティ低下なし。厳密運用を望むなら後日A案（全タグ・ネイティブ無し／機能同一）へ切替も容易。
 - 次段取り：BE9400 SSID3つ仕上げ→最後にLAN/IP（IP=192.168.128.3・Management VLAN=10・Untagged VLAN=10）→ XS508TM（Port5=VLAN10アンタグ+20/30タグ、§7順）→ VLAN10アクセスのPCはDHCP自動取得で本番確認。
+
+## 2026-09-11 【作業手順メモ】BE9400→XS508TM（VLAN10＝ネイティブ）
+
+### まず結論：VLAN10は「アンタグ（ネイティブ）」で統一
+このAPのUIは「Untagged VLAN」を使う方式なので、VLAN10をネイティブ（アンタグ）にするのが素直（AP・スイッチ双方すっきり、フラット→VLAN移行も滑らか）。
+- AP：Untagged VLAN = 10、Management VLAN = 10（SSID Office=10 / Develop=20 / Guest=30）
+- XS508TM Port5：VLAN10 = アンタグ(U)、VLAN20/30 = タグ(T)、PVID10
+
+### この画面（BE9400 LAN/IP）の設定 — ★ただし“最後”に
+先にSSIDを3つ仕上げてから（Office=10／Develop=20／Guest=30）、最後にLAN/IPを変更：
+- DHCP Client：Disable
+- IP Address：`192.168.128.3`
+- Subnet Mask：`255.255.255.0`
+- Gateway：`192.168.128.1`
+- Primary/Secondary DNS：`8.8.8.8` / `8.8.4.4`
+- 802.1Q VLAN：Untagged VLAN：☑ `10`／Management VLAN：`10`
+- Apply
+→ Apply後、APは `192.168.128.3`（VLAN10）へ移り、`192.168.0.x` のPCからは切れる（正常）。**PCを `192.168.128.50/24` にして** `https://192.168.128.3/` で再接続。
+
+### SSIDの残り
+- Office-WiFi → VLAN 10、Guest-WiFi → VLAN 30（Guestは Advanced 内の Wireless/Client Isolation を有効）
+- Develop-WiFi（VLAN20）はそのまま。6GHzは任意。
+
+### 次（XS508TM）で合わせる
+- Port5：VLAN10＝アンタグ(U)＋PVID10、VLAN20/30＝タグ(T)
+- [[config_XS508TM]] §7 のロックアウト回避順で構築 → VLAN10アクセスポートのPCは **DHCP自動取得** で本番確認（`ping 8.8.8.8`／各SSIDのVLAN確認）
+
+### PCのIP（フェーズ別）
+- BE9400設定中（フラット）：固定 `192.168.0.50/24` → AP `192.168.0.100`
+- APを`.3`化した後の確認：固定 `192.168.128.50/24`（GW `.1`）→ `192.168.128.3`
+- XS508TM設定中：固定 `192.168.0.100/24` → SW既定 `192.168.0.239`
+- 本番・最終確認（VLAN10アクセスポート）：**DHCP自動取得**（RTXが192.168.128.xを配布）
