@@ -737,3 +737,124 @@ t-yamashita・takebuchi を対象外として問題ないか、念のため確�
 - 図中に「10G-EPON ONU（別体）→ XG-200KI（HGW）／ONU一体型ではない」「ONU→XG WAN（CAT6A/10GBASE-T）」「LAN4→RTX1300 LAN2」等が反映済み。
 - これにより一連の残作業（BE9400手順書／OCN突き合わせ／XG-100NE→XG-200KI訂正／ONU別体化／ONU諸元確定／config txt同期／drawio・png更新）はすべてクローズ。
 - 切替当日に向けて残るのは当日入手系の値のみ：OCN開通情報（`<IF_ID>`/`<TUNNEL_DST>`/`<GLOBAL_IP>`）、DHCP予約対象PCのMAC 等。
+
+## 2026-09-10 OCN契約種別の確定（IPoEクロス ワイドプラン 固定IP1＝MAP-E）とRTX方式見直し
+
+### 案内書（NTTドコモビジネス「ご利用内容のご案内」）で確定
+- ご利用サービス名：**第6種 OCN 光「フレッツ」IPoE クロス ワイドプラン IP1**（＝固定IP1）。
+- 通信方式：**IPv4 over IPv6（MAP-E）**（OCN公式明記）。
+- 申込日 2026-08-17／**利用開始・工事日 2026-09-11**／利用場所 京橋AKビル2F。
+- 技術値（割当固定IPv4・推奨設定）は案内書に無く、**同梱案内ページ**を参照：
+  - URL: https://information.ocn.ne.jp/dokon/index.php ／ ID: IPoE ／ PW: ocnoe
+  - ※お客さま番号・フレッツ回線IDは秘匿（案内書上で墨消し）。
+
+### 判明した設計是正点（config_RTX1300）
+- 現行の **ipip 手動方式（tunnel ipip＋対向手動＋ipv6 ::<IF_ID>＋outer 固定IP手動）は方式ごと誤り**。
+- 正：**map-e 方式**（`tunnel encapsulation map-e` ＋ `tunnel map-e type ocn`、IPv6自動取得、`nat descriptor address outer 1 map-e`）。
+- よって **`<IF_ID>`・`<TUNNEL_DST>` は不要**（通知されないのが正しい）。**割当固定IPv4の値は必要**（§8 VPN終端フィルタ、§10/§11 IPsec local address で使用）。
+
+### ステータス／次アクション（未承認・要対応）
+- dokonページで「割当固定IPv4」と「アドレス通知システム登録の要否」を確認・共有（ユーザー）。
+- 上記確認後、config_RTX1300 3-2／4／5章を map-e 方式へ書き換え（承認待ち）。**9/11開通のため優先**。
+
+## 2026-09-10 【訂正】固定IP1は IPIP 方式（前日のmap-e案を撤回）— 原config方式が正
+
+### 訂正の要点
+- 前エントリ「2026-09-10 OCN契約種別の確定…」で「map-e方式へ要改訂／IF_ID・TUNNEL_DST不要」としたが、**これは誤り。撤回する。**
+- 一次情報 **重要事項説明書（`OCN_DOC/jyuyo_flets_cross.pdf`）(6)** に「IPv4通信のMTU値は **1,460Byte（IPIP仕様に基づく）**」と明記。(5) で動的＝共有IP／固定＝専有と区別。
+- YAMAHA公式・実務例でも **OCN固定IP1＝IPIP方式**（interface ID／tunnel endpoint／専有IPv4・ポート制限なし）。動的IP＝MAP-E（共有・ポート制限）とは別方式。
+
+### 確定した理解
+- ユーザーが見た `ocn_map_e`（IF_ID無し）は**動的IP用**の例。当社は**固定IP1（IPIP）**なので **IF_ID・対向トンネルアドレス・固定IPv4 は必要（OCN通知値）**。
+- したがって **現行 config_RTX1300（tunnel ipip／MTU1460／`<IF_ID>`／`<TUNNEL_DST>`／`<GLOBAL_IP>`）は方式として正しい。書き換え不要。**
+- `jyuyo_flets_cross.pdf` は重要事項説明書であり、固定IP設定情報（IP値）ではない。**IF_ID/対向/固定IPv4 は開通（2026-09-11）時/後にOCNから通知**（会員ページ・開通通知）→ 入手後にプレースホルダへ投入。
+
+### 次アクション
+- 9/11開通後、OCN会員ページ等で「固定IPアドレス／トンネル終端アドレス／インターフェースID」を取得し config に投入（方式変更は不要）。
+
+## 2026-09-10 VPNは後回し（切替当日スコープから除外）
+
+- ユーザー判断：**VPNは全く重要ではないため後回し**。切替当日のスコープから外す。
+- 対象：**L2TP/IPsec リモートアクセス（config_RTX1300 §10）**、**AWS拠点間VPN（§11。従来から事後対応）**、および **§8 のVPN終端フィルタ（200080-200083＝esp/500/4500/1701）**。
+- 影響：切替当日は **インターネット接続（§3-2/4/5 の固定IP1 IPIPトンネル＋NAT）＋ VLAN/DHCP/VLAN間フィルタ** の成立を優先。VPN関連の投入・疎通確認は開通後の別作業に回す。
+- 留意：VPNを外しても **インターネット疎通には固定IP設定情報（IF_ID／対向／固定IPv4）が必要**な点は変わらない（固定IP1のIPv4はトンネル経由のため）。§8 のVPN終端 pass 行は当日は投入不要（後日VPN着手時に追加）。
+
+## 2026-09-10 VPNの扱いは「当日対象外」ではなく「優先度低」に統一
+
+- 前記録の「切替当日スコープから除外」は言い過ぎ。正しくは **「優先度低」**（当日対象外と断定はしない／余力次第。ただし優先はインターネット・VLAN）。
+- 反映：
+  - [[config_RTX1300]] §8 VPN終端フィルタ・§10 L2TP/IPsec・§11 AWS拠点間VPN の各所に **「優先度低」** 注記。
+  - [[インターネット回線更改]] のVPN関連タスク（ユーザー登録／フィルタ／トンネル／MAC収集・DHCP予約／FW確認／同時接続数／L2TP鍵発行／利用者周知／⑤AWS再構築 ほか）に **【優先度低】** を付与。
+
+## 2026-09-10 DNSは現状維持（OCN指定＋パブリックDNSフォールバック）で確定
+
+- ユーザー判断：**現状維持（B案）**。config_RTX1300 §6/§7 は変更なし。
+  - `dns server 210.145.254.170 125.170.93.234 8.8.8.8 1.1.1.1`（OCN指定[東日本]優先＋パブリックfallback）。
+- **自動取得（`dns server dhcp lan2`）は採用しない**。理由：RA方式・HGW配下では自動DNSが名前解決不具合を起こす既知事象があるため。
+- 過去の「指定DNS廃止で性能劣化」への対策は、パブリックDNS併記（フォールバック）で担保済み＝OCN DNSが廃止・変更されてもパブリックで継続。
+
+## 2026-09-10 config_RTX1300_staged.txt を段階投入（①事前/②当日/③VPN後日）に再構成
+
+- ユーザー承認のもと、[[config_RTX1300_staged.txt]] を当日コピペ用に3ブロック化。
+- **① 事前投入（開通前・固定IP値不要）**：基本設定／LAN1・LAN3(VLAN)／DNS／DHCP(scope)／VLAN間フィルタ（定義＋適用）／WANフィルタ“定義のみ”＋save。ここまでで内部VLAN疎通・DHCP・分離を先行検証可（インターネットは②まで不通＝正常）。
+- **② 開通当日（固定IP設定情報 到着後）**：LAN2 WAN `ra-prefix@lan2::<IF_ID>`／IPIPトンネル・NAT・デフォルト経路(`<TUNNEL_DST>`/`<GLOBAL_IP>`)／WANフィルタのトンネル適用＋save。当日は②のみ投入すればOK。
+- **③ VPN（優先度低・後日）**：当日除外したWAN側VPN終端フィルタ(200080-083)の追加＋in列再適用の手順のみ記載。L2TP本体は §10、AWSは §11 を参照（staged.txt には重複させない）。
+- WANフィルタのトンネル適用は §4(tunnel)存在後＝②で実施（定義は①で先行）。VPN終端フィルタは②のin列から除外し、③着手時に再適用する設計。
+- 9/11開通に向け、①は事前投入・②は開通後に実施の段取り。
+
+## 2026-09-10 RTX投入手順の修正：先頭に管理者モード(administrator)を明記
+
+- 投入時、通常モード(>)で `login password`→「Invalid command name」、`administrator password`→「Administrator use only」エラー。
+- 原因：RTXは通常モードでは設定コマンド不可。**`administrator` で管理者モード(#)へ入ってから**投入する必要（工場出荷時の管理者PWは空＝Password:でEnterのみ）。
+- 修正：[[config_RTX1300]] §1・[[config_RTX1300_staged.txt]] ①-0・[[config_RTX1300_full.txt]] 0章 に「最初に administrator で管理者モードへ」を追記。
+
+## 2026-09-10 RTX投入手順の修正：login/administrator password は対話入力（インライン不可）
+
+- 管理者モード(#)でも `login password <PW>`→「Invalid command name」、`administrator password <PW>`→「Insufficient or too many parameters」エラー。
+- 原因：YAMAHA RTXの `login password` / `administrator password` は**パスワードを同じ行に書けない＝対話入力**（New_Password を2回入力。administratorはOld_Password→New→再入力）。工場出荷時の現管理者PWは空(Enter)。
+- 出典：rtpro「パスワードの設定」／管理パスワードの設定。
+- 修正：[[config_RTX1300]] §1・[[config_RTX1300_staged.txt]] ①-A・[[config_RTX1300_full.txt]] 1章 のインライン記載を対話入力の手順へ変更（encrypted指定なら1行可の注記も追加）。
+
+## 2026-09-10 RTX1300はユーザー名方式：無名 login password は非対応（login userへ修正）
+
+- 管理者モードでも `login password`→「コマンド名を確認してください」。一方 `administrator password` は成功（Strong）。
+- 原因：**RTX1300/RTX3510 は新ログイン方式（ユーザー名ベース）**。従来の無名 `login password` は非対応。初期ユーザー `admin`／初期PW `admin`（初回ログイン時に変更必須）。
+  - ログイン用ユーザー：初期 admin（初回変更済み）を使用。追加は `login user <名前>`（対話でPW）＋ `user attribute <名前> administrator=2`(管理権限)。
+  - 昇格(管理者)PW：`administrator password`（対話入力）。← 実機で設定成功済み。
+- 出典：rtpro FAQ「RTX3510,RTX1300 ログイン方法」／login_user・login_password_encrypted。
+- 修正：[[config_RTX1300]] §1・[[config_RTX1300_staged.txt]] ①-A・[[config_RTX1300_full.txt]] 1章 を「ユーザー名方式（login user）」へ変更。切替当日は `login password` はスキップ、既存adminで運用。
+
+## 2026-09-10 RTX1300 ①事前投入ブロック 完了・保存（CONFIG0）
+
+- ログ: [[config_RTX1300_log.txt.md]]。①事前投入をすべて成功・`save`（CONFIG0 終了）まで完了。
+- 成功項目：administrator password（Strong）／timezone／LAN1(192.168.200.1)＋LAN3 VLAN10/20/30＋IP／DNS(OCN+パブリック)／DHCP(scope10/20/30/40)／VLAN間フィルタ(定義+適用)／WANフィルタ“定義のみ”(200080-083除外)。
+- **保守PC→192.168.200.1 ping 成功（4/4・損失0%）**＝(b)DHCP自動取得でLAN1到達確認。
+- login password は RTX1300ユーザー名方式のため正しくスキップ（既存adminで運用）。
+- 気づき（無害）：VLAN間フィルタを2回投入（冪等）。DHCP scope行は折返し表示だが正常受理。
+- 未実施（任意・後日）：VLAN10/20/30 実機疎通/分離テスト(TCP)は端末接続後。
+- 残：**②開通当日ブロック**（9/11開通・固定IP設定情報 到着後に §3-2/4/5＋WANフィルタのトンネル適用→save→ping 8.8.8.8/名前解決）。
+
+## 2026-09-11 NETGEAR Insightは使用しない（スタンドアロン/ローカルGUI管理で確定）
+
+- ユーザー判断：**NETGEAR Insightは使わない**。スイッチ(XS508TM)・AP(BE9400)とも**スタンドアロン（ローカルWeb GUI）管理で確定**。以後Insightの説明は不要。
+- 反映：[[config_XS508TM]]・[[config_BE9400]] の「管理方式」をローカルWeb GUI確定・Insight不使用へ更新。BE9400の確認手順・LANマップ注記のInsight記述も除去。
+- 併せてXS508TM 1章に、管理IPは「IP割当モードをStaticに切替→IP/GW入力→Apply→保存」の順で行う旨を追記（DHCPモードのままだと元のDHCP/フォールバック192.168.0.239へ戻る。IP確定後は新IPへ再接続でフル再起動不要）。
+
+## 2026-09-11 XS508TM 管理IP設定の当日ハマりどころ（Static化・保存・順序）
+
+- 症状：GUIで管理IPを入れても元のDHCPアドレスに戻る。
+- 原因：IP割当モードがDHCPのまま／保存漏れ。→ **Staticモードへ切替＋Apply＋設定保存**で確定。
+- 手順（再起動不要・2段階）：①管理IPをStatic確定＋保存→新IP192.168.128.2へ再接続、②VLAN作成→ポートメンバーシップ→**PVIDは最後**（PVID先行で管理VLANを外れ画面を見失うのを回避）。
+
+## 2026-09-11 XS508TM 管理ロックアウト → 工場出荷リセットで再構築（ロックアウト回避手順を確定）
+
+- 事象：管理VLANを10へ移した際、管理PCの接続ポート（空きポート／Port3・4・6とも）がVLAN10アンタグ＋PVID10になっておらず、IPを合わせても管理画面へ到達不可＝ロックアウト。GUI到達不可のため**工場出荷リセット**を選択（ユーザー決定）。
+- 原因の核心：**管理に使うポートのPVIDが管理VLAN(10)になっていない**と、タグ無しのPC通信がVLAN10へ入らず管理IPに届かない。
+- 確定した再構築順（ロックアウト回避／[[config_XS508TM]] 3-2に反映）：
+  1. 管理IPを Static 192.168.128.2/24・GW .1（**管理VLANは既定=1のまま**）→保存→再接続
+  2. VLAN10/20/30作成
+  3. 作業PCポート“以外”のメンバーシップ＋PVIDを設定
+  4. **最後に作業PCポートをVLAN10アンタグ＋PVID10にし、同時に管理VLAN=10へ**（IPは.2のまま／到達維持）
+  5. 保存
+- 復旧口：Resetボタン約10秒長押し→既定 192.168.0.239／全ポートVLAN1。
+- 教訓：一般則「PVIDは最後」だが、**管理に使うポートだけは先に管理VLANのアンタグ＋PVIDにしてから管理VLANを移す**。

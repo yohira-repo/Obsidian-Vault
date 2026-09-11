@@ -1,73 +1,74 @@
 # ============================================================================
-# YAMAHA RTX1300  段階投入コンフィグ（切替当日用）
-# 出典: config_RTX1300.md（12章 投入順序と保存）。
+# YAMAHA RTX1300  段階投入コンフィグ（切替用）
+# 出典: config_RTX1300.md（12章 投入順序と保存）。設計の正は config_RTX1300.md。
 #
-# 【運用方針】
-#   STEP を1つ投入するたびに「# 確認:」のコマンド/観点で結果を確かめてから次へ進む。
-#   まとめて投入すると障害切り分けが困難（config_RTX1300.md 12章）。
-#   プレースホルダ <...> は投入前にすべて実値へ置換すること。
+# 【本ファイルの構成 — ①事前 / ②当日 / ③VPN後日】
+#   ① 事前投入ブロック（開通前でOK・固定IP値は不要）
+#       基本設定 / LAN1・LAN3(VLAN) / DNS / DHCP / VLAN間フィルタ / WANフィルタ“定義”
+#   ② 開通当日ブロック（固定IP設定情報の到着後に投入）
+#       LAN2 WAN(<IF_ID>) / IPIPトンネル・NAT・デフォルト経路(<TUNNEL_DST>/<GLOBAL_IP>)
+#       / WANフィルタの“トンネル適用”
+#   ③ VPN（優先度低・後日）… L2TP/IPsec(§10)、AWS拠点間(§11)。当日は投入しない。
+#
+# 【開通日】2026-09-11（利用開始/工事日）。固定IP設定情報(OCN会員ページ等)の到着後に②。
+#
+# 【プレースホルダの入手区分】
+#   ①社内     : <LOGIN_PASS> <ADMIN_PASS>
+#   ②OCN(開通後): <IF_ID> <TUNNEL_DST> <GLOBAL_IP>   ← 固定IP1(IPIP)の設定情報
+#   ③VPN(後日) : <L2TP_PSK> <PASS_*> <MAC_*>
+#
+# 【運用方針】STEPごとに「# 確認:」で結果を確かめてから次へ。まとめ投入しない。
 #   NG時は 切替・障害切り分け手順.md を参照。
 # ============================================================================
 
 
 # ############################################################################
-# STEP 1  基本設定
-#   前提: コンソール(シリアル/SSH)接続
+# ①  事前投入ブロック（開通前・固定IP値なしで投入可）
+#     ここまででインターネットは不通（②のトンネル未投入のため＝正常）。
+#     事前に確認できるのは：内部VLAN疎通 / DHCP払い出し / VLAN間分離（TCPで確認）。
 # ############################################################################
+
+# ---- ①-0 管理者モードへ（必須・最初に1回）----
+#   RTXは通常モード(>)では設定コマンド不可（"Invalid command name" / "Administrator use only"）。
+#   まず管理者モードへ入る:
+#     administrator          ← 入力
+#     Password:              ← 現在の管理者PW。工場出荷時は空なので Enter のみ（設定済みならその値）
+#   プロンプトが > から # に変われば管理者モード。以降のコマンドは全て # で投入する。
+administrator
+# （↑ 実行後、Password: で 現在の管理者パスワードを入力／未設定なら Enter のみ）
+
+# ---- ①-A 基本設定 ----
 console character ascii
 console lines infinity
-login password <LOGIN_PASS>
-administrator password <ADMIN_PASS>
+# ★ RTX1300はユーザー名方式。無名の "login password" は非対応（"コマンド名を確認してください"）。
+#   - ログイン用ユーザー：初期ユーザー admin（初回に admin/admin から変更済み）を使用。
+#     追加ユーザーが必要な場合のみ（対話入力）:
+#       login user <ユーザー名>            → New_Password: <LOGIN_PASS> → 確認
+#       user attribute <ユーザー名> administrator=2   ← 管理権限も与えるなら
+#   - 昇格(管理者)パスワード（対話入力）:
+#       administrator password  → Old_Password:(現PW／初期は空=Enter) → New_Password: <ADMIN_PASS> → 確認
+#   ※ PWは非表示。login/administrator とも同じ行にPWは書けない（encrypted指定なら1行可）。
 timezone +09:00
 # 確認: プロンプト表示・timezone反映（show environment / show config）
 
-
-# ############################################################################
-# STEP 2  インターフェース（LAN1 / LAN2 WAN）
-# ############################################################################
+# ---- ①-B インターフェース（LAN1 保守 / LAN3 タグVLAN）----
+#   ※ LAN2(WAN)は固定IP値が要るので②で投入する
 ip lan1 address 192.168.200.1/24
-# ★ RA方式。dhcp-prefix@ にしないこと（IPv4が全く通らなくなる）
-ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
-# 確認: show status lan2 でリンクアップ
-# 確認: show ipv6 address でLAN2にグローバルIPv6が付与されている
-
-
-# ############################################################################
-# STEP 3  IPIPトンネル・NAT・デフォルト経路
-# ############################################################################
-tunnel select 1
- tunnel encapsulation ipip
- tunnel endpoint address <TUNNEL_DST>
- ip tunnel mtu 1460
- ip tunnel tcp mss limit auto
- ip tunnel nat descriptor 1
- tunnel enable 1
-ip route default gateway tunnel 1
-nat descriptor type 1 masquerade
-nat descriptor address outer 1 <GLOBAL_IP>
-nat descriptor address inner 1 auto
-# 確認: ping 8.8.8.8 が通る（インターネット到達）
-# 確認: show ipsec sa / show nat descriptor address 1
-
-
-# ############################################################################
-# STEP 4  DNS
-# ############################################################################
-# ★ "dhcp lan2" は使わない（HGW参照による名前解決失敗の回避）
-dns server 210.145.254.170 125.170.93.234 8.8.8.8 1.1.1.1
-dns service recursive
-# 確認: nslookup / ping www.yahoo.co.jp（名前解決できる）
-
-
-# ############################################################################
-# STEP 5  VLAN（LAN3）と DHCP
-# ############################################################################
 vlan lan3/1 802.1q vid=10
 vlan lan3/2 802.1q vid=20
 vlan lan3/3 802.1q vid=30
 ip lan3/1 address 192.168.128.1/24
 ip lan3/2 address 192.168.64.1/24
 ip lan3/3 address 192.168.192.1/24
+# 確認: show ip interface で lan1/lan3 各アドレス。保守PCから 192.168.200.1 へ ping
+
+# ---- ①-C DNS ----
+# ★ "dhcp lan2" は使わない（HGW参照による名前解決失敗の回避）
+#   ※ 名前解決の“実際の成否”は②でトンネルが通ってから（上流DNSへ到達できるのは②後）
+dns server 210.145.254.170 125.170.93.234 8.8.8.8 1.1.1.1
+dns service recursive
+
+# ---- ①-D DHCP ----
 dhcp service server
 dhcp server rfc2131 compliant except remain-silent
 dhcp scope 10 192.168.128.100-192.168.128.199/24 gateway 192.168.128.1 expire 12
@@ -77,52 +78,15 @@ dhcp scope option 20 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 dhcp scope 30 192.168.192.100-192.168.192.199/24 gateway 192.168.192.1 expire 4
 dhcp scope option 30 dns=210.145.254.170,125.170.93.234,8.8.8.8,1.1.1.1
 dhcp scope 40 192.168.200.100-192.168.200.199/24 gateway 192.168.200.1 expire 12
-dhcp scope bind 10 192.168.128.101 <MAC_01>
-dhcp scope bind 10 192.168.128.102 <MAC_02>
-dhcp scope bind 20 192.168.64.101  <MAC_11>
-dhcp scope bind 20 192.168.64.102  <MAC_12>
-# 確認: 各VLANのPCで正しいレンジからIP取得（ipconfig / DHCPリース）
-# 確認: 各VLANゲートウェイへ ping（.128.1 / .64.1 / .192.1）
+# DHCP予約(RDP/SSH対象PC)は MAC判明後（VPN着手時＝優先度低）に追加する:
+#   dhcp scope bind 10 192.168.128.101 <MAC_01>
+#   dhcp scope bind 10 192.168.128.102 <MAC_02>
+#   dhcp scope bind 20 192.168.64.101  <MAC_11>
+#   dhcp scope bind 20 192.168.64.102  <MAC_12>
+# 確認: 各VLANのPCで正しいレンジからIP取得（ipconfig）。各GWへ ping（.128.1/.64.1/.192.1）
 
-
-# ############################################################################
-# STEP 6  WAN側セキュリティフィルタ（トンネル1へ適用）
-# ############################################################################
-ip filter 200003 reject 192.168.0.0/16 * * * *
-ip filter 200020 reject * * udp,tcp 135 *
-ip filter 200021 reject * * udp,tcp * 135
-ip filter 200022 reject * * udp,tcp netbios_ns-netbios_ssn *
-ip filter 200023 reject * * udp,tcp * netbios_ns-netbios_ssn
-ip filter 200024 reject * * udp,tcp 445 *
-ip filter 200025 reject * * udp,tcp * 445
-ip filter 200026 restrict * * tcpfin * www,21,nntp
-ip filter 200027 restrict * * tcprst * www,21,nntp
-ip filter 200030 pass * 192.168.0.0/16 icmp * *
-ip filter 200032 pass * 192.168.0.0/16 tcp * ident
-ip filter 200080 pass * <GLOBAL_IP> esp * *
-ip filter 200081 pass * <GLOBAL_IP> udp * 500
-ip filter 200082 pass * <GLOBAL_IP> udp * 4500
-ip filter 200083 pass * <GLOBAL_IP> udp * 1701
-ip filter 200099 pass * * * * *
-ip filter 200100 reject * * * * *
-ip filter dynamic 200080 * * ftp
-ip filter dynamic 200081 * * domain
-ip filter dynamic 200082 * * www
-ip filter dynamic 200083 * * smtp
-ip filter dynamic 200084 * * pop3
-ip filter dynamic 200085 * * ssh
-ip filter dynamic 200098 * * tcp
-ip filter dynamic 200099 * * udp
-tunnel select 1
- ip tunnel secure filter in  200003 200020 200021 200022 200023 200024 200025 200030 200032 200080 200081 200082 200083 200100
- ip tunnel secure filter out 200020 200021 200022 200023 200024 200025 200026 200027 200099 dynamic 200080 200081 200082 200083 200084 200085 200098 200099
-# 確認: 内部PCからインターネット到達が維持されている（フィルタ適用後の疎通）
-
-
-# ############################################################################
-# STEP 7  VLAN間アクセス制御フィルタ
-#   ★ 静的passは動的filterより前（順序厳守）
-# ############################################################################
+# ---- ①-E VLAN間アクセス制御フィルタ（定義＋ lan3/lan1 へ適用）----
+#   ★ 静的passは動的filterより前（順序厳守）。WAN無しでも内部VLAN分離は機能する。
 ip filter 2000 reject * 192.168.128.0/24 * * *
 ip filter 2001 reject * 192.168.192.0/24 * * *
 ip filter 2002 reject * 192.168.200.0/24 * * *
@@ -152,68 +116,91 @@ ip lan3/2 secure filter in  2000 2001 2002 2003 2004 2009
 ip lan3/2 secure filter out 2100 2101 2102 2103 2104 dynamic 3000 3001 3010 3011 3020
 ip lan3/3 secure filter in  2020 2021 2022 2029
 ip lan1   secure filter in  2039
-# 確認（config_RTX1300.md 9-6 の7項目。pingでなくTCPで確認）:
-#  1) VLAN10→VLAN20 の TCP3389/22 = 成功
-#  2) VLAN20→VLAN10 任意ポート = 失敗
-#  3) 複合機192.168.128.20→VLAN20 = 失敗
-#  4) VLAN10/20→インターネット = 成功
-#  5) VLAN30→VLAN10/20 = 失敗
-#  6) 保守→VLAN10/20 = 成功
-#  7) show ip connection summary でVLAN10→VLAN20セッション登録
+# 確認（TCPで。config_RTX1300.md 9-6 の内部項目）:
+#   VLAN10→VLAN20 TCP3389/22=成功 / VLAN20→VLAN10=失敗 / 複合機→VLAN20=失敗 /
+#   VLAN30→VLAN10・20=失敗 / 保守→VLAN10・20=成功
 
+# ---- ①-F WAN側セキュリティフィルタ “定義のみ”（適用は②-I）----
+#   ※ <GLOBAL_IP> を使う 200080-083(VPN終端) は優先度低のため③で定義する
+ip filter 200003 reject 192.168.0.0/16 * * * *
+ip filter 200020 reject * * udp,tcp 135 *
+ip filter 200021 reject * * udp,tcp * 135
+ip filter 200022 reject * * udp,tcp netbios_ns-netbios_ssn *
+ip filter 200023 reject * * udp,tcp * netbios_ns-netbios_ssn
+ip filter 200024 reject * * udp,tcp 445 *
+ip filter 200025 reject * * udp,tcp * 445
+ip filter 200026 restrict * * tcpfin * www,21,nntp
+ip filter 200027 restrict * * tcprst * www,21,nntp
+ip filter 200030 pass * 192.168.0.0/16 icmp * *
+ip filter 200032 pass * 192.168.0.0/16 tcp * ident
+ip filter 200099 pass * * * * *
+ip filter 200100 reject * * * * *
+ip filter dynamic 200080 * * ftp
+ip filter dynamic 200081 * * domain
+ip filter dynamic 200082 * * www
+ip filter dynamic 200083 * * smtp
+ip filter dynamic 200084 * * pop3
+ip filter dynamic 200085 * * ssh
+ip filter dynamic 200098 * * tcp
+ip filter dynamic 200099 * * udp
 
-# ############################################################################
-# STEP 8  リモートアクセスVPN（L2TP/IPsec）
-#   ★ tunnel 1001〜1004 は 1000 をひな型に展開が必要（要確定）
-# ############################################################################
-ipsec auto refresh on
-ipsec transport 1 1 udp 1701
-tunnel select 1000
- tunnel encapsulation l2tp
- ipsec tunnel 1
-  ipsec sa policy 1 1 esp aes-cbc sha-hmac
-  ipsec ike keepalive use 1 off
-  ipsec ike local address 1 <GLOBAL_IP>
-  ipsec ike pre-shared-key 1 text <L2TP_PSK>
-  ipsec ike remote address 1 any
- l2tp tunnel disconnect time off
- l2tp keepalive use on 10 3
- l2tp syslog on
- ip tunnel tcp mss limit auto
- tunnel enable 1000
-ipsec transport 1000 1 udp 1701
-# TODO: tunnel 1001〜1004 を同様に定義（番号重複禁止）
-pp select anonymous
- pp bind tunnel1000-tunnel1004
- pp auth request mschap-v2
- pp auth username yohira     <PASS_yohira>     192.168.201.17
- pp auth username t.kido     <PASS_t.kido>     192.168.201.18
- pp auth username mogik      <PASS_mogik>      192.168.201.19
- pp auth username iizuka     <PASS_iizuka>     192.168.201.20
- pp auth username yohiradev  <PASS_yohiradev>  192.168.201.33
- pp auth username t.kidodev  <PASS_t.kidodev>  192.168.201.34
- ppp ipcp ipaddress on
- ppp ipcp msext on
- ppp ccp type none
- ip pp secure filter in 4010 4011 4020 4021 4099
- pp enable anonymous
-ip filter 4010 pass 192.168.201.16/28 192.168.128.0/24 tcp * 3389
-ip filter 4011 pass 192.168.201.16/28 192.168.128.0/24 tcp * 22
-ip filter 4020 pass 192.168.201.32/28 192.168.64.0/24  tcp * 3389
-ip filter 4021 pass 192.168.201.32/28 192.168.64.0/24  tcp * 22
-ip filter 4099 reject * * * * *
-# 確認: 外部から各ユーザーでL2TP/IPsec接続 → 払出IP・到達範囲(RDP/SSH)を確認
-# 確認: show ipsec sa / show pp
-
-
-# ############################################################################
-# STEP 9  AWS拠点間VPN  → 今回は実施しない（事後対応）
-#   config_RTX1300.md 11章参照。AWSコンソールのYamaha向け設定を正とする。
-# ############################################################################
-
-
-# ############################################################################
-# STEP 10  保存
-# ############################################################################
+# ---- ①-G 保存（事前投入分を確定）----
 save
-# 確認: show config で全設定反映。再起動後も維持されることを確認。
+# 確認: show config で①分が反映。内部LAN/VLAN/DHCP/分離が成立していること。
+#       ※ インターネットはまだ不通（②未投入のため＝正常）
+
+
+# ############################################################################
+# ②  開通当日ブロック（固定IP設定情報の到着後に投入）
+#     OCN会員ページ等で「固定IPアドレス / トンネル終端アドレス / インターフェースID」を
+#     入手し、<GLOBAL_IP> / <TUNNEL_DST> / <IF_ID> へ置換してから投入する。
+#     ★ 当日はここ（②）だけ順に投入すれば内部設定(①)の上にインターネットが乗る。
+# ############################################################################
+
+# ---- ②-G LAN2：WAN（RA方式）----
+# ★ RA方式。dhcp-prefix@ にしないこと（IPv4が全く通らなくなる）
+ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
+# 確認: show status lan2 でリンクアップ / show ipv6 address で LAN2 にグローバルIPv6
+
+# ---- ②-H IPIPトンネル・NAT・デフォルト経路 ----
+tunnel select 1
+ tunnel encapsulation ipip
+ tunnel endpoint address <TUNNEL_DST>
+ ip tunnel mtu 1460
+ ip tunnel tcp mss limit auto
+ ip tunnel nat descriptor 1
+ tunnel enable 1
+ip route default gateway tunnel 1
+nat descriptor type 1 masquerade
+nat descriptor address outer 1 <GLOBAL_IP>
+nat descriptor address inner 1 auto
+# 確認: ping 8.8.8.8（IPv4到達）/ nslookup・ping www.yahoo.co.jp（名前解決）
+#       show nat descriptor address 1
+
+# ---- ②-I WAN側フィルタをトンネル1へ適用 ----
+#   ※ VPN終端(200080-083)は優先度低のため in列から“除外”。VPN着手時に③で追加＆再適用。
+tunnel select 1
+ ip tunnel secure filter in  200003 200020 200021 200022 200023 200024 200025 200030 200032 200100
+ ip tunnel secure filter out 200020 200021 200022 200023 200024 200025 200026 200027 200099 dynamic 200080 200081 200082 200083 200084 200085 200098 200099
+# 確認: 内部PCからインターネット到達が維持（フィルタ適用後の疎通）
+
+# ---- ②-J 保存（当日分を確定）----
+save
+# 確認: 再起動後も維持。VLAN10・20→インターネット=成功、VLAN30→社内=拒否。
+
+
+# ############################################################################
+# ③  VPN（優先度低・後日）— 当日は投入しない
+#     本体は config_RTX1300.md §10(L2TP/IPsec) / §11(AWS拠点間, 事後対応) を参照。
+#     ここには「当日除外したWAN側VPN終端フィルタの追加＋再適用」の手順のみ置く。
+# ############################################################################
+# ---- ③-a VPN終端フィルタ（<GLOBAL_IP>）を定義し、トンネルin列へ再適用 ----
+# ip filter 200080 pass * <GLOBAL_IP> esp * *
+# ip filter 200081 pass * <GLOBAL_IP> udp * 500
+# ip filter 200082 pass * <GLOBAL_IP> udp * 4500
+# ip filter 200083 pass * <GLOBAL_IP> udp * 1701
+# tunnel select 1
+#  ip tunnel secure filter in  200003 200020 200021 200022 200023 200024 200025 200030 200032 200080 200081 200082 200083 200100
+# ---- ③-b L2TP/IPsec 本体 → config_RTX1300.md §10 を投入（tunnel 1000〜1004・pp anonymous 等）----
+# ---- ③-c AWS拠点間VPN → config_RTX1300.md §11（AWSコンソールのYamaha向け設定を正）----
+# save   ← ③実施時に保存

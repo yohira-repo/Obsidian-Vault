@@ -10,29 +10,47 @@
 
 ## 0. プレースホルダ一覧（投入前に確定させる値）
 
-| プレースホルダ | 内容 | 入手先 |
-|---|---|---|
-| `<LOGIN_PASS>` / `<ADMIN_PASS>` | ログイン／管理者パスワード | 社内 |
-| `<IF_ID>` | インターフェースID | **OCN開通通知** |
-| `<TUNNEL_DST>` | Tunnel Destination（対向IPv6） | **OCN開通通知** |
-| `<GLOBAL_IP>` | 固定グローバルIPv4アドレス | **OCN開通通知** |
-| `<DNS1>` `<DNS2>` | **確定**：OCN指定DNS（東日本）優先＋パブリックDNSをフォールバック → 6章参照（`210.145.254.170` / `125.170.93.234` / `8.8.8.8` / `1.1.1.1`） | OCN_settei_Ver1.7 |
-| `<MAC_xx>` | DHCP予約対象PCのMACアドレス | 実機確認 |
-| `<L2TP_PSK>` | L2TP/IPsec 事前共有鍵 | 社内 |
-| `<VPN_USER_x>` / `<VPN_PASS_x>` | VPNユーザー名・パスワード | 社内 |
-| `<AWS_*>` | AWS VGW の対向IP・PSK・BGP情報 | **今回のスコープ外**（→ 11章。事後対応） |
+| プレースホルダ                         | 内容                                                                                                           | 入手先                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| `<LOGIN_PASS>` / `<ADMIN_PASS>` | ログイン／管理者パスワード                                                                                                | 社内                       |
+| `<IF_ID>`                       | インターフェースID                                                                                                   | **OCN開通通知**              |
+| `<TUNNEL_DST>`                  | Tunnel Destination（対向IPv6）                                                                                   | **OCN開通通知**              |
+| `<GLOBAL_IP>`                   | 固定グローバルIPv4アドレス                                                                                              | **OCN開通通知**              |
+| `<DNS1>` `<DNS2>`               | **確定**：OCN指定DNS（東日本）優先＋パブリックDNSをフォールバック → 6章参照（`210.145.254.170` / `125.170.93.234` / `8.8.8.8` / `1.1.1.1`） | OCN_settei_Ver1.7        |
+| `<MAC_xx>`                      | DHCP予約対象PCのMACアドレス                                                                                           | 実機確認                     |
+| `<L2TP_PSK>`                    | L2TP/IPsec 事前共有鍵                                                                                             | 社内                       |
+| `<VPN_USER_x>` / `<VPN_PASS_x>` | VPNユーザー名・パスワード                                                                                               | 社内                       |
+| `<AWS_*>`                       | AWS VGW の対向IP・PSK・BGP情報                                                                                      | **今回のスコープ外**（→ 11章。事後対応） |
 
 ---
 
 ## 1. 基本設定
 
+> **最初に管理者モードへ。** 通常モード（プロンプト `>`）では設定コマンドを受け付けません（`login password`→「Invalid command name」、`administrator password`→「Administrator use only」）。まず `administrator` を実行し、`Password:` に現在の管理者パスワード（**工場出荷時は空＝Enterのみ**）を入力。プロンプトが `#` に変わったら以降の設定コマンドを投入します。
+
 ```
+administrator          # → Password: 現在の管理者PW（工場出荷時は空＝Enterのみ）。以降 # プロンプト
 console character ascii
 console lines infinity
-login password <LOGIN_PASS>
-administrator password <ADMIN_PASS>
 timezone +09:00
 ```
+
+> **RTX1300はユーザー名方式（従来の無名 `login password` は非対応）。** 初期ユーザーは `admin`／初期PW `admin` で、初回ログイン時に変更必須。ログインは以後この `admin` ユーザー（変更後PW＝`<LOGIN_PASS>` 相当）を使用します。
+> - 追加の一般ユーザーを作る場合（対話入力）：
+>   ```
+>   login user <ユーザー名>
+>     New_Password: <LOGIN_PASS>
+>     New_Password: <LOGIN_PASS>   （再入力）
+>   user attribute <ユーザー名> administrator=2   # 管理権限も与える場合
+>   ```
+> - 昇格（管理者）パスワードは対話入力：
+>   ```
+>   administrator password
+>     Old_Password:                （現在の管理者PW。初期は空＝Enter）
+>     New_Password: <ADMIN_PASS>
+>     New_Password: <ADMIN_PASS>   （再入力）
+>   ```
+> ※ パスワードは同じ行に書けない（`login password <PW>` はRTX1300で「コマンド名を確認してください」）。画面にPWは表示されません。事前ハッシュがあれば `login user <名> encrypted <hash>` 等の1行指定も可。
 
 ---
 
@@ -183,7 +201,7 @@ ip filter 200027 restrict * * tcprst * www,21,nntp
 ip filter 200030 pass * 192.168.0.0/16 icmp * *
 ip filter 200032 pass * 192.168.0.0/16 tcp * ident
 
-# --- VPN終端（自機宛） ---
+# --- VPN終端（自機宛）【優先度低】VPNは後回し。切替当日は投入不要、VPN着手時に追加 ---
 ip filter 200080 pass * <GLOBAL_IP> esp * *
 ip filter 200081 pass * <GLOBAL_IP> udp * 500
 ip filter 200082 pass * <GLOBAL_IP> udp * 4500
@@ -354,6 +372,8 @@ ip lan1   secure filter in  2039
 
 ## 10. リモートアクセスVPN（L2TP/IPsec）
 
+> **優先度低（VPNは後回し）。** 切替当日は投入せず、インターネット/VLAN成立後の別作業とする（→ [[conversations]] 2026-09-10「VPNは後回し」）。
+
 ```
 # --- IPsec 基本 ---
 ipsec auto refresh on
@@ -442,7 +462,7 @@ ip filter 4033 pass 192.168.201.48/28 192.168.64.0/24  tcp * 22
 
 ## 11. AWS拠点間VPN（VGW）
 
-> **⚠️ 本章は今回の切替スコープ外です（事後対応）。**
+> **優先度低（VPNは後回し）／今回の切替スコープ外（事後対応）。**
 > AWSへのルートには代替手段があるため、回線切替後に順次対応する方針です。**切替当日はAWS VPNを設定しません。**
 >
 > グローバルIPが `153.156.71.228`（PPPoE時代のIP）から変わるため、**新Customer Gatewayの作成とVPN接続の張り直し**が必要になります。

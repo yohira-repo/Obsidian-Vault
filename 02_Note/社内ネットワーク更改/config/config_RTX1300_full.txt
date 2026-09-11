@@ -27,12 +27,22 @@
 
 
 # ============================================================
+# 0. 管理者モードへ（必須・最初に1回）
+#   通常モード(>)では設定コマンド不可。まず管理者モードへ:
+#     administrator   → Password: 現在の管理者PW（工場出荷時は空＝Enterのみ）
+#   プロンプトが > から # に変われば以降の設定コマンドが通る。
+# ============================================================
+administrator
+
+# ============================================================
 # 1. 基本設定
 # ============================================================
 console character ascii
 console lines infinity
-login password <LOGIN_PASS>
-administrator password <ADMIN_PASS>
+# ★ RTX1300はユーザー名方式。無名の "login password" は非対応。
+#   ログインは初期ユーザー admin（初回に admin/admin から変更済み）を使用。
+#   追加ユーザー: login user <名前>（対話でPW）／ user attribute <名前> administrator=2（管理権限）
+#   昇格PW（対話入力）: administrator password → Old_Password:(初期は空=Enter) → New_Password: <ADMIN_PASS> → 確認
 timezone +09:00
 
 
