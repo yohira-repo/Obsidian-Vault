@@ -10,9 +10,12 @@
 #
 # 【投入前に確定させるプレースホルダ】
 #   <LOGIN_PASS> <ADMIN_PASS>            : ログイン/管理者パスワード（社内）
-#   <IF_ID>                              : インターフェースID（OCN開通通知）
-#   <TUNNEL_DST>                         : Tunnel Destination 対向IPv6（OCN開通通知）
-#   <GLOBAL_IP>                          : 固定グローバルIPv4（OCN開通通知）
+#   <GLOBAL_IP>                          : 固定グローバルIPv4＝「お客さまネットワークアドレス(IPv4)」（NAT外側はmap-e自動。値は§8/§10で使用）
+#   <AR_URL>                             : アドレス解決システム FQDN URL（Lua SERVER_URL）
+#   <AR_ID> / <AR_PASS>                  : アドレス解決システム 認証用共通ID/パスワード（Lua USERNAME/PASSWORD）
+#   <AR_HOST>                            : アドレス解決用ホスト名（Lua HOSTNAME）
+#   <BR_IPV6>                            : BR IPv6アドレス（確認用。明示指定要否は公式固定IP例で確認）
+#   （※ <IF_ID>/<TUNNEL_DST> は旧ipip方式の値。map-e方式では不要＝通知されない）
 #   （DNSは確定済み：OCN指定[東日本]210.145.254.170/125.170.93.234 ＋ fallback 8.8.8.8/1.1.1.1）
 #   <MAC_01>..<MAC_12>                   : DHCP予約対象PCのMAC（実機確認）
 #   <L2TP_PSK>                           : L2TP/IPsec 事前共有鍵（社内）
@@ -59,9 +62,10 @@ timezone +09:00
 # --- 3-1. LAN1: 保守セグメント ---
 ip lan1 address 192.168.200.1/24
 
-# --- 3-2. LAN2: WAN（XG-200KI LAN4 と接続）---
-# ★ RA方式。dhcp-prefix@ にしないこと（HGW配下ではIPv4が全く通らなくなる）
-ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
+# --- 3-2. LAN2: WAN（XG-200KI LAN4 と接続）map-e・RA方式 ---
+# ★ HGW配下＝RA方式。dhcp-prefix@(PD)にしない。map-e方式でIF_ID直書きもしない
+ipv6 lan2 address ra-prefix@lan2::1/64
+ipv6 lan2 dhcp service client ir=on
 
 # --- 3-3. LAN3: コアスイッチ幹線（タグVLAN 10/20/30）---
 vlan lan3/1 802.1q vid=10
@@ -73,23 +77,29 @@ ip lan3/3 address 192.168.192.1/24
 
 
 # ============================================================
-# 4. IPIPトンネル（OCNバーチャルコネクト 固定IP1）
+# 4. map-eトンネル（OCN固定IP1／アドレス解決システム）
+#   方式＝map-e＋Lua。固定IPv4はOCN公式Luaでアドレス解決システムへ登録して適用。
+#   手動ipip（対向/IF_ID直書き）は使わない。
 # ============================================================
 tunnel select 1
- tunnel encapsulation ipip
- tunnel endpoint address <TUNNEL_DST>
+ tunnel encapsulation map-e
+ tunnel map-e type ocn
  ip tunnel mtu 1460
  ip tunnel tcp mss limit auto
  ip tunnel nat descriptor 1
  tunnel enable 1
 ip route default gateway tunnel 1
+# アドレス解決システムへの登録（OCN公式 ocn_address_notification.lua を emfs:/ に配置）
+#   SERVER_URL=<AR_URL> / USERNAME=<AR_ID> / PASSWORD=<AR_PASS> / HOSTNAME=<AR_HOST> / IPv6_IF="LAN2"
+schedule at 1 startup * lua emfs:/ocn_address_notification.lua
+# ★要検証：BR(<BR_IPV6>)明示指定要否 / HGW配下(RA)でのmap-e成立 / ipv6 lan2行 → 公式固定IP例で確定
 
 
 # ============================================================
-# 5. NAT（固定グローバルIPでのNAPT）
+# 5. NAT（固定グローバルIPでのNAPT。固定IPv4はmap-eで自動適用）
 # ============================================================
 nat descriptor type 1 masquerade
-nat descriptor address outer 1 <GLOBAL_IP>
+nat descriptor address outer 1 map-e
 nat descriptor address inner 1 auto
 # Web公開(www/https静的NAT)は今回移植しない。必要時に下記を追加:
 # nat descriptor masquerade static 1 301 <公開サーバIP> tcp www

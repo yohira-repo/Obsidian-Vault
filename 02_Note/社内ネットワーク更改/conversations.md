@@ -874,3 +874,123 @@ t-yamashita・takebuchi を対象外として問題ないか、念のため確�
 - 確定：**AP管理VLAN＝10（タグ付き）**。SSID=10/20/30タグ。**XS508TM Port5は全タグのまま変更不要**（VLAN10/20/30=T、PVID10）。
 - 初期セットアップ順（ロックアウト回避・訂正版）：①フラット(192.168.0.x)で AP に IP=.3／SSID→VLAN／無線ON を投入→②PCを192.168.128.xにして.3で確認→③**最後に管理VLAN=10（タグ）へ切替**（以後VLAN10タグ経路でのみ到達）→④XS508TM設定→⑤VLAN10で最終確認。見失い時はAP Reset。
 - 反映：[[config_BE9400]] §1・§4・§8 を「管理VLAN=10タグ」へ訂正（アンタグ記述を撤回）。
+
+## 2026-09-11 OCN固定IP設定情報が到着：方式は「アドレス解決システム＋BR」＝単純ipipではない
+
+- OCNから固定IP設定情報（画像）到着。実値は墨消しのため未記録。項目と意味：
+  - お客さまネットワークアドレス/マスク(IPv4)＝**割当固定グローバルIPv4**（config `<GLOBAL_IP>`）
+  - 認証ID(IPv4/IPv6)＝**不要**
+  - ネームサーバDNS（東/西 優先1・2）＝**IPv6のみ**通知
+  - IPoE対応ルータ＝利用しない
+  - **BR IPv6アドレス**＝IPv4 over IPv6 トンネルの**対向（Border Relay）**（config `<TUNNEL_DST>` 相当）
+  - アドレス解決システム FQDN URL／認証用共通ID／認証用共通パスワード／アドレス解決用ホスト名
+- **重要な含意**：**「アドレス解決システム(URL/ID/PW/ホスト名)＋BR IPv6」方式＝対向とIF_IDを直書きする単純ipipではない**。ルータがアドレス解決システムに認証し、自分のWAN側IPv6(CE)・固定IP対応を取得する方式。→ **IF_IDが通知されなかった理由**。
+  - よって現行 config_RTX1300 §3-2（`ra-prefix@lan2::<IF_ID>`）／§4（ipip手動）は**この方式に合わせて作り直しが必要**（要・OCN公式のYAMAHA設定例で確定。推測では書かない）。
+- **DNS**：IPv6のみ通知でも問題なし。社内IPv4のみ運用のため**静的IPv4（パブリック 8.8.8.8/1.1.1.1）を使用**（OCN IPv6 DNSは不使用）。§6は変更不要。
+- 次アクション：A) dokonページの「対応ルーター（YAMAHA）設定例」の有無を確認 → B) それを正として確定版configを作成（アドレス解決方式のtunnel設定）。ユーザー判断待ち。
+
+## 2026-09-11 OCN固定IP1のRTX方式を確定：map-e＋アドレス解決システム(Lua)。手動ipipは不採用
+
+- 公式（rtpro OCNバーチャルコネクト対応機能／UTX設定手順）精査の結果、OCN固定IP1のYAMAHA設定は **`tunnel encapsulation map-e` ＋ `tunnel map-e type ocn` ＋ `nat descriptor address outer … map-e`**、**固定IPはOCN提供のLuaスクリプトで「アドレス解決システム」へ登録**して適用する方式と判明。
+- 開通情報の対応：固定IPv4=「お客さまネットワークアドレス(IPv4)」／BR IPv6アドレス=map-eのBR（`<TUNNEL_DST>`相当）／Lua変数 SERVER_URL・USERNAME・PASSWORD・HOSTNAME=「アドレス解決システムFQDN URL・認証用共通ID・パスワード・アドレス解決用ホスト名」。WAN IPv6は自動取得（IF_ID直書き不要＝通知されない理由）。
+- **現行 config_RTX1300 §3-2（ra-prefix@::<IF_ID>）／§4（手動ipip）は方式違いで不採用**。§4に警告注記を入れ、旧ipipブロックは「使用しない」と明示。
+- **Luaスクリプトは推測で書かず、OCN対応ルーター設定例（YAMAHA／dokonページ）を正**として確定版を作る方針。
+- 次：dokonの対応ルーター（YAMAHA）設定例を入手 → §3-2/4/5 を map-e＋Lua の確定版へ改訂。DNSはIPv6のみ通知でも静的IPv4（パブリック）で対応済み、§6変更不要。
+
+## 2026-09-11 RTX1300 WAN/トンネルを map-e＋Lua の確定版へ改訂（承認・反映）
+
+- ユーザー承認のもと、config_RTX1300 系3ファイルを **map-e＋アドレス解決Lua** 方式へ改訂（旧・手動ipipは撤去）。
+- 反映内容（共通）：
+  - §3-2 LAN2：`ipv6 lan2 address ra-prefix@lan2::1/64` ＋ `ipv6 lan2 dhcp service client ir=on`（HGW配下＝RA方式。IF_ID直書き廃止）
+  - §4：`tunnel encapsulation map-e` ＋ `tunnel map-e type ocn` ＋ `ip tunnel nat descriptor 1` ＋ `ip route default gateway tunnel 1`／アドレス解決 `schedule at 1 startup * lua emfs:/ocn_address_notification.lua`（OCN公式Luaを配置し SERVER_URL/USERNAME/PASSWORD/HOSTNAME/IPv6_IF を設定）
+  - §5：`nat descriptor address outer 1 map-e`（固定IPv4は自動適用。値は§8/§10で使用）
+  - §0：プレースホルダを <AR_URL>/<AR_ID>/<AR_PASS>/<AR_HOST>/<BR_IPV6>/<GLOBAL_IP> に更新（<IF_ID>/<TUNNEL_DST>は廃止）
+- 反映ファイル：[[config_RTX1300]]（§0/§3-2/§4/§5）／[[config_RTX1300_staged.txt]]（②開通当日ブロック）／[[config_RTX1300_full.txt]]（3-2/4/5＋ヘッダ）。
+- **要検証（実機/公式固定IP例で確定）**：①BR(<BR_IPV6>)の明示指定要否 ②HGW配下(RA)でのmap-e成立と ipv6 lan2 の正確な行 ③Lua本体はrtpro公式版を使用（4変数のみ設定・自作しない）。
+- 開通情報の値はOCN固定IP設定情報（画像）から転記。DNSはIPv6のみ通知だが社内IPv4のみ運用のため §6（静的IPv4）変更不要。
+
+## 2026-09-11 要検証3点の結論：WANはWeb GUIウィザードで生成＋OCNにRA/PD確認
+
+- 方針：WAN/OCN固定IP1（map-e・アドレス解決Lua・IPv6方式）は機種ファーム/トポロジ依存で公開情報だけでは断定不可（RA/PDの記述揺れあり）。→ **RTX1300のWeb GUI「かんたん設定ウィザード（OCNバーチャルコネクト／固定IP1）」に開通情報を入力して自動生成させ、それを正とする**（config_RTX1300のCLI版map-eは参考/バックアップ）。
+- 項目1（BR明示要否）：ウィザードに開通情報（固定IP・BR・アドレス解決URL/ID/PW/ホスト名）を入力すれば処理される。手動でBRコマンド要否を判断しない。
+- 項目2（HGW配下でのmap-e・RA/PD）＝**最重要・要OCN確認**：本構成はONU→XG-200KI(HGW)→RTX1300のHGW配下。HGWがPD取得→RTXへRA＝**RTXはRA方式**（OCNIPoE_v1.1で配下ルータ構成=可）。ただしYAMAHAウィザードは「ひかり電話あり→PD」等RTX直結前提の表現があり紛らわしい。**OCN設定サポート 0120-047-644【4】/tech-support@ntt.com に「光クロス+XG-200KI配下+RTX1300+OCN固定IP1でRTXはRAか／ウィザードのどの選択肢か」を確認**。
+- 項目3（Lua）：ウィザードでアドレス解決/通知設定は自動生成され手書き不要。CLI時のみrtpro公式 ocn_address_notification.lua を emfs: に配置し4変数設定。
+- 当日ハイブリッド：①事前投入(基本/VLAN/DHCP/フィルタ定義)はCLI済 → ②WAN/固定IP1はWeb GUIウィザードで生成（HGW配下=RA） → ③§8 tunnel secure filter適用・固定IPv4値をCLI整合 → ping/名前解決確認。
+- 反映：config_RTX1300 §4 に「確定方法=ウィザード推奨＋要OCN確認(RA/PD)」を注記。
+
+## 2026-09-11 回線開通を確認（ONU全緑）＋XG-200KIランプの見方（当日判定基準）
+
+- **10G-EPON ONU：電源・光回線・認証がすべて緑点灯を確認**＝フレッツ光クロス回線＋IPoE基盤は開通と判断。
+- XG-200KIランプの対応（当日の判定用）：
+  - **「登録」ランプ＝認証/登録**（網から設定取得。緑点灯＝OK）。
+  - **「電話」ランプ＝ひかり電話**（緑点灯＝使用可。起動後数分かかることあり）。※「光」という単独ランプ＝光電話ではない。光回線状態はONU側で見る。
+  - **「データ通信(v6プラス)」ランプは青点灯しないのが“正常”**（当社はXG-200KIをパススルー＝接続先設定なしで運用し、IPoEのIPv4はRTX1300が担うため）。→ **HGWのランプだけで開通判定しない**。
+- **確実な開通確認＝IPv6到達**：`https://v6test.ocn.ne.jp/`（重要事項説明書記載）／`http://flets-east.jp/`（NGN網内・チェックリスト記載）。ONU緑＋これが表示できれば回線・IPoE(IPv6)は開通。IPv4はRTXのOCN固定IP1(map-e)投入後に社内LANで確認。
+
+## 2026-09-11 XG-200KI 実機ランプ確認：健全（登録・電話・ACT・電源が緑）
+
+- 実機ランプ：電源=緑／電話=緑／ACT=緑／登録=緑／アラーム=消灯／データ通信=消灯／初期状態=消灯／無線=消灯／MESH=消灯／オプション=消灯。
+- 判定：**回線・網登録・ひかり電話まで正常**。
+  - 「登録」緑＝フレッツ網登録/認証OK（ONU全緑と合わせ回線・IPoE基盤の開通は確定と判断）。
+  - 「アラーム」消灯＝異常なし。「無線」消灯＝Wi-Fi OFF（設計どおり）。
+  - 「データ通信」消灯は“正常”＝XG-200KIをパススルー（接続先設定なし）で運用しHGW自身のv6プラス/IPv4は動かさないため。HGWランプで開通判定しない方針を再確認。
+- 次：PCをXG-200KI LANに繋ぎ v6test.ocn.ne.jp でIPv6到達を最終確認 → RTX1300のWAN(OCN固定IP1/map-e)設定へ（RA/PDはOCN確認）。
+
+## 2026-09-11 回線・OCN IPoE(IPv6)の開通を確定（v6test「IPoE方式」）
+
+- v6test.ocn.ne.jp：IPv6=「IPoE方式」／グローバルIPv6付与、IPv4=「確認できませんでした(-)」。
+- ipconfig：グローバルIPv6 2400:4050:f64:a800::/64、DNSサフィックス flets-east.jp、IPv4=192.168.1.3（HGW LAN）、GW=192.168.1.1。
+- 判定：**回線・OCN IPoE(IPv6)は正常に開通**（「回線は無罪」確定）。IPv4が「-」はXG-200KIパススルー運用のため想定どおり（IPv4はRTXのmap-e後）。
+- 収穫：LANは**RAで単一/64（2400:4050:f64:a800::/64）を受領**＝「HGW配下＝RTXもRA方式」の実地裏付け。RTX §3-2 ra-prefix@lan2 で正。
+- 次：RTX1300のWAN（OCN固定IP1/map-e）をWeb GUIウィザードで設定 → 社内LANで ping 8.8.8.8/名前解決でIPv4疎通確認。RA/PDは投入時に最終確認（観測上RA濃厚）。
+
+## 2026-09-11 RA/PD決着：ウィザードで「ひかり電話＝契約していない」を選ぶ（HGW配下＝RA）
+
+- RTX1300 Web GUI かんたん設定→プロバイダー接続→IPv6 IPoE接続 で OCNバーチャルコネクト 固定IP1 を設定中。
+- **要検証(RA/PD)の決着**：プロバイダー情報の設定の「ひかり電話の契約」は、当社はRTXがXG-200KI(HGW)配下のため **「契約していない」を選ぶ＝RA方式** が正。
+  - 根拠：①ウィザードの注記「HGW/OGW利用時はひかり電話契約ありでも『契約していない』の選択が必要な場合あり」 ②v6testでLANはRAで単一/64（PDは配下に来ていない） ③OCNIPoE_v1.1で配下ルータ=RA。
+  - 「契約している」だと接続種別が IPv6 IPoE(DHCP)=PD方式になり、HGW配下では成立せず「IPv6は通るがIPv4不通」になる。→ 必ず「契約していない」。
+- ウィザード入力（正）：接続種別=IPv6 IPoE接続／サービス=OCNバーチャルコネクト／契約内容=固定IP1契約／アドレス解決システムURL・認証用ID・パスワードを入力（値は秘匿のため未記録）。
+- IPフィルター＝「推奨のIPフィルターを設定する」で可（安全側。当社§8との整合は後日）。
+- DNS＝ウィザードは「指定しない/自動取得」。確定後 show config で dns server を確認し、dhcp lan2 になっていたら §6の静的IPv4（8.8.8.8/1.1.1.1 等）へ戻す（RA方式のIPv6 DNS不安定回避）。
+- 次：ひかり電話「契約していない」に直す→設定の確定→ show ipv6 address／社内LANで ping 8.8.8.8・名前解決でIPv4疎通確認。
+
+## 2026-09-11 RTXウィザード生成の確認：RA方式map-e生成済み・restart必須（IPv4未通の原因）
+
+- show config 確認：**RA方式のmap-e が正しく生成**（ipv6 lan2 dhcp service client ir=on＝RA／ngn type lan2 ntt＝WAN=LAN2／tunnel encapsulation map-e＋tunnel map-e type ocn／nat descriptor 20000 address outer map-e／ip route default gateway tunnel 1）。アドレス解決Lua＝emfs:/ocn_map_e.lua を埋め込み（SERVER_URL/USERNAME/PASSWORD/hostname）。
+- **IPv4未通の原因＝restart未実施**：config先頭に「Need to execute 'restart'」警告。map-e登録Luaは schedule at startup で起動時のみ実行→未起動でOCNアドレス解決へIPv6未登録→トンネル0パケット。
+- 次段取り：save→restart→SYSLOGで「[OCN MAP-E] Succeeded to notify IPv6 address ... (code=200)」確認→show nat descriptor address 20000 で固定IPv4確認→社内LANで ping 8.8.8.8/名前解決。
+- 疎通確認後に整理（ウィザードが付けた当社設計外の設定）：
+  - dns server dhcp lan2 ＋ dns server select 500000 dhcp lan2 any . を削除し静的IPv4 DNS一本化（RA方式のIPv6 DNS不安定回避。静的 dns server 210.../8.8.8.8 は既存）。
+  - dhcp scope 1 192.168.100.0/24（ウィザード既定・不要）を削除。
+  - ipv6 lan1（保守セグメントへIPv6広告：ipv6 lan1 address ra-prefix@lan2::1/64・rtadv send・dhcp service server）＝社内IPv4のみ方針と不一致。map-eがLAN1側IPv6を使う形のため、疎通確認後に要否判断（動作していれば無理に変更しない）。
+- セキュリティ：show configにアドレス解決の認証ID/パスワードが平文表示。show config/スクショの保管・共有注意。作業後にパスワード再発行の検討可。
+
+## 2026-09-11 RTX1300 map-e 固定IP 開通成功（IPv4疎通確認）
+
+- restart後、SYSLOGで成功確認：[SCHEDULE] Startup lua ocn_map_e.lua 実行 → [OCN MAP-E] hostname取得 → [MAP-E] tunnel 1 up v4=124.100.212.73 → IP Tunnel[1] Up → [OCN MAP-E] Succeeded to notify IPv6 address ... (code=200)。
+- show nat descriptor address 20000：外側=map-e/124.100.212.73、現在11セッション（保守端末192.168.200.100が外部通信中）＝**IPv4インターネット疎通OK**。
+- 割当固定グローバルIPv4＝124.100.212.73（開通情報「お客さまネットワークアドレス(IPv4)」との一致は要照合）。
+- **要確認（急ぎでない）**：NATのポート範囲が一部レンジ表示（60000-64095/49152-59999/44096-49151 ≈約2万ポート）。固定IP1は本来ポート制限なしのはず。outbound閲覧は問題なし。将来のインバウンド/VPNの任意ポート利用のため「固定IP1で全ポート可か」をOCNに確認推奨。
+- 次：XS508TM設定→社内VLAN(10/20/30)から ping 8.8.8.8/名前解決で本番疎通確認。疎通OK後にウィザード追加分の整理（dns dhcp lan2削除・dhcp scope1削除・保守LANのIPv6要否・§8フィルタ整合）。
+- セキュリティ：show configにアドレス解決の認証ID/パスワードが平文。取扱注意（再発行検討可）。
+
+## 2026-09-11 BE9400/XS508TMのVLAN10を「ネイティブ(アンタグ)」に確定
+
+- BE9400実機UIが「Untagged VLAN」方式のため、VLAN10をネイティブ(アンタグ)で統一する方針に確定（前の「管理VLAN=タグ」案を変更）。理由：AP UIに素直、かつフラット→VLAN移行が滑らか（アンタグのままIPだけ変更）。
+- **確定構成**：
+  - BE9400：Untagged VLAN=10／Management VLAN=10／SSID Office=10・Develop=20・Guest=30（Guestはクライアント分離ON）。VLAN10（管理+Office）はアンタグ、20/30はタグ。
+  - XS508TM Port5：**VLAN10=アンタグ(U)＋PVID10、VLAN20/30=タグ(T)**（従来の全タグから変更）。
+- BE9400 LAN/IP画面の設定（SSID3つ入力後の“最後”に）：DHCP Client=Disable／IP=192.168.128.3／Mask=255.255.255.0／GW=192.168.128.1／DNS=8.8.8.8,8.8.4.4／Management VLAN=10／Untagged VLAN=☑10 → Apply。Apply後はPCを192.168.128.50/24にして https://192.168.128.3/ で再接続。
+- 反映：config_XS508TM 3-1 Port5（VLAN10 T→U）・§7-2手順3、config_BE9400 §1/§4/§8 を「ネイティブVLAN10」へ更新。
+- 進行：BE9400（SSID×3→最後にIP/VLAN）→ XS508TM（§7のロックアウト回避順、Port5=VLAN10アンタグ）→ VLAN10アクセスポートのPCはDHCP自動取得で本番確認。
+
+## 2026-09-11 ネイティブVLAN10のセキュリティ評価：本構成では低下なし（B案で続行確定）
+
+- 懸念：アンタグ(ネイティブ)VLANでセキュリティが下がらないか。
+- 評価：一般論ではネイティブVLANのVLANホッピング（二重タグ攻撃）が論点で、定石は「ネイティブは未使用VLANにしデータVLANを載せない」。ただし本構成では実害ほぼ無し：
+  1. アンタグVLAN10が乗るのは AP↔XS508TM Port5 の1対1トランクのみ（信頼機器のAP1台だけ。利用者PCの口ではない）。
+  2. 無線利用者はトランクのタグ付けを操作できない（タグ付けはAPが実施）＝二重タグ注入の経路が無い。
+  3. VLAN間はRTX1300フィルタで VLAN20/30→VLAN10 遮断済み（多層防御）。
+- 結論：**B案（VLAN10ネイティブ/アンタグ、20/30タグ）で続行確定**。セキュリティ低下なし。厳密運用を望むなら後日A案（全タグ・ネイティブ無し／機能同一）へ切替も容易。
+- 次段取り：BE9400 SSID3つ仕上げ→最後にLAN/IP（IP=192.168.128.3・Management VLAN=10・Untagged VLAN=10）→ XS508TM（Port5=VLAN10アンタグ+20/30タグ、§7順）→ VLAN10アクセスのPCはDHCP自動取得で本番確認。

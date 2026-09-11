@@ -13,9 +13,12 @@
 | プレースホルダ                         | 内容                                                                                                           | 入手先                      |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------ |
 | `<LOGIN_PASS>` / `<ADMIN_PASS>` | ログイン／管理者パスワード                                                                                                | 社内                       |
-| `<IF_ID>`                       | インターフェースID                                                                                                   | **OCN開通通知**              |
-| `<TUNNEL_DST>`                  | Tunnel Destination（対向IPv6）                                                                                   | **OCN開通通知**              |
-| `<GLOBAL_IP>`                   | 固定グローバルIPv4アドレス                                                                                              | **OCN開通通知**              |
+| `<GLOBAL_IP>`                   | 固定グローバルIPv4（＝「お客さまネットワークアドレス(IPv4)」）。NAT外側は `map-e` で自動適用。値は §8フィルタ・§10/11 IPsec local address で使用 | **OCN固定IP設定情報** |
+| `<AR_URL>`                      | アドレス解決システム FQDN URL（Lua `SERVER_URL`）                                                                        | **OCN固定IP設定情報** |
+| `<AR_ID>` / `<AR_PASS>`         | アドレス解決システム 認証用共通ID／パスワード（Lua `USERNAME`／`PASSWORD`）                                                          | **OCN固定IP設定情報** |
+| `<AR_HOST>`                     | アドレス解決用ホスト名（Lua `HOSTNAME`）                                                                                  | **OCN固定IP設定情報** |
+| `<BR_IPV6>`                     | BR IPv6アドレス（map-eのBorder Relay。確認用。明示指定要否は公式固定IP例で確認）                                                       | **OCN固定IP設定情報** |
+| ~~`<IF_ID>` / `<TUNNEL_DST>`~~  | ~~旧ipip方式の値~~ **map-e方式では不要（通知もされない）**                                                                     | —                        |
 | `<DNS1>` `<DNS2>`               | **確定**：OCN指定DNS（東日本）優先＋パブリックDNSをフォールバック → 6章参照（`210.145.254.170` / `125.170.93.234` / `8.8.8.8` / `1.1.1.1`） | OCN_settei_Ver1.7        |
 | `<MAC_xx>`                      | DHCP予約対象PCのMACアドレス                                                                                           | 実機確認                     |
 | `<L2TP_PSK>`                    | L2TP/IPsec 事前共有鍵                                                                                             | 社内                       |
@@ -75,8 +78,10 @@ ip lan1 address 192.168.200.1/24
 ### 3-2. LAN2：WAN（XG-200KI LAN4 と接続）
 
 ```
-# ★ RA方式（HGW配下のため）。dhcp-prefix@ にすると IPv4 が通らなくなる
-ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
+# ★ HGW(XG-200KI)配下のため RA方式でIPv6取得。dhcp-prefix@(PD) にすると IPv4 が通らない
+# ★ map-e方式：IF_ID等の直書きはしない（WAN側IPv6はRAで取得し、アドレス解決Luaで登録）
+ipv6 lan2 address ra-prefix@lan2::1/64
+ipv6 lan2 dhcp service client ir=on
 ```
 
 > **最重要**：`ra-prefix@lan2` を `dhcp-prefix@lan2` にしないこと。HGW配下ではDHCPv6-PDでプレフィックスを取得できず、MAPルール／トンネルが成立せず **「IPv6は通るがIPv4が全く通らない」** 状態になります（→ [[切替・障害切り分け手順]] 5-1）。
@@ -97,12 +102,20 @@ ip lan3/3 address 192.168.192.1/24
 
 ---
 
-## 4. IPIPトンネル（OCNバーチャルコネクト 固定IP1）
+## 4. map-eトンネル（OCN固定IP1／アドレス解決システム）
+
+> **方式**：OCN光「フレッツ」IPoE クロス 固定IP1 は **map-e**。固定IPv4はOCNの**アドレス解決システム**へ、**YAMAHA公式LuaスクリプトでルータのIPv6を登録**して適用する（開通情報の URL/ID/PW/ホスト名 をLuaに設定）。手動ipip（対向・IF_ID直書き）は使わない。
+> 出典：rtpro OCNバーチャルコネクト対応機能（map-e／固定IP・アドレス通知Lua）／Luaスクリプト機能。
+>
+> [!important] 確定方法＝**Web GUI かんたん設定ウィザード**で生成するのが確実（下記CLIは参考／バックアップ）
+> WAN/OCN固定IP1（map-e・アドレス解決Lua・IPv6方式）は細部が機種ファーム/トポロジ依存で、公開情報だけでは断定しきれない（RA/PDの記述揺れあり）。**RTX1300のWeb GUIウィザード（OCNバーチャルコネクト／固定IP1）に開通情報を入力して自動生成**させ、それを正とする。
+> - **要OCN確認（最重要）**：本構成は **ONU→XG-200KI(HGW)→RTX1300** の**HGW配下**。HGWがPDを取得しRTXへRA広告＝**RTXはRA方式**（OCNIPoE_v1.1でも配下ルータ構成=可）。ただしYAMAHAの光クロスウィザードは「ひかり電話あり→PD」等**RTX直結前提の表現**があり紛らわしい。「光クロス＋XG-200KI配下＋RTX1300＋OCN固定IP1でRTXはRAか／ウィザードのどの選択肢か」を **OCN設定サポート 0120-047-644（ガイダンス【4】）／tech-support@ntt.com** に確認する。
+> - ウィザード生成後、§8の `ip tunnel secure filter` 適用と固定IPv4値（§8/§10）をCLIで整合させる。
 
 ```
 tunnel select 1
- tunnel encapsulation ipip
- tunnel endpoint address <TUNNEL_DST>
+ tunnel encapsulation map-e
+ tunnel map-e type ocn
  ip tunnel mtu 1460
  ip tunnel tcp mss limit auto
  ip tunnel nat descriptor 1
@@ -111,7 +124,28 @@ tunnel select 1
 ip route default gateway tunnel 1
 ```
 
-> `tunnel endpoint address` は「対向アドレスのみ」の指定です。自側を明示する場合は `tunnel endpoint address <自側IPv6> <TUNNEL_DST>` の順になります。**OCN開通通知の記載を優先**してください。
+### 4-1. アドレス解決システムへの登録（OCN公式Lua）
+
+**`ocn_address_notification.lua` は YAMAHA rtpro 公式のものをそのまま配置**し、冒頭変数に開通情報を設定する（**自作しない・本ファイルに全文は載せない＝改変防止**）。
+
+```
+schedule at 1 startup * lua emfs:/ocn_address_notification.lua
+```
+
+Lua冒頭変数と開通情報の対応：
+
+| Lua変数 | 開通情報の項目 | 設定値 |
+|---|---|---|
+| `SERVER_URL` | アドレス解決システム FQDN URL | `<AR_URL>` |
+| `USERNAME` | 認証用共通ID | `<AR_ID>` |
+| `PASSWORD` | 認証用共通パスワード | `<AR_PASS>` |
+| `HOSTNAME` | アドレス解決用ホスト名 | `<AR_HOST>` |
+| `IPv6_IF` | WAN側インターフェース | `"LAN2"` |
+
+> **要検証（実機投入時に公式固定IP例と突き合わせて確定）**：
+> 1. **BR IPv6アドレス（`<BR_IPV6>`）** の明示指定要否（`tunnel map-e type ocn` はOCNのBRを内蔵想定。固定IPで別指定が要る場合あり）。
+> 2. **HGW配下（RA方式）でのmap-e成立**と `ipv6 lan2` の正確な行（`ra-prefix@` か `address dhcp`）。OCN固定IPの公式例に合わせる。
+> 3. Luaスクリプト本体はrtpro公式版を使用（4変数のみ設定）。
 
 ---
 
@@ -119,9 +153,11 @@ ip route default gateway tunnel 1
 
 ```
 nat descriptor type 1 masquerade
-nat descriptor address outer 1 <GLOBAL_IP>
+nat descriptor address outer 1 map-e          # 固定IPv4は map-e で自動適用（= <GLOBAL_IP> と一致）
 nat descriptor address inner 1 auto
 ```
+
+> **固定IPv4（`<GLOBAL_IP>`）の“値”は §8（VPN終端フィルタ）・§10/11（IPsec local address）で使用**します（NAT外側自体は `map-e` で自動）。
 
 > **Web公開（現行の `192.168.128.128` への www/https）は今回移植しません。** サーバ群はAWSへ移行済みで、公開環境は新構成に合わせて別途検討する方針です。必要になった時点で以下を追加します。
 > ```

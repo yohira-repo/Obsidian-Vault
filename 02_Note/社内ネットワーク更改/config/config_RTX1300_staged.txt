@@ -151,31 +151,43 @@ save
 
 
 # ############################################################################
-# ②  開通当日ブロック（固定IP設定情報の到着後に投入）
-#     OCN会員ページ等で「固定IPアドレス / トンネル終端アドレス / インターフェースID」を
-#     入手し、<GLOBAL_IP> / <TUNNEL_DST> / <IF_ID> へ置換してから投入する。
+# ②  開通当日ブロック（OCN固定IP設定情報の到着後に投入）★方式＝map-e＋アドレス解決Lua
+#     開通情報の値を置換：
+#       <GLOBAL_IP> = お客さまネットワークアドレス(IPv4)  ※NAT外側はmap-eで自動。値は§8/§10で使用
+#       <AR_URL>    = アドレス解決システム FQDN URL
+#       <AR_ID>     = アドレス解決システム 認証用共通ID
+#       <AR_PASS>   = アドレス解決システム 認証用共通パスワード
+#       <AR_HOST>   = アドレス解決用ホスト名
+#       <BR_IPV6>   = BR IPv6アドレス（確認用。明示指定要否は公式固定IP例で確認）
 #     ★ 当日はここ（②）だけ順に投入すれば内部設定(①)の上にインターネットが乗る。
 # ############################################################################
 
-# ---- ②-G LAN2：WAN（RA方式）----
-# ★ RA方式。dhcp-prefix@ にしないこと（IPv4が全く通らなくなる）
-ipv6 lan2 address ra-prefix@lan2::<IF_ID>/64
+# ---- ②-G LAN2：WAN（HGW配下＝RA方式でIPv6取得）----
+# ★ dhcp-prefix@(PD) にしない。map-e方式でIF_ID直書きもしない
+ipv6 lan2 address ra-prefix@lan2::1/64
+ipv6 lan2 dhcp service client ir=on
 # 確認: show status lan2 でリンクアップ / show ipv6 address で LAN2 にグローバルIPv6
 
-# ---- ②-H IPIPトンネル・NAT・デフォルト経路 ----
+# ---- ②-H map-eトンネル・NAT・デフォルト経路 ----
 tunnel select 1
- tunnel encapsulation ipip
- tunnel endpoint address <TUNNEL_DST>
+ tunnel encapsulation map-e
+ tunnel map-e type ocn
  ip tunnel mtu 1460
  ip tunnel tcp mss limit auto
  ip tunnel nat descriptor 1
  tunnel enable 1
 ip route default gateway tunnel 1
 nat descriptor type 1 masquerade
-nat descriptor address outer 1 <GLOBAL_IP>
+nat descriptor address outer 1 map-e
 nat descriptor address inner 1 auto
+
+# ---- ②-H2 アドレス解決システムへの登録（OCN公式Luaを使用）----
+#   ocn_address_notification.lua（YAMAHA rtpro公式）を emfs:/ に配置し、冒頭変数を設定：
+#     SERVER_URL=<AR_URL> / USERNAME=<AR_ID> / PASSWORD=<AR_PASS> / HOSTNAME=<AR_HOST> / IPv6_IF="LAN2"
+schedule at 1 startup * lua emfs:/ocn_address_notification.lua
+# ★要検証：BR(<BR_IPV6>)明示指定要否 / HGW配下(RA)でのmap-e成立 / ipv6 lan2 行 → 公式固定IP例で最終確認
 # 確認: ping 8.8.8.8（IPv4到達）/ nslookup・ping www.yahoo.co.jp（名前解決）
-#       show nat descriptor address 1
+#       show nat descriptor address 1 / show ip route
 
 # ---- ②-I WAN側フィルタをトンネル1へ適用 ----
 #   ※ VPN終端(200080-083)は優先度低のため in列から“除外”。VPN着手時に③で追加＆再適用。

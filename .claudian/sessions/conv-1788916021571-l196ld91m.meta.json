@@ -4,7 +4,7 @@
   "title": "Add BE9400 wireless AP configurationこのターンを振り返りま...",
   "titleGenerationStatus": "success",
   "createdAt": 1788916021575,
-  "lastActivityAt": 1789090410804,
+  "lastActivityAt": 1789119836470,
   "sessionId": "ad8fad45-2ebe-49a7-be55-853fa41e1d67",
   "selectedModel": "opus",
   "providerState": {
@@ -13,12 +13,12 @@
   "linkedContentPath": "02_Note/社内ネットワーク更改/config/config_XG-100NE.md",
   "usage": {
     "model": "opus",
-    "inputTokens": 1,
-    "cacheCreationInputTokens": 1239,
-    "cacheReadInputTokens": 690597,
+    "inputTokens": 2,
+    "cacheCreationInputTokens": 1016,
+    "cacheReadInputTokens": 971951,
     "contextWindow": 1000000,
-    "contextTokens": 691837,
-    "percentage": 69,
+    "contextTokens": 972969,
+    "percentage": 97,
     "contextWindowIsAuthoritative": true
   }
 }
