@@ -1,1 +1,4 @@
 .obsidian/workspace.json
+
+# AWS Site-to-Site VPN のベンダー設定DL（PSK平文を含むため非追跡）
+02_Note/社内ネットワーク更改/config/aws_vpn_yamaha_config.txt

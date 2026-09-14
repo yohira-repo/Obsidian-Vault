@@ -2476,3 +2476,113 @@ save
 **近日中**：複合機をPort6へ接続（`192.168.128.20`）／ループ検知の有効化／Auto-Trunkの確認／ファームウェア更新（スイッチ・**APは12.5.0.22以降**）
 **業務時間外**：**SSIDパスワードの強化**（Office/Develop/Guestを別々の強固なものに。全端末が切断されるため事前周知）
 **落ち着いてから**：RADIUS（WPA3-Enterprise／RTX1300内蔵RADIUS＋PEAP）の設計／`httpd host` を案3へ（管理PCの固定IP化かDHCP予約が前提）／案B（`lan3/2` outフィルタ廃止）／ICMP echo-reply許可／ウィザード残骸（`dhcp scope 1`・`dns server dhcp lan2`）の整理／電源入れ直しでの永続性検証／tcp80完全遮断の検討
+
+## 2026-09-14 VPN方針変更（要件）：AWS=VLAN20専用／外部VPN=VLAN10専用
+
+- ユーザー確定の要件変更：
+  - **AWS拠点間VPN（VGW）は VLAN20（開発）のみに必要**（従来設計 VLAN10→**VLAN20**へ変更）。
+  - **外部からのリモートアクセスVPN（L2TP/IPsec）は VLAN10（営業・総務）のみに必要**（従来の「業務VLAN10＋開発VLAN20」→**VLAN10のみ**に簡素化。開発のAWSは拠点間VGWで担保）。
+- 接続計画（提示済み・config反映は承認待ち）：
+  - A. AWS：RTX1300↔AWS VGW（IPsec＋BGP/static）、**VLAN20(192.168.64.0/24)↔AWS VPC(10.0.3.0/24)双方向のみ**。VLAN10/30↔AWS拒否。BGP広報は192.168.64.0/24（従来128から変更）。固定IP124.100.212.73で終端。
+  - B. リモートVPN：L2TP/IPsec、外部→払出192.168.201.x→**VLAN10のRDP/SSH等のみ**。VLAN20/30不可。固定IPで終端。
+- **要確認（両VPN成立の前提）**：map-e(固定IP1)でインバウンド UDP500/4500/1701・ESP が通るか（先の「ポート範囲」件と関連）。OCN確認 or 実機テスト。
+- VPNは引き続き**優先度低**（インターネット疎通・社内LAN確立が優先）。実装は開通後。
+- 反映予定（承認後）：config_RTX1300 §9/§10/§11、社内LANネットワーク設定 3-4、インターネット回線更改 タスク。
+
+## 2026-09-14 VPN新方針を承認・設計反映（AWS=VLAN20／リモートVPN=VLAN10）
+
+- ユーザー承認：「AWS=VLAN20専用／リモートVPN=VLAN10専用」で確定。
+- 反映（設計方針レベル。詳細な払出/アカウント/フィルタ番号/BGPの実装細部は VPN実装時=優先度低 に確定）：
+  - [[社内LANネットワーク設定]] 3-4 アクセス制御表：VLAN20↔AWS許可・VLAN10/30→AWS拒否／リモートVPN→VLAN10のみ。3-6冒頭に方針変更注記（開発→VLAN20リモート廃止＝読み替え）。
+  - [[config_RTX1300]] §9-1ポリシー表更新＋§9に「実装時フィルタ更新」注記（2004削除→VLAN20↔AWS許可／VLAN10→AWS拒否追加／2103・2104・dynamic3020廃止）。§10ヘッダ＝リモートVPNはVLAN10のみ。§11ヘッダ＝AWSはVLAN20専用、BGP広報を 192.168.64.0/24 に（import filter も64へ）。
+  - [[インターネット回線更改]]：HGW設定を**確認済（接続先なし・DMZ不要でIPv4疎通OK）**へ／map-eインバウンド(UDP500/4500/1701・ESP)通過性を要確認（両VPN前提・重要）／⑤AWSは開発VLAN20専用・広報64・フィルタ整合。
+- VPNは引き続き優先度低（実装は開通後）。要確認の最重要は「map-e(固定IP1)でインバウンドVPNポートが通るか」。
+
+## 2026-09-14 AWS拠点間VPNを「優先」に格上げ
+
+- ユーザー判断：**AWS拠点間VPN（開発VLAN20↔AWS VPC 10.0.3.0/24）を優先**（従来の優先度低・事後対応から格上げ）。リモートアクセスVPN(L2TP・VLAN10)は引き続き優先度低。
+- 技術的見通し：RTXがイニシエータでAWS VGWへ張るため、map-e固定IP(124.100.212.73)上でも **NAT-T(UDP4500)** で成立見込み（インバウンド待受が要る L2TP より条件が緩い）。
+- 反映：config_RTX1300 §11 ヘッダ／インターネット回線更改 ⑤ を「優先」へ更新。
+- 次アクション（AWS実装）：①AWSコンソールでCGW(124.100.212.73)＋Site-to-Site VPN作成→Yamaha向け設定DL、②RTX §11投入（tunnel/IPsec/BGP広報64）、③§9フィルタをVLAN20↔AWS許可・VLAN10/30→AWS拒否へ整合、④VLAN20端末からAWS VPC(10.0.3.0/24)へ疎通確認。要事前確認：AWS側の対向IP・PSK・BGP(自AS65000/対向10124)・内側トンネルIP。
+
+## 2026-09-14 AWS Site-to-Site VPN 作成の確定事項（CGW-IP確認・IKEv2選択）
+
+- **CGWの外側IPが 124.100.212.73（新固定IP）であることを確認済**。既存CGW `cgw-0c4eb6ae228af69d1` をそのまま使用（新規作成不要）。
+- VPN接続 `alphaVPNW`：ターゲット=VGW `vgw-4e66d04f`（VPC 10.0.3.0/24側）、ルーティング=動的(BGP)、ローカル/リモートCIDR=0.0.0.0/0（BGP自動広報のため）。
+- **Yamaha設定DLの選択を確定**：ベンダー=Yamaha／プラットフォーム=RTX Routers／ソフトウェア=Rev.10.01.16+（当機Rev.23.00.17も可）／**IKEバージョン=ikev2（ikev1から変更）**／サンプルタイプ含める=無効。IKEv2採用理由：NAT-Tと相性良く map-e環境向き、設計§11も v2。
+- DL設定は「WANに固定IP直付け」前提のため**そのまま投入せず適応**：NAT-T(UDP4500)成立・`ipsec ike local address`等をmap-e向け調整・BGP広報を192.168.64.0/24(VLAN20)に差替・tunnel/NAT/フィルタ番号を§11/§9と整合。
+- 次：DLした設定の中身（対向外側IP×2／内側トンネルIP 169.254.x.x/30×2／BGP neighbor・Amazon側ASN=10124）を共有→こちらでRTX §11確定config作成。PSKは伏せてOK（実機に直接投入）。ファイルドロップ不可のため、コピペ or Vault内保存(config/aws_vpn_yamaha_config.txt)で共有。
+
+## 2026-09-14 AWS DL設定の解析結果とRTX §11適応方針（承認待ち）
+
+- `aws_vpn_yamaha_config.txt`（config配下）解析完了。VPN接続 `vpn-02dfe4cb7fb8d8155`／VGW `vgw-4e66d04f`／CGW `cgw-0c4eb6ae228af69d1`。
+- 抽出値：Tunnel1=対向52.196.54.142・内側169.254.23.54/30↔.53、Tunnel2=対向54.65.4.212・内側169.254.222.134/30↔.133。自ASN65000／対向10124／両IKEv2。
+- **そのまま投入不可**。確定した適応方針（＝これで実装する）：
+  1. **トンネル改番**：DL版 tunnel1/2・ipsec201/202 は map-e(tunnel1) と衝突 → **tunnel/ipsec 2001・2002** に改番。
+  2. **NAT-T明示ON**：`ipsec ike nat-traversal 2001/2002 on` を追加。理由＝固定IP1でも map-e はポート制限NAPT（実測 map-e/124.100.212.73＋ポート範囲）で AWS からNAT配下に見えるため。RTXイニシエータ(`negotiation receive off`)で成立見込み。
+  3. **BGP広報をVLAN20のみ**：`bgp import filter 1 equal 192.168.64.0/24`＋`bgp import 10124 connected static filter 1`（DL版の 0.0.0.0/0 広報は不採用。64はlan3/2のconnected経路）。
+  4. **PSKはファイルに残さない**：設計ファイルは `<PSK_T1>/<PSK_T2>`、実機で手入力。`aws_vpn_yamaha_config.txt` は git非コミット（投入後に削除orマスク）。
+  5. **§9フィルタ整合**：`ip filter 2004`(VLAN20→AWS拒否)削除＋lan3/2 in適用列から除外／`2105 pass 10.0.3.0/24→192.168.64.0/24` を lan3/2 out 追加／`2012 reject *→10.0.3.0/24` を lan3/1 in 追加（VLAN10→AWS拒否。VLAN30は既存2021で10/8拒否済）。
+  6. §8(WAN)は追加不要見込み（NAT-Tはアウトバウンド発、tunnel1 out の dynamic udp で戻り許可）＝要実機確認。map-e MTU1460＋IPsecのフラグメントも要検証。
+- **ユーザー承認後**に config_RTX1300.md §11置換＋§9更新＋aws設定ファイルのgitignore/マスクを実施する（現時点は承認待ちでファイル未変更）。
+
+## 2026-09-14 AWS接続範囲を VLAN20＋VLAN10 に拡張・§11/§9を確定反映
+
+- ユーザー決定：AWS(**10.0.3.0/24 と 10.0.4.0/24**)への接続は **VLAN20＋VLAN10 の両方**（従来の「VLAN20専用」から拡張）。VLAN30は引き続き拒否。
+- 追加コメント反映：①AWS側は 10.0.3.x/10.0.4.x の2サブネット → 当社は受信側のためフィルタは `10.0.0.0/16` で一括カバー（受信フィルタ不要、BGPで自動学習）。②VLAN10拡張は「あまりフィルタ変更したくない」要望に合致（lan3/1にoutフィルタ無し＝戻り自動許可、発信は既存2019 passで許可。実質BGP広報+1行のみ）。
+- **確定・反映済ファイル**（承認を受け実施）：
+  - `.gitignore`：`aws_vpn_yamaha_config.txt` を追記（PSK平文のため非追跡。ファイルは未コミット状態を確認済）。
+  - `config_RTX1300.md` §11：DL値で確定版に置換（tunnel/ipsec 2001・2002、`ipsec ike nat-traversal on`、local 124.100.212.73、対向52.196.54.142/54.65.4.212、内側169.254.23.54/30・169.254.222.134/30、PSKは`<PSK_T1>/<PSK_T2>`）。BGP広報＝`filter 1 equal 192.168.64.0/24`＋`filter 2 equal 192.168.128.0/24`＋`import 10124 connected static filter 1 2`。
+  - `config_RTX1300.md` §9：9-1ポリシー表（VLAN20↔AWS／VLAN10↔AWS 許可、VLAN30拒否）、2004廃止、`2105 pass 10.0.0.0/16→192.168.64.0/24` 追加、適用列更新（lan3/2 in から2004除外・out に2105追加）。
+  - `インターネット回線更改.md`：⑤を「VLAN20＋VLAN10」に更新し、CGW-IP確認済・VPN作成済・DL済・§11/§9反映済 をチェック。実機投入と Route Propagation確認・MTU検証を残タスク化。
+- 残：RTX実機投入（PSK手入力）→ `show ipsec sa`/`show ip bgp neighbor`(Established)/`show ip route`(10.0.3・10.0.4学習) 確認。AWSルートテーブルの VGW Route Propagation ON を確認。
+
+## 2026-09-14 RTX §11 実機投入エラーで判明した仕様修正（トンネル番号・bgp import）
+
+- GUI「保守→コマンド実行」で §11 を一括投入 → 2点でエラー。原因判明・修正確定：
+  1. **トンネル番号 2001 が範囲外**（RTX1300 のトンネルI/F最大＝2000。`tunnel select 2001` で「パラメータが範囲を越えています」→ 以降全滅）。→ **トンネルI/F=2・3**（tunnel1=map-e使用中を回避）、**SAポリシー=201/202・IKE gateway=1/2**（AWS生成DLの実績値・範囲内）に修正。
+  2. **`bgp import ... connected ...` がキーワード未認識**。`bgp import` の protocol は **static/rip/ospf/bgp/aggregate** のみ（`connected` 無し）。YAMAHAでは直結網＝**implicit経路**で、公式ガイド「implicit経路は `bgp import` で protocol に `static` を指定して導入できる」に準拠 → **`bgp import 10124 static filter 1 2`**（静的経路の追加は不要）。
+- 投入方法の確定：**コメント(`#`〜)はインライン非対応**で全削除必須／PSKは実機手入力（Vaultファイルには戻さない）／`save`のみでOK（`restart`不要）。GUI一括貼り付けは冪等で再投入可。
+- 前回投入で **既にsave済み**：`bgp use on`・`autonomous-system 65000`・`bgp neighbor 1/2`・`bgp import filter 1/2`・`no ip filter 2004`・`ip filter 2105`・`ip lan3/2 secure filter in/out`。残りはトンネル2/3＋`bgp import 10124 static filter 1 2`＋refresh。
+- config_RTX1300.md §11 を正しい番号・構文に修正済み（【教訓】ブロック追記）。出典：YAMAHA BGP-4設定ガイド／bgp import コマンドリファレンス。
+
+## 2026-09-14 map-e配下IPsecの local address 修正（send:0 の原因確定）
+
+- 投入後の状態：`show ipsec sa` が **`send:0 recv:0`**（IKEを1つも送信していない）、`show status tunnel 2/3`＝一度も接続されていない、`show status bgp neighbor`＝`BGP state=Idle`／`Local host: unspecified`。経路は正常（`show ip route` に 10.0.3.0/24→TUNNEL[2]・10.0.4.0/24→TUNNEL[3] static、/30 implicit）。
+- デッドロック構造を特定：IPsec未確立→トンネル内側IP未up→BGPが local-address にバインドできず Idle→通信が流れず IKE未起動→…（`Local host: unspecified` が決定打）。
+- **根本原因＝設計ミス確定**：`ipsec ike local address` に **固定グローバルIP 124.100.212.73 を指定していた**。map-e配下では当機はそのIPをI/Fに保有せず、IKEを発信できない（send:0）。
+- **修正（公式準拠）**：`ipsec ike local address 1/2` を **LAN側保有IP `192.168.128.1`** に変更（map-eのNATで124.100.212.73へ変換＋NAT-Tで抜ける）。IKE識別子は `ipsec ike local name 1/2 124.100.212.73 ipv4-addr` で担保。出典：YAMAHA公式「Amazon VPCとVPN(IPsec)接続(OCNバーチャルコネクト利用)」＝`ipsec ike local address 1 192.168.100.1`（LAN IP指定）。config_RTX1300.md §11・【教訓】に反映済み。
+- 補助段取り：GUI「保守→コマンド実行」は ping 等の対話コマンド禁止／SSHサーバ無効。呼び水は **AWS VPC宛の一時静的経路（`ip route 10.0.3.0/24 gateway tunnel 2`・`10.0.4.0/24 gateway tunnel 3`）＋LAN端末(VLAN10 192.168.128.x)からの ping** で作る。両系Established後に一時静的経路は削除しBGPへ委ねる。
+- 次：`ipsec ike local address` 修正投入→PCから ping で呼び水→`show ipsec sa` の send/recv 確認（send>0/recv>0でIKE成立見込み）。send>0/recv:0 の場合は map-e の NAT-T返り(UDP4500)/PSK を `show log` で切り分け。
+
+## 2026-09-14 AWS拠点間IPsec 両トンネル成立（local address修正が奏功）
+
+- `ipsec ike local address 1/2` を **192.168.128.1** に変更＋save → PC(VLAN10)から `ping 10.0.3.1` 呼び水 → `show ipsec sa` で **isakmp send:2 recv:2**（両ISAKMP確立）、**tun[0002]/tun[0003] の ESP SA が send/recv 揃って UP**＝**トンネル2・3とも成立**。map-e配下IPsecの原因（local addressに固定IP直書き→send:0）が確定的に解消。
+- AWS側トンネルが Down 表示なのは、RTXが発信専用(`negotiation receive off`)＋map-e配下でRTXから張るまでの正常挙動（AWSからは張れない）。SA成立で解消見込み。
+- 残段取り（確定）：①`show status bgp neighbor` で両neighbor Established 確認 → ②呼び水の一時静的経路を撤去（`no ip route 10.0.3.0/24 gateway tunnel 2`／`no ip route 10.0.4.0/24 gateway tunnel 3`→save）してBGPに冗長制御を委ねる → ③`show ip route` で 10.0.3/10.0.4 が BGP学習に変わったか確認 → ④PCからAWS実ホストへ疎通、AWS側でVGWルート伝播(192.168.64.0/24・192.168.128.0/24)確認。
+
+## 2026-09-14 AWS拠点間VPN BGP確立・RTX側完了
+
+- **両BGPネイバー Established**（169.254.23.53／169.254.222.133、hold30/keepalive10、notification0で安定）。AWS側トンネルもUp。
+- **呼び水の一時静的経路は撤去済み**（`show ip route` から 10.0.3/10.0.4 static が消え、`10.0.0.0/16 → TUNNEL[2] BGP path=10124` に置換＝AWSがVPC CIDRを広報。10.0.0.0/16 が 10.0.3/10.0.4 を包含）。両経路とも tunnel2が主・tunnel3が待機（BGP自動切替）。
+- 参考：AWS越しに `192.168.0.0/24 path=10124 65001`（別拠点AS65001）を受信。当社網（64/128/192）と非重複・無害。
+- **RTX側は完了**。残タスク（AWS側・疎通）：①VPCルートテーブルで `192.168.64.0/24`・`192.168.128.0/24` が **propagated** で載るか（ルート伝播ON） → ②VLAN10/20端末→AWS実ホスト(10.0.3.x/10.0.4.x)へ疎通（AWS SG/NACLで送信元64/128の許可も確認）。これらOKで拠点間VPN完了、インターネット回線更改⑤をクローズ予定。
+
+## 2026-09-14 AWS拠点間VPN 構築完了（クローズ）
+
+- **AWS側ルート伝播 確認済**（192.168.64/128 が propagated）。
+- **エンドツーエンド疎通 確認済**：VLAN10・VLAN20 の両方から AWS の WindowsServer(RDP)・Linux(SSH) へ接続成功。
+- → **AWS拠点間VPN（VLAN20＋VLAN10 ↔ AWS VPC 10.0.0.0/16、BGP冗長・map-e固定IP配下）構築完了**。[[インターネット回線更改]] ⑤ をクローズ。
+- 残（低優先・清掃）：`config/aws_vpn_yamaha_config.txt`（PSK平文・git非追跡）を投入完了につき削除orマスク検討／map-e MTU1460＋IPsecのフラグメントは現状OK・将来の大サイズ通信で不具合時のみ `ip tunnel mtu` 調整。
+- 確定した恒久ナレッジ（§11【教訓】に反映済）：map-e配下IPsecは `ipsec ike local address` にLAN IP／`bgp import` は `connected`不可でimplicitは`static`／RTX1300のtunnel番号上限2000。
+
+## 2026-09-14 AWS設定ファイル削除・別VGW再利用方針を文書化
+
+- `config/aws_vpn_yamaha_config.txt`（PSK平文）を**削除済み**（投入完了のため）。git非追跡設定は維持。
+- ユーザー質問：別アカウントのVGWへトンネル追加時、今回テンプレートを使えるか（イメージ＝IKEパスワードのみ差替）。
+- 回答＝**テンプレ再利用可。ただしPSKのみではない**。整理を [[config_RTX1300]] §11-1「再利用チェックリスト」に文書化：
+  - 🔴毎回変わる（新アカのYamaha DLから取得）：PSK×2／AWS外側IP×2／内側/30×2／BGP neighbor×2／**Amazon側ASN（VGW毎に異なる場合あり）**。
+  - 🟡RTX側で重複しない番号に採番：次組例 tunnel4/5・ipsec/SA203/204・IKE gateway3/4・bgp neighbor3/4。
+  - 🟢変えない（map-e対応の肝）：`local address=192.168.128.1`／`local name=124.100.212.73`／`nat-traversal on`／自ASN65000／IKE暗号(aes-cbc/sha/modp1024)。
+  - AWS側：CGWを当社IP124.100.212.73・ASN65000で作成→Yamaha/IKEv2でDL→ルート伝播ON＋SG/NACLで64/128許可。
+  - 投入は今回同様「4適応（改番・NAT-T・local=LAN IP・bgp import static）＋呼び水（一時静的経路+ping）」。

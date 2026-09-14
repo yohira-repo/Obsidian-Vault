@@ -96,7 +96,10 @@
     }
   },
   "settingsProvider": "claude",
-  "lastSelectedChatModel": null,
+  "lastSelectedChatModel": {
+    "providerId": "claude",
+    "model": "opus"
+  },
   "savedProviderModel": {
     "claude": "opus"
   },

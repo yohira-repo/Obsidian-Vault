@@ -287,13 +287,19 @@ tunnel select 1
 | 複合機 `192.168.128.20` → VLAN 20 | **拒否**（VLAN10→VLAN20許可の例外） |
 | VLAN 30 → VLAN 10・20・保守・AWS | 拒否 |
 | VLAN 30 → インターネット | 許可 |
-| VLAN 10 → AWS `10.0.3.0/24` | 許可 |
-| VLAN 20・30 → AWS | 拒否 |
+| **VLAN 20 ↔ AWS `10.0.0.0/16`（10.0.3.x/10.0.4.x）** | 許可 |
+| **VLAN 10 ↔ AWS `10.0.0.0/16`** | 許可（**2026-09-14変更**：VLAN10も接続対象に拡張） |
+| VLAN 30 → AWS | 拒否（既存 2021 の 10.0.0.0/8 拒否で担保） |
 | 保守 `192.168.200.0/24` → VLAN 10・20 | 許可（逆方向は拒否） |
-| VPN業務 `192.168.201.16/28` → VLAN 10 | TCP 3389／22 のみ許可 |
-| VPN開発 `192.168.201.32/28` → VLAN 20 | TCP 3389／22 のみ許可 |
+| リモートVPN `192.168.201.0/24` → VLAN 10 | TCP 3389／22 のみ許可（**2026-09-14変更**：外部VPNはVLAN10のみ） |
+| リモートVPN → VLAN 20/30 | 拒否（**2026-09-14変更**：開発のVLAN20リモートは廃止。開発のAWSは拠点間VGWで担保） |
 
-### 9-2. 動作原理（ヤマハ公式仕様の確認結果）
+> [!note] 【2026-09-14 AWS接続（VLAN20＋VLAN10）に伴うフィルタ更新＝下記9-3/9-4に反映済み】
+> - **`ip filter 2004`（VLAN20→AWS 拒否）を削除**（lan3/2 in 適用列からも除外）→ VLAN20→AWS 許可。
+> - **AWS→VLAN20 戻り許可**：`ip filter 2105 pass 10.0.0.0/16 192.168.64.0/24 * * *` を lan3/2 out に追加。
+> - **VLAN10 は変更不要**：発信は既存 `2019 pass *` で許可、戻りは lan3/1 に out フィルタが無く自動許可（VLAN10→AWS拒否フィルタは入れない）。
+> - **BGP広報**は §11 で 64系＋128系の2本（VLAN20・VLAN10）。
+> - リモートVPN（L2TP）の VLAN20到達（`2103`/`2104`/dynamic`3020`）は §10方針どおり VPN実装時に廃止（本AWS対応とは独立・優先度低）。
 
 確定版を作るうえで押さえるべき仕様は3点です。
 
@@ -329,13 +335,13 @@ ip filter 2000 reject * 192.168.128.0/24 * * *        # → VLAN10 拒否
 ip filter 2001 reject * 192.168.192.0/24 * * *        # → VLAN30 拒否
 ip filter 2002 reject * 192.168.200.0/24 * * *        # → 保守 拒否
 ip filter 2003 reject * 192.168.201.0/24 * * *        # → VPN払出 拒否
-ip filter 2004 reject * 10.0.3.0/24 * * *             # → AWS 拒否
-ip filter 2009 pass   * * * * *                       # 以外（インターネット）許可
+# ip filter 2004（→AWS拒否）は 2026-09-14 廃止：VLAN20↔AWS 許可のため
+ip filter 2009 pass   * * * * *                       # 以外（インターネット・AWS 10.0.0.0/16）許可
 
 # --- VLAN10（営業・総務）発 ---
 ip filter 2010 reject * 192.168.200.0/24 * * *        # → 保守 拒否
 ip filter 2011 reject * 192.168.201.0/24 * * *        # → VPN払出 拒否
-ip filter 2019 pass   * * * * *                       # 以外 許可（VLAN20・インターネット・AWS）
+ip filter 2019 pass   * * * * *                       # 以外 許可（VLAN20・インターネット・AWS 10.0.0.0/16）
 
 # --- VLAN30（ゲスト）発：プライベート宛は全拒否 ---
 ip filter 2020 reject * 192.168.0.0/16 * * *
@@ -355,6 +361,7 @@ ip filter 2101 pass   192.168.128.0/24 192.168.64.0/24 * * *          # VLAN10 �
 ip filter 2102 pass   192.168.200.0/24 192.168.64.0/24 * * *          # 保守 → VLAN20 許可
 ip filter 2103 pass   192.168.201.32/28 192.168.64.0/24 tcp * 3389    # VPN開発 → RDP
 ip filter 2104 pass   192.168.201.32/28 192.168.64.0/24 tcp * 22      # VPN開発 → SSH
+ip filter 2105 pass   10.0.0.0/16       192.168.64.0/24 * * *         # AWS(10.0.3.x/4.x) → VLAN20 戻り許可（2026-09-14追加）
 
 # ★★★ 必須：RTX自身（lan3/2のIP）からVLAN20への送信を許可 ★★★
 #  これが無いと DHCPのOFFER応答・ICMP応答が暗黙拒否で落ち、
@@ -382,8 +389,8 @@ ip filter dynamic 3031 192.168.64.0/24 * udp
 
 ```
 ip lan3/1 secure filter in  2010 2011 2019
-ip lan3/2 secure filter in  2000 2001 2002 2003 2004 2009 dynamic 3030 3031
-ip lan3/2 secure filter out 2099 2100 2101 2102 2103 2104 dynamic 3000 3001 3010 3011 3020
+ip lan3/2 secure filter in  2000 2001 2002 2003 2009 dynamic 3030 3031
+ip lan3/2 secure filter out 2099 2100 2101 2102 2103 2104 2105 dynamic 3000 3001 3010 3011 3020
 ip lan3/3 secure filter in  2020 2021 2022 2029
 ip lan1   secure filter in  2039
 ```
@@ -433,6 +440,8 @@ ip lan1   secure filter in  2039
 ## 10. リモートアクセスVPN（L2TP/IPsec）
 
 > **優先度低（VPNは後回し）。** 切替当日は投入せず、インターネット/VLAN成立後の別作業とする（→ [[conversations]] 2026-09-10「VPNは後回し」）。
+>
+> **【2026-09-14 方針変更】外部からのリモートVPNの到達先は VLAN10 のみ。** 全ユーザーの払出は VLAN10（RDP3389/SSH22）到達に統一。**開発ユーザー→VLAN20 のリモート経路は廃止**（下記本文の `192.168.201.32/28`→VLAN20、`4020`/`4021`、`yohiradev`/`t.kidodev` のVLAN20到達は実装時に削除）。開発のAWS利用は §11 拠点間VGW（VLAN20専用）で担保。
 
 ```
 # --- IPsec 基本 ---
@@ -522,51 +531,139 @@ ip filter 4033 pass 192.168.201.48/28 192.168.64.0/24  tcp * 22
 
 ## 11. AWS拠点間VPN（VGW）
 
-> **優先度低（VPNは後回し）／今回の切替スコープ外（事後対応）。**
-> AWSへのルートには代替手段があるため、回線切替後に順次対応する方針です。**切替当日はAWS VPNを設定しません。**
+> **【2026-09-14 優先度変更】AWS拠点間VPN(VGW)は「優先」で実装**（従来の優先度低/事後対応から格上げ）。
+> **接続範囲＝VLAN20＋VLAN10 の両方**（2026-09-14ユーザー決定）：VLAN20(192.168.64.0/24)・VLAN10(192.168.128.0/24) ↔ AWS VPC(**10.0.3.0/24 と 10.0.4.0/24**)を双方向で接続。BGP広報は **64系＋128系の2本**。VLAN30↔AWSは拒否。
+> ※RTXが**イニシエータ（発信側）**でAWS VGWへ張るため、map-e固定IP上でも **NAT-T(UDP4500)** で成立見込み（インバウンド待受が要る L2TP リモートVPN より条件は緩い）。
 >
-> グローバルIPが `153.156.71.228`（PPPoE時代のIP）から変わるため、**新Customer Gatewayの作成とVPN接続の張り直し**が必要になります。
+> **接続情報（2026-09-14 AWSコンソールで作成・DL済 → `config/aws_vpn_yamaha_config.txt`。PSKは平文のため git非追跡）**
 >
-> | 項目 | 扱い |
+> | 項目 | 値 |
 > |---|---|
-> | BGP 自AS `65000`／対向AS `10124` | **引き継げる**（同じVGWを再利用する場合） |
-> | 広報経路 `192.168.128.0/24` | **引き継げる**（VLAN 10のセグメントは変更なし） |
-> | トンネル外側IP・内側IP・事前共有鍵 | **再取得が必要**（新CGW作成時にAWSが発行） |
+> | VPN接続ID / VGW / CGW | `vpn-02dfe4cb7fb8d8155` / `vgw-4e66d04f` / `cgw-0c4eb6ae228af69d1` |
+> | 自外側IP（固定・map-e） | `124.100.212.73` |
+> | BGP 自AS / 対向AS | `65000` / `10124` |
+> | Tunnel1 対向外側 / 内側 | `52.196.54.142` / `169.254.23.54/30 ↔ 169.254.23.53` |
+> | Tunnel2 対向外側 / 内側 | `54.65.4.212` / `169.254.222.134/30 ↔ 169.254.222.133` |
+> | AWS側VPC CIDR | `10.0.3.0/24` / `10.0.4.0/24`（VGWのRoute PropagationがONであること＝要確認） |
 
-AWSコンソールでSite-to-Site VPN接続を作成し、**「設定ファイルのダウンロード」でベンダー＝Yamaha を選択**すると、そのまま投入できるコンフィグが得られます。以下は現行構成を踏まえた構造です。
+> **DL版（Yamaha）そのままは投入不可。以下4点を適応**（→ [[conversations]] 2026-09-14）：
+> 1. **番号の範囲修正**：RTX1300 は tunnel番号 2001 が範囲外（最大2000）。**トンネルI/F=2・3**（tunnel1=map-e使用中）、**SAポリシー=201/202**、**IKE gateway=1/2**（＝AWS生成の実績値）。
+> 2. **NAT-T明示ON**：`ipsec ike nat-traversal 1/2 on` を追加（固定IP1でも map-e はポート制限NAPTのため）。
+> 3. **BGP広報**：DL版の `0.0.0.0/0` は不採用。**`192.168.64.0/24`＋`192.168.128.0/24`** を広報。
+> 4. **`bgp import` は `static`**（`connected` は非対応キーワード）。YAMAHAでは接続経路＝**implicit経路**で、公式ガイド「implicit経路は `bgp import` でプロトコルに `static` を指定することで導入できる」に準拠 → `bgp import 10124 static filter 1 2` で lan3/2・lan3/1 の直結網を広報（静的経路の追加不要）。
 
 ```
-# --- トンネル1 ---
-tunnel select 2001
+ipsec use on
+ipsec auto refresh on
+
+# --- トンネル1（AWS 52.196.54.142）／ tunnel I/F=2, SAポリシー=201, IKE gateway=1 ---
+tunnel select 2
  tunnel encapsulation ipsec
- ipsec tunnel 2001
-  ipsec sa policy 2001 2001 esp aes-cbc sha-hmac
-  ipsec ike version 2001 2
-  ipsec ike local address 2001 <GLOBAL_IP>
-  ipsec ike remote address 2001 <AWS_TUNNEL1_OUTSIDE_IP>
-  ipsec ike pre-shared-key 2001 text <AWS_TUNNEL1_PSK>
- ip tunnel address <AWS_TUNNEL1_INSIDE_CGW_IP>
- ip tunnel remote address <AWS_TUNNEL1_INSIDE_VGW_IP>
+ ipsec tunnel 201
+  ipsec sa policy 201 1 esp aes-cbc sha-hmac
+  ipsec ike version 1 2
+  ipsec ike duration isakmp-sa 1 28800
+  ipsec ike duration ipsec-sa 1 3600
+  ipsec ike encryption 1 aes-cbc
+  ipsec ike group 1 modp1024
+  ipsec ike hash 1 sha
+  ipsec ike pfs 1 on
+  ipsec ike message-id-control 1 on
+  ipsec ike child-exchange type 1 2
+  ipsec ike keepalive use 1 on rfc4306 10 3
+  ipsec ike nat-traversal 1 on                    # ★map-e配下のため追加
+  ipsec ike local address 1 192.168.128.1         # ★map-e：固定IPは非保有→LAN IPを指定（NATで124.100.212.73へ変換）
+  ipsec ike local name 1 124.100.212.73 ipv4-addr # IKE識別子は固定グローバルIP
+  ipsec ike remote address 1 52.196.54.142
+  ipsec ike remote name 1 52.196.54.142 ipv4-addr
+  ipsec ike pre-shared-key 1 text <PSK_T1>        # ★実機で手入力（ファイルに残さない）
+  ipsec ike negotiation receive 1 off
+ ipsec tunnel outer df-bit clear
+ ip tunnel address 169.254.23.54/30
+ ip tunnel remote address 169.254.23.53
  ip tunnel tcp mss limit auto
- tunnel enable 2001
+ tunnel enable 2
 
-# --- トンネル2（冗長） ---
-tunnel select 2002
- （トンネル1と同様に <AWS_TUNNEL2_*> を設定）
+# --- トンネル2（AWS 54.65.4.212 / 冗長）／ tunnel I/F=3, SAポリシー=202, IKE gateway=2 ---
+tunnel select 3
+ tunnel encapsulation ipsec
+ ipsec tunnel 202
+  ipsec sa policy 202 2 esp aes-cbc sha-hmac
+  ipsec ike version 2 2
+  ipsec ike duration isakmp-sa 2 28800
+  ipsec ike duration ipsec-sa 2 3600
+  ipsec ike encryption 2 aes-cbc
+  ipsec ike group 2 modp1024
+  ipsec ike hash 2 sha
+  ipsec ike pfs 2 on
+  ipsec ike message-id-control 2 on
+  ipsec ike child-exchange type 2 2
+  ipsec ike keepalive use 2 on rfc4306 10 3
+  ipsec ike nat-traversal 2 on                    # ★
+  ipsec ike local address 2 192.168.128.1         # ★map-e：固定IPは非保有→LAN IPを指定（NATで124.100.212.73へ変換）
+  ipsec ike local name 2 124.100.212.73 ipv4-addr # IKE識別子は固定グローバルIP
+  ipsec ike remote address 2 54.65.4.212
+  ipsec ike remote name 2 54.65.4.212 ipv4-addr
+  ipsec ike pre-shared-key 2 text <PSK_T2>
+  ipsec ike negotiation receive 2 off
+ ipsec tunnel outer df-bit clear
+ ip tunnel address 169.254.222.134/30
+ ip tunnel remote address 169.254.222.133
+ ip tunnel tcp mss limit auto
+ tunnel enable 3
 
-# --- BGP ---
-# --- BGP（現行値を踏襲） ---
+# --- BGP（VLAN20＋VLAN10 を広報）---
 bgp use on
 bgp autonomous-system 65000
-bgp neighbor 1 10124 <AWS_TUNNEL1_INSIDE_VGW_IP> hold-time=30 local-address=<AWS_TUNNEL1_INSIDE_CGW_IP>
-bgp neighbor 2 10124 <AWS_TUNNEL2_INSIDE_VGW_IP> hold-time=30 local-address=<AWS_TUNNEL2_INSIDE_CGW_IP>
-bgp import filter 1 equal 192.168.128.0/24
-bgp import 10124 static filter 1
+bgp neighbor 1 10124 169.254.23.53   hold-time=30 local-address=169.254.23.54
+bgp neighbor 2 10124 169.254.222.133 hold-time=30 local-address=169.254.222.134
+bgp import filter 1 equal 192.168.64.0/24     # VLAN20（開発）
+bgp import filter 2 equal 192.168.128.0/24    # VLAN10（営業・総務）
+bgp import 10124 static filter 1 2            # implicit(直結)経路を static 指定で広報
 bgp configure refresh
 ```
 
-> **AWSコンソールからダウンロードした設定を正としてください。**
-> 現行は `ipsec ike local address 192.168.128.1` ＋ NAT静的（esp/500/4500）で自機宛IPsecを通していましたが、**新構成では固定グローバルIPを直接保持するため、`ipsec ike local address` に `<GLOBAL_IP>` を指定し、NAT静的は不要**になります。
+> **DL版とのマッピング（`config/aws_vpn_yamaha_config.txt`）**：DL版の `tunnel select 1/2` → `2/3`（tunnel1=map-e回避）、`ipsec tunnel 201/202`・`ipsec sa policy 201 1`/`202 2`・IKE gateway `1`/`2` はDL値のまま（実績値・範囲内）、`ipsec ike version 1/2 2`（=IKEv2）維持、PSK 2本 → `<PSK_T1>/<PSK_T2>`（実機投入）、`bgp neighbor 1/2 10124 ...` そのまま、`bgp import filter 1 equal 0.0.0.0/0`＋`bgp import 10124 static filter 1` → 上記の 64系＋128系＋`static filter 1 2` に置換。
+>
+> **【教訓】RTX1300のトンネル番号は最大2000（2001以降は「パラメータが範囲を越えています」）。`bgp import` の protocol に `connected` は無い（static/rip/ospf/bgp/aggregate のみ）。直結網は implicit 経路として `static` 指定で広報する。**（2026-09-14 実機投入エラーで確認）
+>
+> **【教訓・最重要】map-e配下のIPsecは `ipsec ike local address` に固定グローバルIPを書いてはいけない**（当機はそのIPをインターフェースに保有せず、IKEを発信できず `show ipsec sa` が `send:0` になる）。**LAN側の保有IP（例 192.168.128.1）を指定**し、map-eのNATで固定IPへ変換＋NAT-Tで抜ける。IKE識別子は `ipsec ike local name <id> 124.100.212.73 ipv4-addr` で担保。出典：YAMAHA公式「Amazon VPCとVPN(IPsec)接続するルーターの設定(OCNバーチャルコネクトを利用)」= `ipsec ike local address 1 192.168.100.1`（LAN IP指定）。（2026-09-14 send:0 の切り分けで確認）
+>
+> **【呼び水】BGPは local-address（トンネル内側IP）がupしないと Idle のまま接続試行しない（`Local host: unspecified`）。トンネル未確立→IKE未起動→…のデッドロックは、AWS VPC宛の一時静的経路（`ip route 10.0.3.0/24 gateway tunnel 2` 等）＋LAN端末からの ping で通信を流し、RTXにIKEを起動させて解く。両系Established後に一時静的経路は削除しBGPへ委ねる。**
+>
+> **AWS(10.0.3.0/24・10.0.4.0/24)の経路はBGPで受信**するため、当社側に受信フィルタは不要（`show ip route` に自動掲載）。§9のAWS向けフィルタは `10.0.0.0/16` で3系・4系＋将来分を一括カバー。
+>
+> **要検証（実機投入時）**：
+> - `show ipsec sa` / `show status tunnel 2` / `show status tunnel 3`（ISAKMP/IPsec SA確立）、`show ip bgp neighbor`（Established）、`show ip route`（10.0.3.0/24・10.0.4.0/24 学習）
+> - map-e MTU1460＋IPsecのフラグメント（不通・大サイズ落ちがあれば `ip tunnel mtu` を明示調整。まず `ip tunnel tcp mss limit auto` で様子見）
+> - §8（tunnel1=map-e）の `out` dynamic udp(200099) で NAT-T戻り(UDP4500)が通ること（アウトバウンド発のため追加静的許可は不要見込み）
+
+### 11-1. 別アカウント/別VGWへVPNを追加する時の再利用チェックリスト
+
+本§11は**テンプレートとして再利用可**。ただし「PSKだけ変わる」ではない点に注意。
+
+**🔴 毎回変わる（新アカウントで作成し、Yamaha設定DLから取得）**
+- PSK ×2
+- AWS側 外側IP（`ipsec ike remote address`）×2
+- 内側トンネルIP（`ip tunnel address`/`remote address` の 169.254.x.x/30）×2
+- BGP neighbor（内側VGW IP）×2
+- **Amazon側ASN**（今回10124。VGWごとに異なる場合あり＝要確認）
+
+**🟡 RTX側で「新しい重複しない番号」に採番**（既存：tunnel2/3・ipsec/SA201/202・IKE gateway1/2・bgp neighbor1/2 と衝突不可）
+- 次組の例：tunnelI/F **4・5**／ipsec・SAポリシー **203・204**／IKE gateway **3・4**／bgp neighbor **3・4**
+
+**🟢 変えない（＝map-e対応テンプレの肝）**
+- `ipsec ike local address <id> 192.168.128.1`（★固定IPは書かない）
+- `ipsec ike local name <id> 124.100.212.73 ipv4-addr`（自CGW識別子）
+- `ipsec ike nat-traversal <id> on`
+- 自ASN `65000`／IKE暗号（aes-cbc・sha・modp1024＝AWS既定）
+
+**AWSコンソール側（新アカウント）**
+- Customer Gateway を **当社IP `124.100.212.73`／ASN `65000`** で作成
+- Site-to-Site VPN（動的BGP）作成 → **Yamaha/IKEv2 で設定DL**（上記🔴を採取）
+- VPCルートテーブルの **ルート伝播ON**（当社網の戻り経路）＋ SG/NACL で送信元 `192.168.64.0/24`・`192.168.128.0/24` を許可
+
+**投入手順（今回と同じ4適応）**：①番号を🟡へ改番／②`nat-traversal on`／③`local address=192.168.128.1`＋`local name=固定IP`／④`bgp import <ASN> static filter …`（implicitはstatic）。起動は「一時静的経路（`ip route <新VPC> gateway tunnel N`）＋LAN端末からping」で呼び水 → 両系Established後に一時静的経路を削除。
 
 ---
 
