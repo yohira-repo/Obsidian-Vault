@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1789431538001-9c5sy0kz7",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789431539099-zivxhbq",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1789431537999-epvz2pg",
+      "timestamp": 1789431537999,
+      "rawDisplayText": "社内ネットワーク更改での残作業を整理してください。",
+      "canonicalText": "社内ネットワーク更改での残作業を整理してください。",
+      "context": {
+        "linkedContent": {
+          "path": "02_Note/社内ネットワーク更改/00_サマリ.md"
+        }
+      },
+      "images": [],
+      "contentDigest": "f41806a2362804d6fb73dff549e4573b7a1d4d044a39d758158896b4923c3f8b",
+      "providerUserMessageId": "ca529274-bd39-4986-ad92-e0135dca7a53",
+      "providerAssistantMessageId": "5e460fad-601e-4316-aad4-664a37e5f1f8"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789440124864-ngji38j",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1789440124860-qbxyv68",
+      "timestamp": 1789440124860,
+      "rawDisplayText": "今までの記録が全く無視されていませんか？1か月も前のことを言っています。",
+      "canonicalText": "今までの記録が全く無視されていませんか？1か月も前のことを言っています。",
+      "images": [],
+      "contentDigest": "6f5baac1fb105309fdd8aba022a1f84010c2255458589b12dea7b4aee897d71e",
+      "providerUserMessageId": "5c96ae62-dc32-4a65-a769-982c3c3808da",
+      "providerAssistantMessageId": "8472ab7d-f657-4921-99b6-b615f54c783c"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789440260094-ybo2ak9",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1789440260086-oisogbk",
+      "timestamp": 1789440260086,
+      "rawDisplayText": "更新してください。ちなみにこのようなことがあるので、滅多にセッションを切らないのです。特に連続したタスクを数日にわたり実行しているときは。",
+      "canonicalText": "更新してください。ちなみにこのようなことがあるので、滅多にセッションを切らないのです。特に連続したタスクを数日にわたり実行しているときは。",
+      "images": [],
+      "contentDigest": "a1e3911fcaf8b55ad71f357db0f763b1e6c2fa27f4d8cb921708104591e087fb",
+      "providerUserMessageId": "c4876bc0-b474-4402-983b-c4c0793c96a7",
+      "providerAssistantMessageId": "63e10908-2db6-4fc3-ad35-a92d6bb7686f"
+    }
+  ]
+}
