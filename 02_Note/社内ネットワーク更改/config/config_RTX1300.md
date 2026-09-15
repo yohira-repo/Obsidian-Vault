@@ -441,7 +441,9 @@ ip lan1   secure filter in  2039
 
 > **優先度低（VPNは後回し）。** 切替当日は投入せず、インターネット/VLAN成立後の別作業とする（→ [[conversations]] 2026-09-10「VPNは後回し」）。
 >
-> **【2026-09-14 方針変更】外部からのリモートVPNの到達先は VLAN10 のみ。** 全ユーザーの払出は VLAN10（RDP3389/SSH22）到達に統一。**開発ユーザー→VLAN20 のリモート経路は廃止**（下記本文の `192.168.201.32/28`→VLAN20、`4020`/`4021`、`yohiradev`/`t.kidodev` のVLAN20到達は実装時に削除）。開発のAWS利用は §11 拠点間VGW（VLAN20専用）で担保。
+> **【2026-09-14 方針変更 → 2026-09-15 確定反映】外部からのリモートVPNの到達先は VLAN10 のみ。** 全ユーザーの払出は VLAN10（RDP3389/SSH22）到達に統一。**開発ユーザー→VLAN20 のリモート経路は廃止**。開発のAWS利用は §11 拠点間VGW（VLAN20専用）で担保するため、**`yohiradev`/`t.kidodev` アカウントは登録しない**（2026-09-15 ユーザー決定：VLAN20到達不要＝両アカウントの存在意義が無くなるため削除）。→ 利用者4名／アカウント4個。
+>
+> **【要検証：map-e配下の `ipsec ike local address`】** 下記は `ipsec ike local address 1 <GLOBAL_IP>` としているが、§11（AWS拠点間VPN）では map-e配下で固定IPを直書きすると `send:0` で成立せず、**`ipsec ike local address = 192.168.128.1`（LAN IP）＋ `ipsec ike local name = 124.100.212.73 ipv4-addr`** で解決した実績がある。L2TP（応答側・`remote address any`）でも同様の対応が要るか、実装時（段階3）に実機で確認すること。
 
 ```
 # --- IPsec 基本 ---
@@ -471,26 +473,23 @@ ipsec transport 1000 1 udp 1701
 pp select anonymous
  pp bind tunnel1000-tunnel1004
  pp auth request mschap-v2
- # --- 業務ユーザー（VLAN10へRDP/SSH） ---
+ # --- 業務ユーザー（VLAN10へRDP/SSH のみ） ---
  pp auth username yohira     <PASS_yohira>     192.168.201.17
  pp auth username t.kido     <PASS_t.kido>     192.168.201.18
  pp auth username mogik      <PASS_mogik>      192.168.201.19
  pp auth username iizuka     <PASS_iizuka>     192.168.201.20
- # --- 開発ユーザー（VLAN20へRDP/SSH） ---
- pp auth username yohiradev  <PASS_yohiradev>  192.168.201.33
- pp auth username t.kidodev  <PASS_t.kidodev>  192.168.201.34
+ # 【2026-09-15確定】yohiradev/t.kidodev は登録しない（VLAN20到達廃止・開発AWSは§11で担保）
  ppp ipcp ipaddress on
  ppp ipcp msext on
  ppp ccp type none
- ip pp secure filter in 4010 4011 4020 4021 4099
+ ip pp secure filter in 4010 4011 4099
  pp enable anonymous
 
-# --- VPN用フィルタ ---
+# --- VPN用フィルタ（VLAN10到達のみ／VLAN20到達は廃止） ---
 ip filter 4010 pass 192.168.201.16/28 192.168.128.0/24 tcp * 3389   # 業務→VLAN10 RDP
 ip filter 4011 pass 192.168.201.16/28 192.168.128.0/24 tcp * 22     # 業務→VLAN10 SSH
-ip filter 4020 pass 192.168.201.32/28 192.168.64.0/24  tcp * 3389   # 開発→VLAN20 RDP
-ip filter 4021 pass 192.168.201.32/28 192.168.64.0/24  tcp * 22     # 開発→VLAN20 SSH
 ip filter 4099 reject * * * * *                                     # それ以外は拒否
+# 廃止：4020/4021（開発→VLAN20 RDP/SSH）… 2026-09-15方針で削除
 ```
 
 ### ユーザーごとの払出IP（確定）
@@ -501,14 +500,12 @@ ip filter 4099 reject * * * * *                                     # それ以�
 | `t.kido` | t.kido | 業務 | `192.168.201.18` | VLAN 10（TCP 3389／22） |
 | `mogik` | mogik | 業務 | `192.168.201.19` | VLAN 10（TCP 3389／22） |
 | `iizuka` | iizuka | 業務 | `192.168.201.20` | VLAN 10（TCP 3389／22） |
-| `yohiradev` | yohira | 開発 | `192.168.201.33` | VLAN 20（TCP 3389／22） |
-| `t.kidodev` | t.kido | 開発 | `192.168.201.34` | VLAN 20（TCP 3389／22） |
 
 - 業務レンジ：`192.168.201.16/28`（`.17`〜`.30`、14ユーザーまで）
-- 開発レンジ：`192.168.201.32/28`（`.33`〜`.46`、14ユーザーまで）
-- **利用者4名／アカウント6個**。業務と開発の両方へアクセスする2名（yohira・t.kido）は、**用途別に別アカウントで接続**します。
+- **利用者4名／アカウント4個**。全アカウントの到達先は VLAN10（RDP3389/SSH22）のみ。
+- **【2026-09-15確定】開発用アカウント（`yohiradev`/`t.kidodev`）・開発レンジ（`192.168.201.32/28`）・VLAN20到達は廃止**。開発者のAWS利用は §11 拠点間VGW（VLAN20専用）で担保するため、リモートVPN経由のVLAN20到達は不要。
 
-> **1アカウントで業務・開発の両方に到達させることも技術的に可能です**（到達範囲はフィルタで決まるため）。その場合は「兼務レンジ」を追加し、VLAN 10・VLAN 20 の双方を許可するフィルタを定義します。本設計では**セッション単位の権限を最小に保つため、用途別のアカウント分離を採用**しています。
+> **将来、リモートVPNから開発資源（VLAN20）へ直接到達させたくなった場合**は、開発レンジ（`192.168.201.32/28`）とVLAN20許可フィルタ（旧`4020`/`4021`）、および `lan3/2 secure filter out` への戻り許可を復活させる。現時点では最小権限のため設定しない。
 
 #### 兼務レンジを使う場合（参考・今回は未使用）
 
@@ -521,7 +518,7 @@ ip filter 4033 pass 192.168.201.48/28 192.168.64.0/24  tcp * 22
 # lan3/2 secure filter out へ 192.168.201.48/28 → VLAN20 の pass と dynamic も追加が必要
 ```
 
-> **現行configからのユーザー変更**：`t-yamashita`・`takebuchi` は新リストに無いため**登録しません**。`iizukak` は `iizuka` へ改称。新規に `yohiradev`・`t.kidodev` を追加します。
+> **現行configからのユーザー変更**：`t-yamashita`・`takebuchi` は新リストに無いため**登録しません**。`iizukak` は `iizuka` へ改称。`yohiradev`・`t.kidodev` は**追加しません**（2026-09-15 決定：VLAN20到達廃止のため）。→ 登録は業務4アカウントのみ。
 
 > **`ip pp remote address pool` は設定しません。** 現行は `ip pp remote address pool dhcp` でLAN内のDHCPプール（`.10`〜`.60`）から払い出し、`ip lan1 proxyarp on` を併用していましたが、**新構成では専用セグメントの固定払出に変更**するため、プールとproxyarpはいずれも不要です。
 > プールを併用し、固定指定したIPがプール範囲と重複すると、プール側から別アドレスが払い出されフィルタが意図通りに効かなくなります。

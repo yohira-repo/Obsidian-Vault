@@ -4,7 +4,7 @@
   "title": "Internal network upgrade remaining workこのターンを振り...",
   "titleGenerationStatus": "success",
   "createdAt": 1789431538010,
-  "lastActivityAt": 1789440349364,
+  "lastActivityAt": 1789455432678,
   "sessionId": "f2077f07-1237-4dea-8e0c-c3bcf23f5b26",
   "selectedModel": "opus",
   "providerState": {
@@ -13,12 +13,12 @@
   "linkedContentPath": "02_Note/社内ネットワーク更改/00_サマリ.md",
   "usage": {
     "model": "opus",
-    "inputTokens": 131,
-    "cacheCreationInputTokens": 626,
-    "cacheReadInputTokens": 79096,
+    "inputTokens": 1,
+    "cacheCreationInputTokens": 780,
+    "cacheReadInputTokens": 151968,
     "contextWindow": 1000000,
-    "contextTokens": 79853,
-    "percentage": 8,
+    "contextTokens": 152749,
+    "percentage": 15,
     "contextWindowIsAuthoritative": true
   }
 }
