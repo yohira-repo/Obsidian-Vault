@@ -299,7 +299,7 @@ tunnel select 1
 > - **AWS→VLAN20 戻り許可**：`ip filter 2105 pass 10.0.0.0/16 192.168.64.0/24 * * *` を lan3/2 out に追加。
 > - **VLAN10 は変更不要**：発信は既存 `2019 pass *` で許可、戻りは lan3/1 に out フィルタが無く自動許可（VLAN10→AWS拒否フィルタは入れない）。
 > - **BGP広報**は §11 で 64系＋128系の2本（VLAN20・VLAN10）。
-> - リモートVPN（L2TP）の VLAN20到達（`2103`/`2104`/dynamic`3020`）は §10方針どおり VPN実装時に廃止（本AWS対応とは独立・優先度低）。
+> - リモートVPN（L2TP）の VLAN20到達（`2103`/`2104`/dynamic`3020`）は **2026-09-15 方針で存続**（当初は廃止予定だったが将来性を考慮しVLAN20専用到達を復活）。§10 の開発アカウント `yohiradev`/`t.kidodev` と対で機能する。
 
 確定版を作るうえで押さえるべき仕様は3点です。
 
@@ -441,7 +441,10 @@ ip lan1   secure filter in  2039
 
 > **優先度低（VPNは後回し）。** 切替当日は投入せず、インターネット/VLAN成立後の別作業とする（→ [[conversations]] 2026-09-10「VPNは後回し」）。
 >
-> **【2026-09-14 方針変更 → 2026-09-15 確定反映】外部からのリモートVPNの到達先は VLAN10 のみ。** 全ユーザーの払出は VLAN10（RDP3389/SSH22）到達に統一。**開発ユーザー→VLAN20 のリモート経路は廃止**。開発のAWS利用は §11 拠点間VGW（VLAN20専用）で担保するため、**`yohiradev`/`t.kidodev` アカウントは登録しない**（2026-09-15 ユーザー決定：VLAN20到達不要＝両アカウントの存在意義が無くなるため削除）。→ 利用者4名／アカウント4個。
+> **【到達先の変遷】** 2026-09-14 に「VLAN10のみ／開発アカウント廃止」へ縮小したが、**2026-09-15 に将来性を考慮して VLAN20専用到達を復活**（ユーザー方針変更）。
+> - **業務アカウント**（VLAN10到達）：`yohira`/`t.kido`/`mogik`/`iizukak`（払出 `.17`〜`.20`）
+> - **開発アカウント**（VLAN20到達）：`yohiradev`/`t.kidodev`（払出 `.33`/`.34`）※命名は当面の暫定。運用で追加/削除される
+> - **同時接続枠（トンネル）の考え方＝解釈A**：L2TPトンネル（`tunnel1000`〜）は `pp anonymous` の**共有プール**で、到達先はトンネルではなく**アカウントの払出IP＋フィルタ**で決まる。**トンネルのVLAN別ハード予約はできない**。希望の「VLAN10=2／VLAN20=3（合計5本）」は**容量計画の目安**として合計5本を用意する（現行踏襲）。
 >
 > **【要検証：map-e配下の `ipsec ike local address`】** 下記は `ipsec ike local address 1 <GLOBAL_IP>` としているが、§11（AWS拠点間VPN）では map-e配下で固定IPを直書きすると `send:0` で成立せず、**`ipsec ike local address = 192.168.128.1`（LAN IP）＋ `ipsec ike local name = 124.100.212.73 ipv4-addr`** で解決した実績がある。L2TP（応答側・`remote address any`）でも同様の対応が要るか、実装時（段階3）に実機で確認すること。
 
@@ -473,24 +476,28 @@ ipsec transport 1000 1 udp 1701
 pp select anonymous
  pp bind tunnel1000-tunnel1004
  pp auth request mschap-v2
- # --- 業務ユーザー（VLAN10へRDP/SSH のみ） ---
+ # --- 業務ユーザー（VLAN10へRDP/SSH） ---
  pp auth username yohira     <PASS_yohira>     192.168.201.17
  pp auth username t.kido     <PASS_t.kido>     192.168.201.18
  pp auth username mogik      <PASS_mogik>      192.168.201.19
- pp auth username iizuka     <PASS_iizuka>     192.168.201.20
- # 【2026-09-15確定】yohiradev/t.kidodev は登録しない（VLAN20到達廃止・開発AWSは§11で担保）
+ pp auth username iizukak    <PASS_iizukak>    192.168.201.20
+ # --- 開発ユーザー（VLAN20へRDP/SSH）※2026-09-15 復活。運用で追加/削除される ---
+ pp auth username yohiradev  <PASS_yohiradev>  192.168.201.33
+ pp auth username t.kidodev  <PASS_t.kidodev>  192.168.201.34
  ppp ipcp ipaddress on
  ppp ipcp msext on
  ppp ccp type none
- ip pp secure filter in 4010 4011 4099
+ ip pp secure filter in 4010 4011 4020 4021 4099
  pp enable anonymous
 
-# --- VPN用フィルタ（VLAN10到達のみ／VLAN20到達は廃止） ---
+# --- VPN用フィルタ ---
 ip filter 4010 pass 192.168.201.16/28 192.168.128.0/24 tcp * 3389   # 業務→VLAN10 RDP
 ip filter 4011 pass 192.168.201.16/28 192.168.128.0/24 tcp * 22     # 業務→VLAN10 SSH
+ip filter 4020 pass 192.168.201.32/28 192.168.64.0/24  tcp * 3389   # 開発→VLAN20 RDP
+ip filter 4021 pass 192.168.201.32/28 192.168.64.0/24  tcp * 22     # 開発→VLAN20 SSH
 ip filter 4099 reject * * * * *                                     # それ以外は拒否
-# 廃止：4020/4021（開発→VLAN20 RDP/SSH）… 2026-09-15方針で削除
 ```
+> **VLAN20側の戻り経路は §9 で対応済み**：`lan3/2 secure filter out` に `2103`/`2104`（開発→VLAN20 RDP/SSH）＋ `dynamic 3020` が適用済み（9-3/9-4）。§10側は上記フィルタとアカウントのみで成立する。
 
 ### ユーザーごとの払出IP（確定）
 
@@ -499,13 +506,14 @@ ip filter 4099 reject * * * * *                                     # それ以�
 | `yohira` | yohira | 業務 | `192.168.201.17` | VLAN 10（TCP 3389／22） |
 | `t.kido` | t.kido | 業務 | `192.168.201.18` | VLAN 10（TCP 3389／22） |
 | `mogik` | mogik | 業務 | `192.168.201.19` | VLAN 10（TCP 3389／22） |
-| `iizuka` | iizuka | 業務 | `192.168.201.20` | VLAN 10（TCP 3389／22） |
+| `iizukak` | iizukak | 業務 | `192.168.201.20` | VLAN 10（TCP 3389／22） |
+| `yohiradev` | yohira | 開発 | `192.168.201.33` | VLAN 20（TCP 3389／22） |
+| `t.kidodev` | t.kido | 開発 | `192.168.201.34` | VLAN 20（TCP 3389／22） |
 
 - 業務レンジ：`192.168.201.16/28`（`.17`〜`.30`、14ユーザーまで）
-- **利用者4名／アカウント4個**。全アカウントの到達先は VLAN10（RDP3389/SSH22）のみ。
-- **【2026-09-15確定】開発用アカウント（`yohiradev`/`t.kidodev`）・開発レンジ（`192.168.201.32/28`）・VLAN20到達は廃止**。開発者のAWS利用は §11 拠点間VGW（VLAN20専用）で担保するため、リモートVPN経由のVLAN20到達は不要。
-
-> **将来、リモートVPNから開発資源（VLAN20）へ直接到達させたくなった場合**は、開発レンジ（`192.168.201.32/28`）とVLAN20許可フィルタ（旧`4020`/`4021`）、および `lan3/2 secure filter out` への戻り許可を復活させる。現時点では最小権限のため設定しない。
+- 開発レンジ：`192.168.201.32/28`（`.33`〜`.46`、14ユーザーまで）
+- **利用者4名／アカウント6個**（2026-09-15）。業務＝VLAN10到達、開発＝VLAN20到達。到達範囲は払出IP＋フィルタで決まる（トンネルはVLAN別に固定されない＝解釈A）。
+- **開発アカウント（`yohiradev`/`t.kidodev`）は当面の暫定。運用で追加/削除される**（命名はメールローカル部＋用途接尾辞`dev`）。同時接続の目安は VLAN10=2／VLAN20=3（トンネル合計5本の容量計画）。
 
 #### 兼務レンジを使う場合（参考・今回は未使用）
 
@@ -518,7 +526,9 @@ ip filter 4033 pass 192.168.201.48/28 192.168.64.0/24  tcp * 22
 # lan3/2 secure filter out へ 192.168.201.48/28 → VLAN20 の pass と dynamic も追加が必要
 ```
 
-> **現行configからのユーザー変更**：`t-yamashita`・`takebuchi` は新リストに無いため**登録しません**。`iizukak` は `iizuka` へ改称。`yohiradev`・`t.kidodev` は**追加しません**（2026-09-15 決定：VLAN20到達廃止のため）。→ 登録は業務4アカウントのみ。
+> **ユーザーID命名ルール**：アカウント名は**メールアドレスのローカル部**（`XXX@alphacmc.co.jp` の `XXX`）を使用する。
+>
+> **現行configからのユーザー変更**：`t-yamashita`・`takebuchi` は新リストに無いため**登録しません**。**`iizukak` は現行のまま踏襲**（2026-09-15 訂正：メールローカル部が `iizukak` のため。過去の「iizukaへ改称」案は根拠なしとして撤回）。`yohiradev`・`t.kidodev` は**追加しません**（2026-09-15 決定：VLAN20到達廃止のため）。→ 登録は業務4アカウントのみ。
 
 > **`ip pp remote address pool` は設定しません。** 現行は `ip pp remote address pool dhcp` でLAN内のDHCPプール（`.10`〜`.60`）から払い出し、`ip lan1 proxyarp on` を併用していましたが、**新構成では専用セグメントの固定払出に変更**するため、プールとproxyarpはいずれも不要です。
 > プールを併用し、固定指定したIPがプール範囲と重複すると、プール側から別アドレスが払い出されフィルタが意図通りに効かなくなります。

@@ -4,7 +4,7 @@
   "title": "Internal network upgrade remaining workこのターンを振り...",
   "titleGenerationStatus": "success",
   "createdAt": 1789431538010,
-  "lastActivityAt": 1789455432678,
+  "lastActivityAt": 1789554961372,
   "sessionId": "f2077f07-1237-4dea-8e0c-c3bcf23f5b26",
   "selectedModel": "opus",
   "providerState": {
@@ -14,11 +14,11 @@
   "usage": {
     "model": "opus",
     "inputTokens": 1,
-    "cacheCreationInputTokens": 780,
-    "cacheReadInputTokens": 151968,
+    "cacheCreationInputTokens": 1232,
+    "cacheReadInputTokens": 261349,
     "contextWindow": 1000000,
-    "contextTokens": 152749,
-    "percentage": 15,
+    "contextTokens": 262582,
+    "percentage": 26,
     "contextWindowIsAuthoritative": true
   }
 }
