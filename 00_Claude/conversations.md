@@ -1059,3 +1059,19 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 ### 補足・残
 - `~/.claude/settings.json` はマシンごと（Vault同期対象外の想定）。Mac 側は現状の hook でも動くが、統一したい場合は同じ run.sh 経由スニペットへ差し替え可（run.sh は Vault 同期側にあるため共有される）。
 - 「毎朝・Claude利用に依存せず必ず反映」まで求める場合のみ B（Windows=タスクスケジューラ／Mac=launchd で run.sh を叩く）を追加。
+
+## 2026-09-16 daily-sync に coop 系が出ない件はローカル最新化で解消（スクリプト修正はしない）
+
+### 症状
+- Daily ノート [[01_Daily/2026-09-16.md]] の「Claude作業ログ」に alphaxxx しか出ず、coopxxx が一切表示されない。
+
+### 原因
+- `claude_daily_log/projects.py` の `DEFAULT_CONFIG_FILES = ("alphasystem/CLAUDE.md", "coop/CLAUDE.md")` のうち、**`~/git/coop/CLAUDE.md` がローカルに存在しなかった**ため、coop 系プロジェクトが対象一覧に載らなかった。検出は alphasystem テーブル由来の 8 件のみ。
+- このPCでしばらく作業していなかった間にローカルリポジトリが古いままだったことが理由。ツール側のバグではない。
+
+### 決定
+- ユーザーがローカルリポジトリを最新化して `~/git/coop/CLAUDE.md` を復元。これで解消したため、**提示していた対処案（案1: CLAUDE.md を手で再作成／案2: `DEFAULT_CONFIG_FILES` を別ファイルに向ける）はいずれも実施しない**。
+- 再実行結果: fetch 16 / clone 2（`coopcdealert`・`coopcdeinput` を新規 clone）、プロジェクト 6 件・記録のあるソース 6 件、Daily 更新済み。coopbatch / coopinf / coopcdebatch の当日リンクが出力された。
+
+### 残（未決）
+- `/daily-sync` スラッシュコマンドの定義が `/usr/bin/python3` 直書きで、この Windows 機では存在せず毎回手動で `C:\Users\yohira\AppData\Local\Python\bin\python.exe` + `PYTHONUTF8=1` に読み替えている。`run.sh` 経由へ直す提案は未回答のため保留。

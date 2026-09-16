@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1789516474243-xsj8xi7l1",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789516474272-s1c4mwr",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1789516474240-ircunwl",
+      "timestamp": 1789516474240,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "context": {
+        "linkedContent": {
+          "path": "01_Daily/2026-09-16.md"
+        }
+      },
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "ed8258f6-d8cc-4e5d-8dfd-317877170fa4"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789516544941-ivuumkj",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1789516544930-ft9obm5",
+      "timestamp": 1789516544930,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "eaf0d6e6-ec68-47a2-994c-b40d5948a0ed"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789516870968-f0t7vc5",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1789516870965-mfyp60v",
+      "timestamp": 1789516870965,
+      "rawDisplayText": "/login",
+      "canonicalText": "/login",
+      "images": [],
+      "contentDigest": "7b1f9a12813a9960dd5d68b32e9dcb26241bb5f076c2b696755f2a290afd8de3",
+      "providerUserMessageId": "f0853a61-478f-458c-8b18-31f2ad0f628e"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789516939146-gsk0q6k",
+      "userTurnOrdinal": 4,
+      "state": "accepted",
+      "localMessageId": "msg-1789516939144-o6u4hnb",
+      "timestamp": 1789516939144,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "62275e99-6a31-4a4a-a92e-588ed8bab299",
+      "providerAssistantMessageId": "2749e5fe-8d20-4782-bca6-66f3f4ead738"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789517151169-bkjxzq4",
+      "userTurnOrdinal": 5,
+      "state": "accepted",
+      "localMessageId": "msg-1789517151165-dnqgs0u",
+      "timestamp": 1789517151165,
+      "rawDisplayText": "Claude作業ログに alphaxxx は表示されるのですが、coopxxxはひょじされません。なぜでしょうか？",
+      "canonicalText": "Claude作業ログに alphaxxx は表示されるのですが、coopxxxはひょじされません。なぜでしょうか？",
+      "context": {
+        "editorSelection": {
+          "notePath": "01_Daily/2026-09-16.md",
+          "mode": "selection",
+          "selectedText": "Claude作業ログ",
+          "lineCount": 1,
+          "startLine": 61
+        }
+      },
+      "images": [],
+      "contentDigest": "c8b8a211b846eae8b79febd3db0e8a571228bad4d0028e617ae9e8b2502bd04d",
+      "providerUserMessageId": "45e84e3b-1cf7-440c-939c-694b7ed551dc",
+      "providerAssistantMessageId": "9fa3106f-ca47-40dc-9b14-55ff1cda0c20"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789517452130-r5o3k5h",
+      "userTurnOrdinal": 6,
+      "state": "accepted",
+      "localMessageId": "msg-1789517452125-72dw0do",
+      "timestamp": 1789517452125,
+      "rawDisplayText": "しばらくこのPCで作業指定なかったので、こちらのローカルリポジトリが更新されていませんでした。最新化しましたので、再度やってみてもらえませんでしょうか？",
+      "canonicalText": "しばらくこのPCで作業指定なかったので、こちらのローカルリポジトリが更新されていませんでした。最新化しましたので、再度やってみてもらえませんでしょうか？",
+      "context": {
+        "editorSelection": {
+          "notePath": "01_Daily/2026-09-16.md",
+          "mode": "selection",
+          "selectedText": "Claude作業ログ",
+          "lineCount": 1,
+          "startLine": 61
+        }
+      },
+      "images": [],
+      "contentDigest": "6ac53742e48666bb1c3049dbd807cafc8ebd91cfec80b6e57f1c5cf9ce89ccf5",
+      "providerUserMessageId": "4ebf4e26-7956-4bfd-8c02-4efdc69c487c",
+      "providerAssistantMessageId": "3bbc0bd9-cc30-4c51-9678-b8d658a2dc7a"
+    }
+  ]
+}

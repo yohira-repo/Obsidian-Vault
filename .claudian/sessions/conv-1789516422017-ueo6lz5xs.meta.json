@@ -1,0 +1,14 @@
+{
+  "id": "conv-1789516422017-ueo6lz5xs",
+  "providerId": "claude",
+  "title": "/daily-sync",
+  "titleGenerationStatus": "failed",
+  "createdAt": 1789516422025,
+  "lastActivityAt": 1789516423341,
+  "sessionId": "015ae098-3c95-402f-9695-4989b8c63e9b",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "015ae098-3c95-402f-9695-4989b8c63e9b"
+  },
+  "linkedContentPath": "01_Daily/2026-09-16.md"
+}

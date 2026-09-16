@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1789516422017-ueo6lz5xs",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789516422059-0mhguap",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1789516422012-njq0mjz",
+      "timestamp": 1789516422012,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "context": {
+        "linkedContent": {
+          "path": "01_Daily/2026-09-16.md"
+        }
+      },
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "49096ebd-92f0-4fd2-a4fa-02c72aab1077"
+    }
+  ]
+}
