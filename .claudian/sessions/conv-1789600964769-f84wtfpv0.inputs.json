@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1789600964769-f84wtfpv0",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1789600965677-8pfj6p6",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1789600964767-3aqsouf",
+      "timestamp": 1789600964767,
+      "rawDisplayText": "gitHubにpushしようとするとエラーになります。",
+      "canonicalText": "gitHubにpushしようとするとエラーになります。",
+      "context": {
+        "linkedContent": {
+          "path": "01_Daily/2026-09-17.md"
+        }
+      },
+      "images": [],
+      "contentDigest": "38faf9415e3dcff14f322d4249ff6d049ee89eafdc4d0c364ab502ba9d0ed8f2",
+      "providerUserMessageId": "2eed2d6e-0b52-4135-a398-501c26c6d6c4",
+      "providerAssistantMessageId": "325b3d93-cb65-4441-a5ad-87696cd1550e"
+    }
+  ]
+}

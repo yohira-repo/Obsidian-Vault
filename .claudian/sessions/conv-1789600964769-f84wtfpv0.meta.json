@@ -1,0 +1,24 @@
+{
+  "id": "conv-1789600964769-f84wtfpv0",
+  "providerId": "claude",
+  "title": "Fix GitHub push errorこのターンを振り返りました。\n\nこのセッションでは、...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1789600964773,
+  "lastActivityAt": 1789601003212,
+  "sessionId": "f75d79a5-61bc-4069-83aa-2ce00aa4e091",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "f75d79a5-61bc-4069-83aa-2ce00aa4e091"
+  },
+  "linkedContentPath": "01_Daily/2026-09-17.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 1,
+    "cacheCreationInputTokens": 921,
+    "cacheReadInputTokens": 60954,
+    "contextWindow": 1000000,
+    "contextTokens": 61876,
+    "percentage": 6,
+    "contextWindowIsAuthoritative": true
+  }
+}
