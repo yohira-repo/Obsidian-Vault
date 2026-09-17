@@ -31,7 +31,8 @@
       "canonicalText": "/daily-sync",
       "images": [],
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
-      "providerUserMessageId": "eaf0d6e6-ec68-47a2-994c-b40d5948a0ed"
+      "providerUserMessageId": "eaf0d6e6-ec68-47a2-994c-b40d5948a0ed",
+      "providerAssistantMessageId": "2749e5fe-8d20-4782-bca6-66f3f4ead738"
     },
     {
       "schemaVersion": 1,
