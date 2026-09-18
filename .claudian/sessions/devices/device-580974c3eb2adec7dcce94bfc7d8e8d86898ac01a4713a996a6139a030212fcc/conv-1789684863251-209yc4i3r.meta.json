@@ -1,0 +1,24 @@
+{
+  "id": "conv-1789684863251-209yc4i3r",
+  "providerId": "claude",
+  "title": "Daily syncこのターンを振り返った結果、記録すべき内容がありません。\n\n**理由:**...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1789684863258,
+  "lastActivityAt": 1789684912224,
+  "sessionId": "e41ec6a2-3b56-4abe-831d-26ca8d6fe0bc",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "e41ec6a2-3b56-4abe-831d-26ca8d6fe0bc"
+  },
+  "linkedContentPath": "01_Daily/2026-09-18.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 2,
+    "cacheCreationInputTokens": 703,
+    "cacheReadInputTokens": 33812,
+    "contextWindow": 1000000,
+    "contextTokens": 34517,
+    "percentage": 3,
+    "contextWindowIsAuthoritative": true
+  }
+}
