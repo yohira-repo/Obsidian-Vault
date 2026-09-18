@@ -604,7 +604,8 @@
       "canonicalText": "Macで接続しようとしていますが、ping 192.168.128.1 が通りません。\nMacのネットワークアダプタには、192.168.128.50/24 を設定しています。また、XS508TMのポート3に接続しています。",
       "images": [],
       "contentDigest": "367e3ee266b3a2926101fa5077853e0b385217f79bb36171018375f7c3b6cd24",
-      "providerUserMessageId": "db68f5fd-7491-412e-a20e-a63a554a6d72"
+      "providerUserMessageId": "db68f5fd-7491-412e-a20e-a63a554a6d72",
+      "providerAssistantMessageId": "60ee9b1d-0f1e-45e5-a798-2f82d0d8272b"
     },
     {
       "schemaVersion": 1,
