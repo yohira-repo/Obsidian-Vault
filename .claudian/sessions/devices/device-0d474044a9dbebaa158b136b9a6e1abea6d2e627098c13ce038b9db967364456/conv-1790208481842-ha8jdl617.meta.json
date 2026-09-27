@@ -1,0 +1,24 @@
+{
+  "id": "conv-1790208481842-ha8jdl617",
+  "providerId": "claude",
+  "title": "Daily syncこのターンを確認しました。\n\n**このターンの内容:**\n- `/dail...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1790208481851,
+  "lastActivityAt": 1790286595240,
+  "sessionId": "8e6ff3ee-c2cc-4297-b3e4-16d94e4a97a6",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "8e6ff3ee-c2cc-4297-b3e4-16d94e4a97a6"
+  },
+  "linkedContentPath": "01_Daily/2026-09-24.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 1,
+    "cacheCreationInputTokens": 787,
+    "cacheReadInputTokens": 62801,
+    "contextWindow": 1000000,
+    "contextTokens": 63589,
+    "percentage": 6,
+    "contextWindowIsAuthoritative": true
+  }
+}

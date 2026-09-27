@@ -1259,3 +1259,401 @@ base を切り替える。
 
 スキーマ追加のため、**publish に加えてマイグレーションの適用が必要**だった
 （→ [alphasyscdk 手順書 ゲート②-1](../../alphasyscdk/docs/構築・メンテナンス手順.md)）。
+
+---
+
+## 2026-09-24 メニューレイアウト統一へ方針変更（全画面の洗い出し）
+
+### 方針変更
+
+Track1 の運用確認（デプロイ済み3機能の動作確認）より、**社内システム全体の動作確認と
+メニューレイアウトの統一を優先する**ことになった。
+
+**やりたいこと**: 上部ナビで選択した業務のメニューを左ナビ領域に表示する。
+現状は左ナビに**動作ボタンが混在**している。
+
+### 洗い出しの結果
+
+| 区分 | 件数 |
+| --- | --- |
+| ページ総数 | 53 |
+| サイドバーあり | 40 |
+| サイドバーなし | 13 |
+
+サイドバーの中身は「ナビn / 動作n」の組み合わせが**13パターン**に散っている
+（最多は「ナビ1 / 動作1」10画面、次いで「ナビ1 / 動作2」6画面）。
+
+**1. 業務メニューが出ているのは業務トップ4画面だけ**
+
+`/sales`（5件）・`/manager`（3件）・`/member`（3件）・`/division`（2件）のみ。
+下位画面に入ると業務メニューは消え、画面固有の操作に置き換わる。
+例: `/sales/bill` の左は「追加 / 戻る / 受発注採算表 / EXP / FB / MFC請求書 /
+MFC債務支払」で、業務メニューではない。
+
+**2. 左から業務に戻れない画面が5つある**（ナビ0・動作のみ）
+
+`/division/member/[scode]` / `/manager/employee-info/[scode]` /
+`/sales/contract/confirm` / `/sales/project/edit` 配下 /
+`/sales/contract/detail/edit` 配下
+
+**3. `/common`（バッチ共通処理）は業務トップなのにサイドバーが無い**
+
+上部ナビの6業務のうち `/common` だけメニューを持たない。
+他に `/`・`/admin`・`/login`・`/user`・`/todo-list`・`/customer` 等も無し（計13）。
+
+**4. ラベルが揺れている**
+
+戻る系だけで9通り: 取消(16) / 戻る(4) / 取り消し(2) / 〜へ戻る(4種・計6) / メニュー(1)。
+追加系も「追加 / 新規登録 / 作成 / + 契約追加」に分かれる。
+
+### 決定事項（2026-09-24）
+
+| # | 項目 | 決定 |
+| --- | --- | --- |
+| 1 | 動作ボタンの置き場所 | **画面上部の右寄せ**。左ナビから外す |
+| 2 | 業務メニューの定義場所 | **1箇所に集約**。上部ナビと左ナビを同じ定義から生成する |
+| 3 | 「取消」の分類 | **ナビ動作**。左ナビに残し、遷移先とラベルを統一する |
+
+2 について、**業務ごとのメニューが2階層以上になる場合は別途検討**とする。
+
+### 2階層になるのは営業メールだけ
+
+```
+営業メール
+  ├ 対応状況一覧        /sales/mail
+  ├ 確認キュー          /sales/mail/review
+  └ 除外している差出人  /sales/mail/excluded-senders
+```
+
+他の業務（部門管理・社員情報管理・社員システム）は1階層で収まる。
+現在の `/sales` トップは「営業メール状況」と「確認キュー」を並列に出しており、
+除外差出人は入っていない。
+
+### 動作確認で見つかった不具合3件
+
+メニュー統一の前に扱いを決める必要がある。いずれも**未実装の機能を
+メニューに先出ししている**状態と見られる。
+
+| 箇所 | 内容 |
+| --- | --- |
+| `/manager/employee-info` の「業務経歴書一覧」 | 遷移先 `/manager/employee-info/skills` が存在しない（404） |
+| `/sales/bill` の5項目 | 受発注採算表 / EXP / FB / MFC請求書 / MFC債務支払 がすべて `./bill` を指し、自分自身に戻るだけ |
+| `/sales/project` の「受発注対応表」 | `href=""` で遷移しない |
+
+### 追加で決まったこと
+
+| 項目 | 決定 |
+| --- | --- |
+| 未実装メニュー3件 | **消さずに実装する。** タスク化した（7機能） |
+| 戻る系ラベル | **「取消」に統一**（現在9通り、取消16件が最多） |
+| `/common`（バッチ共通処理） | **今後追加予定**。現時点では枠のみ |
+| 2階層の表現方法 | **未決。** 常時展開を推奨として提示済み |
+
+2階層について、フライアウト（1階層ボタンの横にプルダウン）は実装可能だが
+勧めない。左ナビは256px幅で本文に重なり、クリック外し制御が要り、タッチ
+操作にも不向き。2階層が営業メール1業務・子3件だけの現状では対価に見合わない。
+
+**メニュー定義はツリー構造で持つ**こととし、表示方式の変更が描画側だけで
+済むようにする。項目が増えて常時展開が窮屈になればアコーディオンへ切り替える
+（`src/components/ui/accordion.tsx` が既にある）。
+
+### タスク一覧を別文書に切り出した
+
+→ [docs/design/2026-09-24-メニューレイアウト統一とタスク一覧.md](design/2026-09-24-メニューレイアウト統一とタスク一覧.md)
+
+未実装7機能（T-1〜T-7）と統一作業9項目（M-1〜M-9）を整理した。
+**未実装7機能はいずれも仕様が未確認**で、着手前に要件の確認が必要。
+EXP の出力形式、FB の全銀フォーマットの要否、MFC の連携方式などが未確定。
+受発注採算表（T-2）と受発注対応表（T-7）が同じものか別物かも不明。
+
+統一作業は **M-5（1画面で試作し形を確認）** を挟んでから M-6 以降へ進む。
+動作ボタンの移動対象は25画面、ラベル統一は26箇所。
+
+### 進め方（案）
+
+共通部品（メニュー定義 + 左ナビ + 画面上部の操作領域）を**1画面で試作**し、
+形を確認してから残り52画面に展開する。動作ボタンの移動対象は25画面。
+
+### 試作に着手（承認済み）
+
+M-1〜M-5 の試作を実施した（→ alphasys PR #163）。
+
+| # | 内容 | 成果物 |
+| --- | --- | --- |
+| M-1 | メニュー定義を1箇所に集約 | `src/config/menu.ts` |
+| M-2 | 上部ナビを定義から生成 | `src/components/NavMenu.tsx` |
+| M-3 | 左の業務メニュー | `src/components/BusinessNav.tsx` |
+| M-4 | 画面上部の操作領域 | `src/components/PageHeader.tsx` |
+| M-5 | 1画面に適用 | `/sales/customer` |
+
+試作対象に `/sales/customer` を選んだ理由は、売上仕入管理配下のため
+**2階層メニュー（営業メール）の見え方**が確認でき、かつ**動作ボタン
+（エクスポート・インポート）**も持ち、両方を1画面で試せるため。
+
+**2階層は常時展開で実装した。** 1業務・子3件しかなく、折りたたみを設けても
+操作が増えるだけのため。項目が増えたらアコーディオンへ切り替える。
+フライアウトとの見比べは描画部分の差し替えだけでできる。
+
+### 「取消」の置き場所を記録と変えて試作した（要確認）
+
+先に「ナビ動作として左ナビに残す」と記録したが、**試作では画面上部の
+右寄せ（保存の隣）に置く想定**で作った。「保存せず戻る」は保存と対になる
+操作で、左に離すと押し間違いが増えると考えたため。
+
+左ナビに戻す場合も定義の変更だけで済む。**試作を見てから判断する。**
+
+### 副次的に直ったこと
+
+上部ナビの業務一覧が `NavMenu.tsx` にハードコードされていた。定義へ移した
+ため、業務を追加する際に2箇所を直す必要がなくなった。
+
+### 展開方法が未決（M-6 の進め方）
+
+左ナビが業務メニュー専用になったため、**ルートレイアウトへ移せる**ことが
+分かった。そうすれば M-6 は「各画面のサイドバーを消して動作ボタンを
+PageHeader へ移す」だけになり、52画面に左ナビを書く必要がない。
+
+ただし移した瞬間、未変換の画面は**左ナビが2つ**になる。一括で移すか、
+画面ごとに置くかは試作の確認後に決める。
+
+### 補足
+
+洗い出しの明細（画面ごとの見出し・定義元ファイル・項目とリンク先）は別途出力した。
+`page.tsx` を持たない中間ディレクトリのサイドバーは親ルートに寄せて集計されるため、
+`/sales/contract` と `/sales/project` が2行になる点に注意。
+
+## 2026-09-24 alphadb の Prisma エンジンが Linux 専用で、Windows のローカル起動が落ちていた件
+
+### 症状
+
+`alphaexapi` を Windows でローカル起動すると、TypeScript のコンパイルは通るのに実行時に落ちる。
+
+```
+PrismaClientInitializationError: Prisma Client could not locate the Query Engine for runtime "windows".
+This happened because Prisma Client was generated for "debian-openssl-3.0.x", but the actual deployment required "windows".
+```
+
+### 原因 — `binaryTargets` の `"native"` は「generate を実行したマシン」に解決される
+
+`alphadb/prisma/schema.prisma` の指定は `binaryTargets = ["native", "debian-openssl-3.0.x"]` だった。
+
+**`"native"` は利用側のマシンではなく、`prisma generate` を実行したマシンのプラットフォームに解決される。** alphadb は `prepublishOnly: prisma generate` を持ち、publish は CodeBuild(Linux) 上で走るため、`"native"` も `debian-openssl-3.0.x` に解決される。結果として**配布物には Linux 用エンジンしか同梱されない**。
+
+配布物の実体を確認したところ、エンジンは1つだけだった。
+
+```
+libquery_engine-debian-openssl-3.0.x.so.node   (17.5MB)
+```
+
+エラーメッセージの検索パスに `/codebuild/output/src3339599095/src/github.com/alphacmc/alphadb/generated/client` が出ているのが、CodeBuild の生成物がそのまま配られている決定的な証拠。ECS / Docker(Linux) では問題なく動くため、**Windows のローカル開発でしか露見しない**。
+
+`schema.prisma` のコメントにある「生成物をパッケージ内に出力し、利用側は generate 不要」という設計自体が、暗黙に Linux 前提になっていた。
+
+### 決定した方針
+
+検討した3案のうち、**応急処置(C)で即座に作業を再開し、恒久対応(A)を並行して入れる**方針をユーザーが承認。
+
+| 案 | 内容 | 採否 |
+| --- | --- | --- |
+| A | alphadb の `binaryTargets` に `"windows"` を追加して再 publish | **採用（恒久対応）** |
+| B | alphaexapi 側の `postinstall` で `prisma generate` を走らせる | **不採用**。alphadb の「利用側 generate 不要」という設計に反し、Docker ビルドでも毎回走るため |
+| C | `node_modules/alphadb` 配下で直接 `npx prisma@6.19.3 generate` | **採用（応急処置）**。ただし `npm ci` で消えるため繋ぎ |
+
+**バージョンは 1.0.0 のまま据え置くと決定。** 理由はユーザーの明言どおり「**リリースもしていないものを上げるわけにはいかない**」。alphadb は PR #40（`78edb6b`）で 1.0.0 上書き publish 運用に戻しており、`origin/main` / `origin/staging` とも 1.0.0 であることを確認済み。
+
+パッケージが Windows 用エンジン分（`query_engine-windows.dll.node` 約21MB）増える点は、許容する判断とした。
+
+### 実施済み
+
+- **応急処置(C)完了**。`node_modules/alphadb` で `npx prisma@6.19.3 generate` を実行し、`query_engine-windows.dll.node`(約21MB) が生成されたことを確認。Linux 用エンジンも `binaryTargets` に明示されているため残っている
+- 検証は**外部DBに接続しない形**で行った。`DATABASE_URL` をダミー(`127.0.0.1:1`)にして `$connect()` を呼び、エラーが `could not locate the Query Engine` ではなく `Can't reach database server` に変わることを確認。エンジンのロード自体が成功している証拠になる
+- **恒久対応(A)は alphadb PR #44（Draft）**。`feature/add-windows-binary-target`。`prisma validate` 通過済み。同じ罠を繰り返さないよう、なぜ `"windows"` を明示するのかを schema.prisma のコメントに残した
+
+### 残っている段取り
+
+1. alphadb PR #44 をマージ
+2. CodeBuild `alphadb-publish` を**手動起動**して publish（1.0.0 上書き）
+3. `alphaexapi` で alphadb を再取得し、`generated/client` に `query_engine-windows.dll.node` が同梱されていることを確認
+4. `alphaexapi` が Windows でローカル起動できることを確認
+5. **ECS(staging) のコンテナが従来どおり起動することを確認**（Linux 側の非退行確認。エンジンが増えるだけなので影響しないはずだが、パッケージ内容が変わるため確認する）
+
+3 が済むまでは応急処置(C)が有効だが、**`npm ci` を実行すると消えて再発する**点に注意。
+
+### あわせて判明した運用上の注意 — record hook は受け皿の無いリポジトリでは無言で no-op になる
+
+記録を促す `stop-record-decisions.sh` は、**カレントリポジトリ内**の `conversations.md` / `LEARNINGS.md` / 計画ファイルしか探さない（`[ -n "${CONV}${LEARN}${PLANS}" ] || exit 0`）。
+
+今回のように `alphaexapi` で作業していると、受け皿が `alphasystem` 側にあるため**スクリプトは何も出さず終了コード0で終わる**。エラーも警告も出ないため、hook が機能していないことに気づけない。2026-09-07 に Windows で `jq` 未導入により無言 no-op になった件と同じ「静かに効かなくなる」パターン。
+
+**対策**: 受け皿を持たないリポジトリ（alphaexapi / alphasys / alphadb / alphasyscdk 等）で作業したセッションは、記録時に `alphasystem` へ移動してから実行する。
+
+## 2026-09-24 Norton の TLS 傍受で AWS CLI が全滅していた件
+
+`npm ci` が `E401 Unable to authenticate` で落ちたため CodeArtifact のトークンを取り直そうとしたところ、その手前で AWS CLI 自体が失敗することが判明した。
+
+```
+SSL validation failed for https://codeartifact.ap-northeast-1.amazonaws.com/...
+[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate
+```
+
+### 原因 — Norton が TLS を傍受しており、AWS CLI だけがその CA を知らない
+
+`NODE_EXTRA_CA_CERTS` に `C:\ProgramData\Norton\Antivirus\wscert.pem`（Norton のルート CA、証明書1枚）が設定されている。Norton が全通信の TLS を傍受して自身の CA で署名し直しているため、その CA を信頼しないと検証に失敗する。
+
+- **Node 系（npm・CDK の AWS SDK for JS）は `NODE_EXTRA_CA_CERTS` を読むので通る**
+- **AWS CLI は Python 製（aws-cli/2.28.13 Python/3.13.4）で `NODE_EXTRA_CA_CERTS` を読まない**。そのため AWS CLI だけが全滅する
+- `gh` は Go 製で Windows 証明書ストアを見るため通る
+
+切り分けの決め手は **CodeArtifact だけでなく STS でも同じエラーが出たこと**。エンドポイント固有ではなく AWS CLI 全体の問題だと確定できた。
+
+### 効いた対処
+
+`AWS_CA_BUNDLE` に Norton の CA を指定すると通る。
+
+```powershell
+$env:AWS_CA_BUNDLE = "C:\ProgramData\Norton\Antivirus\wscert.pem"
+aws sts get-caller-identity --profile staging   # → 570024666076 が返る
+```
+
+### 影響範囲（重要）
+
+**`aws` コマンドを使うものはすべて巻き込まれる。** 特に:
+
+- `scripts/register-secret-parameters.py` — 内部で `aws ssm put-parameter` / `aws sts get-caller-identity` を subprocess 実行しているため、`AWS_CA_BUNDLE` が無いと**全件失敗する**
+- CodeArtifact のトークン取得 → これが無いと `npm ci` / `npm install` が E401 で落ちる
+
+`cdk deploy` は AWS SDK for JS 経由なので `NODE_EXTRA_CA_CERTS` が効き、影響を受けない見込み。
+
+### 注意点 — この対処は片肺になっている
+
+`wscert.pem` には **Norton のルート CA 1枚しか入っていない**。`AWS_CA_BUNDLE` はバンドルを置き換えるため、この指定をすると **AWS CLI は Norton 署名の証明書しか信頼しなくなる**。Norton の傍受が全通信に掛かっている限り動くが、傍受が無効化・アンインストールされた場合や傍受を通らない経路が出た場合は再び壊れる。
+
+恒久対応の方式（Norton の CA 単体を恒久設定にするか、公開ルート CA と結合したバンドルを作るか、AWS ドメインを Norton のスキャン対象から除外するか）は**未決定**。
+
+### 補足 — `npm ci` は案C の応急処置を消す
+
+予告どおり `npm ci` で `node_modules/alphadb` が入れ替わり、Windows 用エンジンが消えた。復旧後に `npx prisma@6.19.3 generate` を再実行して復旧済み。alphadb PR #44 の publish が済むまでは、`npm ci` のたびにこの再実行が必要。
+
+### 対処方針の決定 — Web シールドを止める（案C）
+
+ユーザーの判断は「**Norton が開発業務に影響するのは許せない**」。傍受を受け入れる前提の回避策（案A・案B）ではなく、**傍受そのものを止める案C を採用**と決定。
+
+該当設定の所在を特定した。
+
+```
+HKLM:\SOFTWARE\Norton\Antivirus\properties\WebShield\Common
+  ProviderEnabled   = 1
+  TemporaryDisabled = 0
+```
+
+証明書の発行者名 `Norton Web/Mail Shield Root` と一致する **Web Shield** が SSL/TLS スキャンの実体。
+
+**「AWS ドメインだけ除外」は使えない見込み**。`exclusions` キーのサブキーは `Autosandbox` のみで、ドメイン単位の除外リストが存在しない。実質的なレバーは Web シールドの無効化になる。
+
+レジストリの直接編集は採らない（Norton の改ざん防止で戻される可能性、管理者権限が必要）。`C:\Program Files\Norton\Suite\NortonUI.exe` からの GUI 操作を正規の経路とする。
+
+**`AWS_CA_BUNDLE` は恒久設定にしない。** Norton CA 1枚しか含まないため、傍受を止めた後は AWS CLI が Norton 署名しか信頼しない片肺状態になり有害。今セッション限りの一時回避にとどめる。
+
+**検証方法（変更後、AWS_CA_BUNDLE を設定していない新しいターミナルで実行）**:
+
+```powershell
+echo | openssl s_client -connect sts.ap-northeast-1.amazonaws.com:443 -servername sts.ap-northeast-1.amazonaws.com 2>$null | openssl x509 -noout -issuer
+# 成功: issuer に Amazon の CA が出る / 未解決: CN=Norton Web/Mail Shield Root のまま
+aws sts get-caller-identity --profile staging
+# 570024666076 が返れば完了
+```
+
+**この検証は必須**。8月の `--region` 未指定の件と同様、`register-secret-parameters.py` は `--apply` するまで失敗が露見しないため、SSM 登録を再開する前に AWS CLI が素で通ることを確認しておく。
+
+## 2026-09-24 alphadb の配布方式を「版数固定＋上書き publish」から 0.x 採番へ変更（決定）
+
+### 経緯 — 今日の障害は現行方式の必然的な帰結だった
+
+alphadb PR #44（Windows 用 Query Engine 追加）を publish したのに alphaexapi へ届かず、`package-lock.json` の integrity を手で更新してようやく反映された。ユーザーから「**alphadb の方式は運用に耐えない**」との問題提起があり、方式を見直した。
+
+### 現行方式が耐えない理由（今日実証された分）
+
+1. **消費側の lockfile integrity が追随しない** — publish しても届かず、全消費リポジトリの lockfile を手で更新する必要がある
+2. **npm キャッシュも追随しない** — バージョンが同じなので再取得しない
+3. **CI が公開済みパッケージを削除できる権限（`codeartifact:DeletePackageVersions`）を持ち続けている** — 事故れば全消し
+4. **削除→publish の間に空白期間がある** — その瞬間に `npm ci` したビルドは失敗する
+5. **どのビルドが入っているか追跡できない / ロールバックできない**
+
+### なぜ ECR と同じ「上書き」が CodeArtifact ではできないのか
+
+ユーザーの運用方針は「**正式リリースまでは MUTABLE で同じバージョンを上書きし、正式運用開始時に IMMUTABLE へ切り替える**」。ECR ではこれが成立している（実際に `alphasys-frontend` / `alphasys-backend` とも `MUTABLE`、untagged を7日で消すライフサイクルルールもある）。CodeArtifact でも同じ感覚でいた、というのが発端。
+
+**これは原理的に不可能。** 理由は可変タグの有無ではなく、**解決のタイミング**にある。
+
+| | 記録するもの | いつ解決するか | 付け替えが効くか |
+| --- | --- | --- | --- |
+| コンテナ | `imagedefinitions.json` に `repo:0.1.0` | **デプロイ時**に ECS が解決 | **効く** |
+| npm | `package-lock.json` に version + **`integrity`(sha512)** | **lock した時点で解決済み** | **効かない** |
+
+ECR は「タグ(可変)」と「ダイジェスト(不変)」が分離しているが、**npm にはその分離が無く、バージョンが識別子そのもの**。さらに決定的なのは、消費側の `package-lock.json` が**ダイジェストを固定してしまう**こと。レジストリ側で中身を差し替えても、手元の lockfile は古いダイジェストを要求し続けるため届かない。
+
+> コンテナで同じ状況を作るなら、ECS がタグではなく **ダイジェスト(`repo@sha256:...`)でデプロイしている**状態を想像すればよい。その場合はタグを付け替えても何も起きない。npm は常にその状態。
+
+現行の「削除してから publish」は MUTABLE の模倣だが、**レジストリ側だけ模倣できて消費側が追随しない**。今日の障害はその破綻。
+
+### 決定した方式 — 案2（`0.x` 採番）+ 案4（消費側で generate）
+
+段階運用の考え方はそのまま活かし、表現手段を「上書き」から「採番」に変える。
+
+| | ECR（現行・継続） | CodeArtifact（新方式） |
+| --- | --- | --- |
+| リリース前 | `0.1.0` を MUTABLE で上書き | **`0.0.1` → `0.0.2` … と採番** |
+| 正式リリース | `IMMUTABLE` に切替 | **`1.0.0` を publish**、以降は通常運用 |
+
+`0.x` は SemVer で「公開 API は不安定」を意味するため、「**まだ正式リリースしていない**」という意思表示は、番号を止めることではなく `0.x` に留めることで表現する。**番号が増えること自体はリリースを意味しない。**
+
+**検討して不採用にした案**:
+
+- **案1 プレリリース版（`1.0.0-dev.N`）** — 案2 と機能は同等だが、`0.x` の方が alphasys / alphaexapi の現行版数（`0.1.0`）と揃う
+- **案3 Git 依存（`github:alphacmc/alphadb#sha`）** — 版数不要だが、Docker ビルド内で GitHub 認証が必要になり、**IAM 由来の短命トークンが長命の GitHub トークンに後退する**
+- **案5 Git submodule + `file:` 依存** — 版数不要かつ認証も増えないが、**社内で alphadb だけ別方式**になる。「alphadb だけ勝手が違う」状況を再び作ることになるため不採用
+
+**案4（消費側で `prisma generate`）は併せて採用**。ユーザーの「開発時に generate するのは何の負担にもならない」との判断による。これにより:
+
+- 今日の `binaryTargets` 問題が**構造的に消える**（各環境の `native` で生成されるため）
+- 配布物が **21MB → 数十KB** になる
+
+### 運用手順（確定）
+
+**alphadb 側**: バージョンは**ユーザーが手動で変更**する（`0.0.1` から開始）。自動採番はしない。
+
+**消費側（alphasys / alphaexapi）**: **`package-lock.json` を手で編集してはいけない。** lockfile は version / resolved / **integrity(sha512)** の3点を持ち、integrity は tarball の実ハッシュなので手では作れない。バージョン文字列だけ書き換えると `npm ci` が整合性検証で失敗する。
+
+正しい手順は各リポジトリで次を実行し、`package.json` と `package-lock.json` の**両方をコミット**する。
+
+```bash
+npm install alphadb@0.0.2
+```
+
+⚠️ **alphasys と alphaexapi は同じ共有DBのスキーマを見るため、必ずセットで更新する。**
+
+### 撤去するもの
+
+- alphadb `buildspec.yml` の**既存バージョン削除ブロック**
+- alphasyscdk の IAM から **`codeartifact:DeletePackageVersions`**
+- alphadb の `generated/` 同梱（案4 により不要）
+
+### 付随して判明した要対応事項
+
+**ECR の `imageTagMutability` がコードと実態で乖離している。**
+
+| | 値 |
+| --- | --- |
+| AWS の実態 | **MUTABLE**（意図どおり） |
+| `alphasyscdk/lib/constructs/ecr.ts` の既定値 | **IMMUTABLE** |
+| `cdk.json` / `cdk.context.json` の context 指定 | なし |
+
+段階運用の意図がコードに書かれていないため、**次に SharedStack をデプロイした時点で意図せず `IMMUTABLE` に切り替わり、イメージ push が `ImageTagAlreadyExistsException` で止まる**。`cdk.json` の context に `"imageTagMutability": "MUTABLE"` を明示し、正式運用開始時にそれを外す（または `IMMUTABLE` にする）のを切替手順とする。**未実施。**
+
+### 反省 — ブランチ戦略への違反
+
+本セッションで、`main` を base にして PR を作るという逸脱をした（alphadb #44 / alphaexapi #76 / alphasystem #50）。`docs/design/2026-07-30-branch-strategy.md` に「**`main` から直接ブランチを切ってはいけない**」と明記されており、**同書セクション4には Claude が過去に同じ逸脱をした記録**まで残っていた。
+
+- alphadb は**ユーザーが PR #45 / #46 で手動同期して復旧**
+- alphaexapi は `staging` が `package-lock.json` の integrity 1行を取りこぼしたまま（**要 main → staging**）
+- alphasystem PR #50 は本記録のブランチへ cherry-pick して `staging` 向けに作り直し、**#50 はクローズする**

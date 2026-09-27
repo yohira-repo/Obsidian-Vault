@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "conversationId": "conv-1790208481842-ha8jdl617",
+  "records": [
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790208482818-1npnnq9",
+      "userTurnOrdinal": 1,
+      "state": "accepted",
+      "localMessageId": "msg-1790208481838-tadfizg",
+      "timestamp": 1790208481838,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "context": {
+        "linkedContent": {
+          "path": "01_Daily/2026-09-24.md"
+        }
+      },
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "4fff565b-440c-4417-8558-80f4071fbd42",
+      "providerAssistantMessageId": "e7ac4a9d-0104-4a7e-9230-6e5b294a3713"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790286573145-phlcfss",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1790286573134-50nu3e4",
+      "timestamp": 1790286573134,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "9115d3de-232c-49fe-9f61-726d4fb0aa5f",
+      "providerAssistantMessageId": "0655d16b-d065-4fb3-9bf2-4759d7ed88e6"
+    }
+  ]
+}
