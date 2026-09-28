@@ -34,6 +34,34 @@
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "7019faaa-528f-4307-be17-0afa92cb7e14",
       "providerAssistantMessageId": "fea8aad9-5a0c-4a27-9a0f-1ab870b8a6d9"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790557319135-exkkvfh",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1790557319128-3ngh1ot",
+      "timestamp": 1790557319128,
+      "rawDisplayText": "デーリーページを作成した際に、月替わり時、月次フォルダー YYYYMM を作成し、\n該当月のデーリーページを作成したフォルダーに移動したい。",
+      "canonicalText": "デーリーページを作成した際に、月替わり時、月次フォルダー YYYYMM を作成し、\n該当月のデーリーページを作成したフォルダーに移動したい。",
+      "images": [],
+      "contentDigest": "6bd0e773bcf32d6c54e14ad492d005a132b46dff22406d411d3a7a4af8914ebc",
+      "providerUserMessageId": "be869668-2770-454b-9ee0-1914e496edc9",
+      "providerAssistantMessageId": "aeefb223-772a-4790-a896-4e959fdf18a7"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790563644885-tfi6qeh",
+      "userTurnOrdinal": 4,
+      "state": "accepted",
+      "localMessageId": "msg-1790563644880-54qjlwz",
+      "timestamp": 1790563644880,
+      "rawDisplayText": "実装してください。",
+      "canonicalText": "実装してください。",
+      "images": [],
+      "contentDigest": "15bd68bbf92cbac988d4c160d4e7fff5c702fbd4e7850d6539936aedd9fe8afd",
+      "providerUserMessageId": "5fd1d40f-fc80-4b47-ade9-b24207f416a2",
+      "providerAssistantMessageId": "e2cbbd39-29bd-4f5e-ba62-9e61d4fd36e5"
     }
   ]
 }

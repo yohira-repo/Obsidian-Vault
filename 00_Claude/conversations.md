@@ -1093,3 +1093,18 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 
 ### 補足
 - `/daily-sync` の `/usr/bin/python3` 直書き問題は依然未解消で、当セッションも `py -3` に読み替えて実行した（2026-09-16 の「残」と同件）。
+
+## 2026-09-28 月次アーカイブ実装・Draft PR 作成と Obsidian CLI 無効の判明
+
+### 実施
+- 着手承認を受け、`feature/daily-monthly-archive` で実装。`archive.py` 新規 + `cli.py` 組み込み + `tests/test_archive.py`(14件) + `test_cli_sync.py` 統合テスト + README 追記。
+- Draft PR 作成: https://github.com/yohira-repo/Obsidian-Vault/pull/1 （Draft 解除・マージはユーザー）
+- テスト 148 件中、失敗は `test_main_uses_patched_lock_and_log_paths_not_real_home` の 1 件のみ。本変更前から Windows 環境で失敗する既存の失敗であることを確認済み。
+
+### 判明した問題と設計変更
+- このマシンの Obsidian は**コマンドラインインターフェースが無効**で、`obsidian` は「Command line interface is not enabled」と出しつつ **exit 0** を返す。終了コードだけを見ると「移動成功」と誤報告になる。
+- 対応として、終了コードを信用せず**移動後にファイルシステムで実際の移動を検証**し、未反映なら警告に積む方式へ変更（`run_archive` 内）。テストも追加。
+
+### 残（次アクション）
+- ユーザーが Obsidian の「設定 > 一般 > 詳細 > コマンドラインインターフェース」を有効化する。
+- 有効化後、検証用に `01_Daily/2026-08-30.md`（内容 `# archive test`、未コミット）を直下に残してあるので、これで実移動の往復確認を行い、確認後に削除する。
