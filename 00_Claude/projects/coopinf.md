@@ -419,3 +419,15 @@ PASS基準(温存対象すべて残存・`restore-stg-db.sh`のcronのみ停止)
 実施は本日2026-09-09(ユーザー訂正あり。当初「実施済み」と記録したが誤りで、正しくは
 「本日実施予定」)。Claude側の追加対応は不要。Task 10(`cf/`配下のCloudFormation
 テンプレート整理)はTask 9と作業が重複しないため、ユーザーの指示により着手する(2026-09-09)。
+
+## 2026-09-24 Task 9: 正式な手順書を`coop`リポジトリに作成済みと確認・Task 10完了を再確認
+
+ユーザーより、[`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 9(旧バッチを
+stgで実行する手順)について、`coop`リポジトリ `support/stgenv_test_procedure.md` として
+正式な手順書を作成済み(2026-09-17)との報告を受領。対象データの選定・マスキング・
+DBリストア・SFTP/S3操作・バッチ実行(coopbatch/coopcdebatch双方の比較実行含む)・
+CloudWatch Logs Insightsでのログ確認までを網羅した内容で、cutover-plan.md記載の
+簡易版(2026-09-05時点)より詳細。cutover-plan.md Task 9に同ドキュメントへの参照を追記した。
+
+Task 10(`cf/`配下のCloudFormationテンプレート整理)は完了済み(PR #40、2026-09-09マージ済み)
+であることをユーザーへ再確認。

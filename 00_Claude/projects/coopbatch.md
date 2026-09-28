@@ -334,3 +334,36 @@ AWS CLI（`coop`プロファイル）で本番・STGの実バケット（`coopcd
 
 ### ステータス
 PR #24（`feature/replace-localstack-with-floci`ブランチ、未マージ・Draft解除済み）に追加コミットする形で対応。実機での起動確認待ち。
+
+## 2026-09-18 マージ済み`make-errorfix-csv-tasklet.ts`（`PrepareRecoveryFileTasklet`）のレビュー・修正を承認
+
+### 背景
+既にマージ済みの`src/batch/tasklets/make-errorfix-csv-tasklet.ts`（新人による「エラーCSVファイルをuntreatedフォルダーに配置」のtasklet）についてレビュー依頼があった。
+
+### レビュー結果（提示内容）
+- **HIGH**: `buildRecoveryFileName`のJSDoc（「日時部分を新しい日時に差し替える」）が実装（`_errorfixNN`連番の付与/インクリメントのみ、`now`引数は完全未使用）と食い違っている
+- **HIGH**: マージ済みコードが自プロジェクトのPrettier設定に違反（`npx prettier --check`で実機確認済み: `var`使用・ダブルクオート・セミコロン抜け・`async execute`のインデント崩れ）
+- **MEDIUM**: ファイル名`make-errorfix-csv-tasklet.ts`が、export先クラス名`PrepareRecoveryFileTasklet`のkebab-caseと対応しておらず、他tasklet（`file-cleanup-tasklet.ts`→`FileCleanupTasklet`等）の命名規約から外れている（ユーザーから「他のtaskletもconfigクラスをexportしている」との指摘があったが、これはConfig exportの是非の話ではなく、ファイル名とクラス名の1:1対応が崩れている点についての指摘である旨を訂正・再説明し、了承を得た）
+- **MEDIUM**: `escape()`が`error-csv-writer.ts`の`escape()`と完全重複（DRY違反）
+- **MEDIUM**: `groupBySourceFile`が`fileName`欠落レコードをログなしで握りつぶす（現状の呼び出し経路では実質到達しないが、異常系ログ省略なしの方針に反する）
+- **MEDIUM**: ユニットテスト0件
+- **LOW**: `_errorfixNN`連番が2桁（99）を超えると命名がずれる（コメントで既知の制約と明記済み）
+
+### 承認内容
+ユーザーより「全部まとめてfix/ブランチで修正しPR作成」と承認あり。
+
+### 実施内容（`fix/prepare-recovery-file-tasklet-review`ブランチ、PR作成予定）
+- ファイルを`prepare-recovery-file-tasklet.ts`にリネーム（`main-batch-job.ts`のimportパスも追従修正）
+- `buildRecoveryFileName`から未使用の`now`引数を削除し、JSDocを実装（`_errorfixNN`連番付与）に合わせて修正
+- `var`→`const`、ダブルクオート→シングルクオート、セミコロン付与、インデント修正（`npx prettier --write`適用）
+- CSVエスケープ処理を`src/utils/csv-utils.ts`の`CsvUtils.escapeField`に切り出し、`error-csv-writer.ts`と本tasklet双方で共通化
+- `groupBySourceFile`で`fileName`欠落レコードをスキップする際に`logger.warn`を追加
+- `_errorfixNN`連番が`MAX_ERRORFIX_SEQUENCE`（99）を超える場合に`logger.warn`を追加
+- 修正前後でファイル名生成ロジックの入出力が完全一致することをNode.jsで実機検証済み
+- `npx tsc --noEmit`エラーなし、touchedファイルは`npx prettier --check`通過を確認
+
+### 未対応（別途相談が必要と判断・今回のスコープ外）
+ユニットテスト0件の指摘について、調査の結果**プロジェクト全体にテストフレームワークが一切導入されていない**（jest/vitest等なし、`package.json`に`test`スクリプトもなし）ことが判明。フレームワーク導入はプロジェクト全体に関わる設計判断のため、今回の`fix/`ブランチのスコープには含めず、別途ユーザーに相談する。
+
+### ステータス
+PR #26は2026-09-24にマージ済み（ユーザー報告・`gh pr view`で確認）。テストフレームワーク導入の要否は上記の通り未相談のまま残っている。
