@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - このリポジトリの CI は POSIX 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import archive as archive_module
 import daily as daily_module
 import gitsync as gitsync_module
 import mirror as mirror_module
@@ -391,6 +392,8 @@ def format_report(report: Dict) -> str:
             else "更新しました" if report["daily_changed"] else "変更なし"
         ),
     ]
+    if report.get("archived"):
+        lines.append("月次アーカイブ: %d 件を YYYYMM フォルダへ移動" % report["archived"])
     if report.get("fetched") is not None:
         lines.insert(1, "GitHub 同期: fetch %d / clone %d" % (report.get("fetched", 0), report.get("cloned", 0)))
     if report["warnings"]:
@@ -464,6 +467,15 @@ def main(argv=None) -> int:
             report["fetched"] = fetch_report["fetched"]
             report["cloned"] = fetch_report["cloned"]
             report["warnings"] = fetch_report["warnings"] + report["warnings"]
+        # 当日分の同期を終えてから、過去月の Daily ノートを YYYYMM フォルダへ退避する。
+        # 失敗しても同期結果の報告は行う（アーカイブは付帯処理であり、本体を止めない）。
+        try:
+            archive_report = archive_module.run_archive(args.vault, date)
+        except Exception as error:
+            logging.exception("アーカイブ処理で予期しないエラー")
+            archive_report = {"moved": 0, "warnings": ["アーカイブ処理で予期しないエラー (%s)" % error]}
+        report["archived"] = archive_report["moved"]
+        report["warnings"] = report["warnings"] + archive_report["warnings"]
         if args.report:
             print(format_report(report))
     except Exception:  # hook から呼ばれるため、想定外の例外でも 0 を返す

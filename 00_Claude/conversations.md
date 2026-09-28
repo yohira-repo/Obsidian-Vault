@@ -1075,3 +1075,21 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 
 ### 残（未決）
 - `/daily-sync` スラッシュコマンドの定義が `/usr/bin/python3` 直書きで、この Windows 機では存在せず毎回手動で `C:\Users\yohira\AppData\Local\Python\bin\python.exe` + `PYTHONUTF8=1` に読み替えている。`run.sh` 経由へ直す提案は未回答のため保留。
+
+## 2026-09-28 Daily ノートの月次フォルダ自動アーカイブ方針を決定
+
+### 背景
+- `01_Daily/` には `202607` / `202608` の月次フォルダがある一方、9月分は直下にフラットのまま。月替わり時に手動で移している状態。
+
+### 決定（ユーザー選択）
+- アーカイブの実行契機: **daily-sync（`cli.py auto`）の中で自動実行**。専用サブコマンドや `--no-archive` は設けない。
+- 対象範囲: **対象日の月より前の月すべて**。`01_Daily/` 直下に残っている過去日付ノートを該当 `YYYYMM/` へ振り分ける（取りこぼしを残さない）。
+- 移動は **Obsidian CLI の `move`** で行い、リンク更新を Obsidian に任せる。`os.rename` へのフォールバックは行わない。
+- Obsidian 未起動・CLI 失敗時は warnings に積んで sync 本体は続行する。
+
+### 実装方針（承認待ち）
+- 新規 `archive.py` + `cli.py` へ組み込み、`tests/test_archive.py` を TDD で追加、README 更新。
+- 2026-09-28 時点でユーザーの明示的な着手承認は未取得。承認後に実装着手。
+
+### 補足
+- `/daily-sync` の `/usr/bin/python3` 直書き問題は依然未解消で、当セッションも `py -3` に読み替えて実行した（2026-09-16 の「残」と同件）。

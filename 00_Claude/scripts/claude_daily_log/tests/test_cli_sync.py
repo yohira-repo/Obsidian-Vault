@@ -108,6 +108,31 @@ class RunSyncTest(unittest.TestCase):
         self.assertTrue(cli.LOCK_PATH.startswith(self.tmp.name))
         self.assertTrue(cli.LOG_PATH.startswith(self.tmp.name))
 
+    def test_main_archives_previous_month_notes(self):
+        # 過去月の Daily ノートは main 実行時に YYYYMM フォルダへ退避される。
+        old = os.path.join(self.vault, "01_Daily", "2026-08-11.md")
+        os.makedirs(os.path.dirname(old), exist_ok=True)
+        with open(old, "w", encoding="utf-8") as handle:
+            handle.write("先月分\n")
+
+        moved = []
+
+        def fake_mover(vault, src, dst):
+            moved.append((src, dst))
+            os.replace(os.path.join(vault, src), os.path.join(vault, dst))
+
+        original = cli.archive_module.obsidian_move
+        cli.archive_module.obsidian_move = fake_mover
+        try:
+            cli.main(["sync", "--date", "2026-09-06", "--vault", self.vault, "--git-root", self.git_root])
+        finally:
+            cli.archive_module.obsidian_move = original
+
+        self.assertEqual(len(moved), 1)
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(os.path.join(self.vault, "01_Daily", "202608", "2026-08-11.md")))
+        self.assertTrue(os.path.exists(os.path.join(self.vault, "01_Daily", "2026-09-06.md")))
+
     def test_report_option_prints_summary(self):
         report = cli.run_sync(self.vault, self.git_root, "2026-09-06")
         text = cli.format_report(report)
