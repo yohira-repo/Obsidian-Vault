@@ -1064,6 +1064,34 @@
       "contentDigest": "9cdf12f1ddf077cc990679cf47cdb8479e74313f40f477cf1292390e480f6b92",
       "providerUserMessageId": "32cd18db-31f3-4831-8911-0f7aecf4e289",
       "providerAssistantMessageId": "2ff1b57e-3934-44fe-bb1c-6cbac1c8162e"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790639256211-qp4lvfh",
+      "userTurnOrdinal": 70,
+      "state": "accepted",
+      "localMessageId": "msg-1790639256195-g6t941z",
+      "timestamp": 1790639256195,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "a085a2b3-b66d-42d8-ac62-421c1fad563f",
+      "providerAssistantMessageId": "62bc47ac-36e3-4bde-a931-3e08b4553ed6"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790639324369-o884euj",
+      "userTurnOrdinal": 71,
+      "state": "accepted",
+      "localMessageId": "msg-1790639324357-0ocanpe",
+      "timestamp": 1790639324357,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "d462ce87-7303-42f3-84ef-5aae34696ee9",
+      "providerAssistantMessageId": "c99b69ef-187e-4ea5-a3ee-9264a35c5c2f"
     }
   ]
 }
