@@ -1,0 +1,230 @@
+# RTX1200 Rev.10.01.65 (Tue Oct 13 12:23:48 2015)
+# MAC Address : 00:a0:de:68:94:53, 00:a0:de:68:94:54, 00:a0:de:68:94:55
+# Memory 128Mbytes, 3LAN, 1BRI
+# main:  RTX1200 ver=c0 serial=D2F004004 MAC-Address=00:a0:de:68:94:53 MAC-Address=00:a0:de:68:94:54 MAC-Address=00:a0:de:68:94:55
+# Reporting Date: Aug 19 09:11:05 2026
+administrator password *
+login user alphauser *
+ip route default gateway pp 1
+ip route 192.168.0.0/24 gateway 192.168.128.128
+ip lan1 address 192.168.128.1/24
+ip lan1 proxyarp on
+ip lan3 address 192.168.129.1/24
+pp select 1
+ description pp PRV/PPPoE/0:
+ pp keepalive interval 30 retry-interval=30 count=12
+ pp always-on on
+ pppoe use lan2
+ pppoe auto disconnect off
+ pp auth accept pap chap
+ pp auth myname w312u5b9@bizf.ocn.ne.jp *******
+ ppp lcp mru on 1454
+ ppp ipcp ipaddress on
+ ppp ipcp msext on
+ ppp ccp type none
+ ip pp secure filter in 200003 200020 200021 200022 200023 200024 200025 200030 200032 200080 200081 200082 200083 200084 200085 200086 200087 200088 200100 dynamic 200 200086
+ ip pp secure filter out 200020 200021 200022 200023 200024 200025 200026 200027 200099 dynamic 200080 200081 200082 200083 200084 200085 200086 200098 200099
+ ip pp nat descriptor 1000
+ pp enable 1
+pp select anonymous
+ pp name VPNKyoBashi
+ pp bind tunnel9-tunnel13
+ pp auth request mschap-v2
+ pp auth username yohira Fd1025
+ pp auth username t-yamashita 7ccuWmCw
+ pp auth username takebuchi YOqqBFmu
+ pp auth username t.kido t.kido
+ pp auth username mogik zzb5lb
+ pp auth username iizukak Avs87pL
+ ppp ipcp ipaddress on
+ ppp ipcp msext on
+ ip pp remote address pool dhcp
+ ip pp mtu 1258
+ pp enable anonymous
+tunnel select 1
+ ipsec tunnel 201
+  ipsec sa policy 201 1 esp aes-cbc sha-hmac
+  ipsec ike duration ipsec-sa 1 3600
+  ipsec ike encryption 1 aes-cbc
+  ipsec ike group 1 modp1024
+  ipsec ike hash 1 sha
+  ipsec ike keepalive use 1 on dpd 10 3
+  ipsec ike local address 1 192.168.128.1
+  ipsec ike local id 1 192.168.128.1
+  ipsec ike pfs 1 on
+  ipsec ike pre-shared-key 1 text DqSUn.vSpLvXVExhZlO_wuA13PFpXWIa
+  ipsec ike remote address 1 52.69.155.245
+  ipsec ike remote id 1 52.69.155.245
+ ipsec tunnel outer df-bit clear
+ ip tunnel address 169.254.24.30/30
+ ip tunnel remote address 169.254.24.29
+ ip tunnel tcp mss limit auto
+ tunnel enable 1
+tunnel select 2
+ ipsec tunnel 202
+  ipsec sa policy 202 2 esp aes-cbc sha-hmac
+  ipsec ike duration ipsec-sa 2 3600
+  ipsec ike encryption 2 aes-cbc
+  ipsec ike group 2 modp1024
+  ipsec ike hash 2 sha
+  ipsec ike keepalive use 2 on dpd 10 3
+  ipsec ike local address 2 192.168.128.1
+  ipsec ike local id 2 192.168.128.1
+  ipsec ike pfs 2 on
+  ipsec ike pre-shared-key 2 text cDcLlN1TilcZ1fDpdcHFijytZf1slKj0
+  ipsec ike remote address 2 52.193.224.126
+  ipsec ike remote id 2 52.193.224.126
+ ipsec tunnel outer df-bit clear
+ ip tunnel address 169.254.24.6/30
+ ip tunnel remote address 169.254.24.5
+ ip tunnel tcp mss limit auto
+ tunnel enable 2
+tunnel select 9
+ tunnel encapsulation l2tp
+ ipsec tunnel 7
+  ipsec sa policy 7 9 esp aes-cbc sha-hmac
+  ipsec ike keepalive log 9 off
+  ipsec ike keepalive use 9 off
+  ipsec ike nat-traversal 9 on
+  ipsec ike pre-shared-key 9 text Alphacmc7
+  ipsec ike remote address 9 any
+ l2tp tunnel auth off 
+ l2tp keepalive use on
+ ip tunnel tcp mss limit auto
+ tunnel enable 9
+tunnel select 10
+ tunnel encapsulation l2tp
+ ipsec tunnel 8
+  ipsec sa policy 8 10 esp aes-cbc sha-hmac
+  ipsec ike keepalive log 10 off
+  ipsec ike keepalive use 10 off
+  ipsec ike nat-traversal 10 on
+  ipsec ike pre-shared-key 10 text Alphacmc7
+  ipsec ike remote address 10 any
+ l2tp tunnel auth off 
+ l2tp keepalive use on
+ ip tunnel tcp mss limit auto
+ tunnel enable 10
+tunnel select 11
+ tunnel encapsulation l2tp
+ ipsec tunnel 9
+  ipsec sa policy 9 11 esp aes-cbc sha-hmac
+  ipsec ike keepalive log 11 off
+  ipsec ike keepalive use 11 off
+  ipsec ike nat-traversal 11 on
+  ipsec ike pre-shared-key 11 text Alphacmc7
+  ipsec ike remote address 11 any
+ l2tp tunnel auth off 
+ l2tp keepalive use on
+ ip tunnel tcp mss limit auto
+ tunnel enable 11
+tunnel select 12
+ tunnel encapsulation l2tp
+ ipsec tunnel 10
+  ipsec sa policy 10 12 esp aes-cbc sha-hmac
+  ipsec ike keepalive log 12 off
+  ipsec ike keepalive use 12 off
+  ipsec ike nat-traversal 12 on
+  ipsec ike pre-shared-key 12 text Alphacmc7
+  ipsec ike remote address 12 any
+ l2tp tunnel auth off 
+ l2tp keepalive use on
+ ip tunnel tcp mss limit auto
+ tunnel enable 12
+tunnel select 13
+ tunnel encapsulation l2tp
+ ipsec tunnel 11
+  ipsec sa policy 11 13 esp aes-cbc sha-hmac
+  ipsec ike keepalive log 13 off
+  ipsec ike keepalive use 13 off
+  ipsec ike nat-traversal 13 on
+  ipsec ike pre-shared-key 13 text Alphacmc7
+  ipsec ike remote address 13 any
+ l2tp tunnel auth off 
+ l2tp keepalive use on
+ ip tunnel tcp mss limit auto
+ tunnel enable 13
+ip filter 1 pass * 192.168.128.128 tcp * *
+ip filter 200000 reject 10.0.0.0/8 * * * *
+ip filter 200001 reject 172.16.0.0/12 * * * *
+ip filter 200002 reject 192.168.0.0/16 * * * *
+ip filter 200003 reject 192.168.0.0/16 * * * *
+ip filter 200010 reject * 10.0.0.0/8 * * *
+ip filter 200011 reject * 172.16.0.0/12 * * *
+ip filter 200012 reject * 192.168.0.0/16 * * *
+ip filter 200020 reject * * udp,tcp 135 *
+ip filter 200021 reject * * udp,tcp * 135
+ip filter 200022 reject * * udp,tcp netbios_ns-netbios_ssn *
+ip filter 200023 reject * * udp,tcp * netbios_ns-netbios_ssn
+ip filter 200024 reject * * udp,tcp 445 *
+ip filter 200025 reject * * udp,tcp * 445
+ip filter 200026 restrict * * tcpfin * www,21,nntp
+ip filter 200027 restrict * * tcprst * www,21,nntp
+ip filter 200030 pass * 192.168.0.0/16 icmp * *
+ip filter 200031 pass * 192.168.0.0/16 established * *
+ip filter 200032 pass * 192.168.0.0/16 tcp * ident
+ip filter 200033 pass * 192.168.0.0/16 tcp ftpdata *
+ip filter 200034 pass * 192.168.0.0/16 tcp,udp * domain
+ip filter 200035 pass * 192.168.0.0/16 udp domain *
+ip filter 200036 pass * 192.168.0.0/16 udp * ntp
+ip filter 200037 pass * 192.168.0.0/16 udp ntp *
+ip filter 200080 pass * 192.168.128.1 esp * *
+ip filter 200081 pass * 192.168.128.1 udp * 500
+ip filter 200082 pass * 192.168.128.1 udp * 4500
+ip filter 200083 pass * 192.168.128.1 udp * 1701
+ip filter 200084 pass * 192.168.50.150 udp 5060 *
+ip filter 200085 pass * 192.168.50.150 tcp 5060 *
+ip filter 200086 pass * 192.168.50.150 udp 50000 *
+ip filter 200087 pass * 192.168.128.128 tcpflag=0x0002/0x0017 * www
+ip filter 200088 pass * 192.168.128.128 tcpflag=0x0002/0x0017 * https
+ip filter 200099 pass * * * * *
+ip filter 200100 reject * * * * *
+ip filter dynamic 200 * 192.168.128.128 www
+ip filter dynamic 400 * * smtp syslog=off
+ip filter dynamic 200080 * * ftp
+ip filter dynamic 200081 * * domain
+ip filter dynamic 200082 * * www
+ip filter dynamic 200083 * * smtp
+ip filter dynamic 200084 * * pop3
+ip filter dynamic 200085 * * ssh
+ip filter dynamic 200086 * 192.168.128.128 https
+ip filter dynamic 200098 * * tcp
+ip filter dynamic 200099 * * udp
+nat descriptor type 1000 masquerade
+nat descriptor address outer 1000 153.156.71.228
+nat descriptor masquerade static 1000 101 192.168.128.1 esp
+nat descriptor masquerade static 1000 102 192.168.128.1 udp 500
+nat descriptor masquerade static 1000 103 192.168.128.1 udp 4500
+nat descriptor masquerade static 1000 201 192.168.50.150 tcp 5060
+nat descriptor masquerade static 1000 202 192.168.50.150 udp 5060
+nat descriptor masquerade static 1000 203 192.168.50.150 udp 50000
+nat descriptor masquerade static 1000 301 192.168.128.128 tcp www
+nat descriptor masquerade static 1000 302 192.168.128.128 tcp https
+bgp use on
+bgp autonomous-system 65000
+bgp neighbor 1 10124 169.254.24.29 hold-time=30 local-address=169.254.24.30
+bgp neighbor 2 10124 169.254.24.5 hold-time=30 local-address=169.254.24.6
+bgp import filter 1 equal 192.168.128.0/24
+bgp import 10124 static filter 1
+ipsec auto refresh on
+ipsec transport 9 7 udp 1701
+ipsec transport 10 8 udp 1701
+ipsec transport 11 9 udp 1701
+ipsec transport 12 10 udp 1701
+ipsec transport 13 11 udp 1701
+syslog notice on
+syslog debug on
+dhcp service server
+dhcp scope 1 192.168.128.10-192.168.128.60/24 gateway 192.168.128.1
+dhcp scope 2 192.168.50.10-192.168.50.100/24 gateway 192.168.50.253
+dns server 202.234.232.6 221.113.139.250
+dns server pp 1
+dns server select 500001 pp 1 any . restrict pp 1
+dns private address spoof on
+snmp sysname yamaha-rtx1200-00a0de689453
+schedule at 1 */* 01:23:00 * ntpdate ntp.jst.mfeed.ad.jp syslog
+l2tp service on
+operation http revision-up permit on
+statistics cpu on
+statistics memory on
+#
