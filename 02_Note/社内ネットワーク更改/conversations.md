@@ -3011,3 +3011,79 @@ PDF化は**図が分断されて実用にならない**ため、**`社内ネッ�
 1. Vaultから文書を削除（`conversations.md` は残す）
 2. `00_はじめに.md` を**リポジトリへの誘導スタブ**に置き換え
 3. Obsidian-Vault リポジトリへコミット（マスク処理と削除を反映）
+
+## 2026-09-29 GitHub移管を完了（Vaultはスタブ化）／今後は2箇所運用
+
+### 承認
+ユーザーがGitHub上での表示（README・Mermaid描画・リンク遷移）を確認し、**問題なし**と回答。これを受けてVault側の後始末を実施した。
+
+### 実施内容
+1. **`00_はじめに.md` を誘導スタブへ置き換え**（49行）。移管先URL・移管理由・リポジトリ内の構成・Vaultに残すものとその理由・クローン手順を記載
+2. **削除前にVault⇔リポジトリを1件ずつ照合**。29ファイルすべてがリポジトリ側に存在することを確認。差分のあった17ファイルは**リンク形式の変換のみで行数は完全一致**であることを `diff` で検証してから削除した
+3. **29ファイルをObsidian経由で削除**（ゴミ箱へ移動＝復元可能）。空フォルダも整理
+4. **Obsidian-Vault へコミット・push**（`126592b`）
+
+### 最終状態
+| 場所 | 内容 |
+|---|---|
+| **GitHub（正本）** | https://github.com/yohira-repo/alpha-network-docs （private・32ファイル・`78e9677`） |
+| **Vault（残置3点）** | `00_はじめに.md`（スタブ）／`conversations.md`（記録フックの書き先）／`90_経緯/config_1200_OCN.txt`（平文認証情報のためGitHub非収録） |
+
+### 今後の運用（確定）
+- **資料の編集** → `~/git/alpha-network-docs`
+- **決定・判断の記録** → `02_Note/社内ネットワーク更改/conversations.md`（Vault・従来どおり。フックは移動していないため正常動作）
+- **共有** → GitHubリポジトリにアクセス権を付与する方式
+- 上記の**2箇所運用**である旨をスタブノートにも明記した
+
+### 技術的な注意（次回のため）
+`obsidian delete` をwhileループ内で実行すると**標準入力を消費してループが1件で止まる**。`< /dev/null` を付けること。また macOS の bash には `mapfile` が無い。
+
+### 申し送り（未解決）
+**案Cを選択したため、`Obsidian-Vault` の過去のgit履歴にRTX1300の旧管理者パスワードが残ったまま**。将来パスワードを変更する機会があれば、この履歴の価値も同時に失われる。
+
+## 2026-09-29 リポジトリを個人から組織 alphacmc へ移管
+
+### 決定
+**`alpha-network-docs` を個人アカウント `yohira-repo` から組織 `alphacmc`（Alphacommunications）へ移管**。理由は**会社の資産として継続性を持たせるため**（担当者の不在・退職に依存しない）。
+
+### 前提確認
+- 所属組織は `alphacmc` のみ。**自分のロールは admin**（`members_can_create_repositories: true`）のため移管可能と判断
+
+### 実施
+1. `gh api -X POST repos/yohira-repo/alpha-network-docs/transfer -f new_owner=alphacmc` で移管
+2. 移管後の確認：**`alphacmc/alpha-network-docs` / private維持 / main / コミット履歴も引き継ぎ**
+3. ローカルクローンのリモートURLを `https://github.com/alphacmc/alpha-network-docs.git` へ変更し、`git fetch` で疎通確認
+4. Vaultの誘導スタブ `00_はじめに.md` のURL・クローン手順を更新し、**「組織 alphacmc の private リポジトリ」**と明記
+5. Obsidian-Vault へコミット・push（`2f7b355`）
+
+**旧URLは自動的に新URLへリダイレクトされる。** `conversations.md` 内の旧URL記載は当時の記録として残置（従来の方針どおり）。
+
+### 決定（不作為）
+**`Obsidian-Vault` リポジトリは個人アカウントのまま**とする。個人の作業メモ・Daily・他プロジェクトの記録を含むため、個人に置くのが適切と判断。
+
+### 次にやるとよいこと（未実施）
+**アクセス権の設定**。組織リポジトリの Settings → Collaborators and teams から、閲覧させたい人／Teamを追加する。**引き継ぎ相手は Read 権限で十分**（表示のみの要件のため）。
+Team単位で付与する場合：`gh api -X PUT orgs/alphacmc/teams/<team名>/repos/alphacmc/alpha-network-docs -f permission=pull`
+
+## 2026-09-29 ドキュメント再編・GitHub移管の一連の作業を完了（ユーザー宣言）
+
+ユーザーより**「この作業は完了です」**との宣言。ドキュメント再編からGitHub組織リポジトリへの移管までを一区切りとする。
+
+### 本日完了した3件
+1. **ネットワーク障害の解決**（3日間の懸案）… VLAN10/20/30すべて復旧。原因は3件とも別々（Port1のVLANメンバーシップ不整合／Port5のアンタグ重複／RTX `lan3/2` 出力フィルタのルーター自身の送信不許可）
+2. **ドキュメント再編**… 20ファイルの混在を保守／残タスク／経緯の3層へ整理し、運用3文書を新規作成
+3. **GitHub組織リポジトリへの移管**… https://github.com/alphacmc/alpha-network-docs （組織 `alphacmc`・private）。PDF配布をやめGitHub閲覧へ切替
+
+### 以後の運用（確定）
+- **資料の編集** → `~/git/alpha-network-docs`（正本）
+- **決定・判断の記録** → 本ファイル（Vault側・記録フックの書き先）
+- **共有** → 組織リポジトリへのアクセス権付与（引き継ぎ相手は Read で十分）
+
+### 引き続きの宿題（詳細は 20_残タスク/21_残タスク一覧.md）
+| 時期 | 項目 |
+|---|---|
+| **2026-10月中旬** | **So-netコラボ解約**（切り戻しの保険期間が終了する） |
+| 近日 | 複合機をPort6へ接続／ループ検知の有効化／Auto-Trunk確認／ファームウェア更新（**BE9400は12.5.0.22以降**） |
+| **業務時間外** | **SSIDパスワードの強化**（Office/Develop/Guestを別々の値に。全端末が切断されるため事前周知） |
+| 随時 | リポジトリのアクセス権付与／`11_構成台帳` §0-8（認証情報・バックアップの保管場所）の記入 |
+| 未解決 | **案C選択により、Obsidian-Vault のgit履歴にRTX1300の旧管理者パスワードが残置**。将来の変更時に併せて解消される |
