@@ -1,0 +1,11 @@
+{
+  "id": "conv-1790721853969-133vihcqa",
+  "providerId": "claude",
+  "title": "/daily-sync",
+  "titleGenerationStatus": "failed",
+  "createdAt": 1790721853972,
+  "lastActivityAt": 1790721854357,
+  "sessionId": null,
+  "selectedModel": "opus",
+  "linkedContentPath": "01_Daily/2026-09-30.md"
+}
