@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - このリポジトリの CI は POSIX 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import archive as archive_module
 import daily as daily_module
 import gitsync as gitsync_module
 import mirror as mirror_module
@@ -391,6 +392,16 @@ def format_report(report: Dict) -> str:
             else "更新しました" if report["daily_changed"] else "変更なし"
         ),
     ]
+    archived = report.get("archived")
+    if archived:
+        lines.append(
+            "アーカイブ: %d 件 → %s%s"
+            % (
+                len(archived),
+                report.get("archive_target"),
+                "（ドライラン）" if report.get("archive_dry_run") else "",
+            )
+        )
     if report.get("fetched") is not None:
         lines.insert(1, "GitHub 同期: fetch %d / clone %d" % (report.get("fetched", 0), report.get("cloned", 0)))
     if report["warnings"]:
@@ -408,6 +419,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--git-root", default=os.environ.get("CLAUDE_DAILY_LOG_GIT_ROOT", DEFAULT_GIT_ROOT))
     parser.add_argument("--report", action="store_true", help="結果を標準出力に表示する")
     parser.add_argument("--project", default=None, help="このプロジェクトだけを同期する（fetch しない）")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="前月アーカイブの対象を移動せず一覧表示のみ（他の処理は通常どおり）",
+    )
     return parser
 
 
@@ -464,6 +480,22 @@ def main(argv=None) -> int:
             report["fetched"] = fetch_report["fetched"]
             report["cloned"] = fetch_report["cloned"]
             report["warnings"] = fetch_report["warnings"] + report["warnings"]
+        # 月替わりアーカイブ: sync / auto の全件走査時のみ。--project 指定時は
+        # 自分の記録を反映するだけなので触らない。失敗しても sync 結果は壊さない。
+        if args.command in ("sync", "auto") and args.project is None:
+            try:
+                # アーカイブの「前月」基準は実行日（既定は今日。--date 指定時はその日）。
+                run_date = datetime.date.fromisoformat(date)
+                archive_report = archive_module.archive_previous_month(
+                    args.vault, today=run_date, dry_run=args.dry_run,
+                )
+                report["archived"] = archive_report["moved"]
+                report["archive_target"] = archive_report["target"]
+                report["archive_dry_run"] = args.dry_run
+                report["warnings"] = report["warnings"] + archive_report["warnings"]
+            except Exception as error:  # アーカイブ失敗は sync を巻き込まない
+                logging.exception("アーカイブ処理で予期しないエラー")
+                report["warnings"].append("アーカイブ処理で予期しないエラー (%s)" % error)
         if args.report:
             print(format_report(report))
     except Exception:  # hook から呼ばれるため、想定外の例外でも 0 を返す
