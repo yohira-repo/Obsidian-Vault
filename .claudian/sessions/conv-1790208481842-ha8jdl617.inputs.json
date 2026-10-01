@@ -34,6 +34,61 @@
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "9115d3de-232c-49fe-9f61-726d4fb0aa5f",
       "providerAssistantMessageId": "0655d16b-d065-4fb3-9bf2-4759d7ed88e6"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790831428361-q8gh9tk",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1790831428331-dctj2qw",
+      "timestamp": 1790831428332,
+      "rawDisplayText": "git で以下のエラーです。\n---\nPS C:\\Users\\yohira\\Documents\\Obsidian-Vault> git pull\nUpdating 9103bc6..78e9ebf\nerror: Your local changes to the following files would be overwritten by merge:\n        00_Claude/projects/alphasystem.md\n        01_Daily/2026-09-30.md\nPlease commit your changes or stash them before you merge.\nerror: The following untracked working tree files would be overwritten by merge:\n        00_Claude/projects/alphasys.md\nPlease move or remove them before you merge.\nAborting",
+      "canonicalText": "git で以下のエラーです。\n---\nPS C:\\Users\\yohira\\Documents\\Obsidian-Vault> git pull\nUpdating 9103bc6..78e9ebf\nerror: Your local changes to the following files would be overwritten by merge:\n        00_Claude/projects/alphasystem.md\n        01_Daily/2026-09-30.md\nPlease commit your changes or stash them before you merge.\nerror: The following untracked working tree files would be overwritten by merge:\n        00_Claude/projects/alphasys.md\nPlease move or remove them before you merge.\nAborting",
+      "images": [],
+      "contentDigest": "80acd6cd5f3eb6ec7f550bf0807ad45fe1ef632bb1e0c8f0cc68e9233e522e1a",
+      "providerUserMessageId": "dbd896cc-f627-464f-9bb7-fec3bcc2615d",
+      "providerAssistantMessageId": "8957a4a5-98ba-4b10-9bc7-ecefd448579a"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790831788478-iufci1i",
+      "userTurnOrdinal": 4,
+      "state": "accepted",
+      "localMessageId": "msg-1790831788473-miwpa6q",
+      "timestamp": 1790831788473,
+      "rawDisplayText": "月替時に、dailyページの前月データを、フォルダー移動させる処理が動きません。",
+      "canonicalText": "月替時に、dailyページの前月データを、フォルダー移動させる処理が動きません。",
+      "images": [],
+      "contentDigest": "0ac4f2400703e6ca9511556641bce51f5b52ff0986534ebaf4324c24a57518c9",
+      "providerUserMessageId": "97fdc944-7b39-4eb6-8f41-75f585311eb1",
+      "providerAssistantMessageId": "8410e495-30b6-4030-940c-ecf23b8e6a24"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790832178798-58y73p4",
+      "userTurnOrdinal": 5,
+      "state": "accepted",
+      "localMessageId": "msg-1790832178775-lw51phl",
+      "timestamp": 1790832178775,
+      "rawDisplayText": "1>\nこの方式でOKです。ただし、WindowsPC2台、Mac1台あります。\n\n2>",
+      "canonicalText": "1>\nこの方式でOKです。ただし、WindowsPC2台、Mac1台あります。\n\n2>",
+      "images": [],
+      "contentDigest": "6dc6b2ea5d02f235588e7bb1327b97a6798df347488afb6754f51d7bd7463e41",
+      "providerUserMessageId": "c8742e34-fe97-4cba-a0a2-88c11813c564"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790832272423-otk6jog",
+      "userTurnOrdinal": 6,
+      "state": "accepted",
+      "localMessageId": "msg-1790832272418-y5ad3qp",
+      "timestamp": 1790832272418,
+      "rawDisplayText": "移動してください。\n\n3>\n当月のみとしてください。あまり重要ではないですが、特に重要なものを残しておく可能性もありますので。",
+      "canonicalText": "移動してください。\n\n3>\n当月のみとしてください。あまり重要ではないですが、特に重要なものを残しておく可能性もありますので。",
+      "images": [],
+      "contentDigest": "db329f55e8b0203610456be8aa387aeb642812232a7dc9c7325bff48ed1d17c7",
+      "providerUserMessageId": "ed793f8c-1c4d-4420-a441-9866a36a0ed1",
+      "providerAssistantMessageId": "52ecabe1-abad-42dc-b61e-3f3ec3cdc24c"
     }
   ]
 }
