@@ -1089,3 +1089,21 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 
 ### 残（未決）
 - 警告「日付なし見出し 10 件: alphasystem/alphabsmail/docs/conversations.md」は未対応。見出しを `## YYYY-MM-DD タイトル` 形式へ直すか、ユーザー回答待ち。
+
+## 2026-10-01 Daily の月替わりアーカイブを自動化（方針確定・実装）
+
+### 決定
+- 月替わり時に**前月**の `01_Daily/YYYY-MM-DD.md` を `01_Daily/YYYYMM/` へ移動する自動化を、`claude_daily_log`（`cli.py` の sync/auto）に組み込む方式で実装することを承認。
+- 自動化の実体を **Vault(git) 内**に置き、`git pull` で全PC（Windows2台・Mac1台）へ配布する方針で確定（従来「このPCには無かった」のは仕組みがリポジトリ外にあり同期されていなかったため）。
+- 対象範囲は **「前月のみ」** に確定（「当月のみ残す／古い重要ノートは残す可能性」の両立のため。2か月以上前は掃かない）。
+- 既存の9月分20件を `01_Daily/202609/` へ**移動実施**（依頼による）。
+
+### 実装（feature/daily-archive, Draft PR #2）
+- `archive.py` 新規（前月のみ移動・冪等・同名は上書きせず警告・os.path でWin/Mac両対応）。
+- `cli.py` に `--dry-run` 追加。auto/sync の全件走査時のみ実行、基準日は実行日（--date 時はその日）、--project 時はアーカイブしない。
+- `tests/test_archive.py` 9ケース全合格。README 追記。
+- スイート残1失敗（`test_main_uses_patched_lock...`）は Windows の portable-lock 仕様による既存失敗で本変更と無関係（main でも失敗）。
+
+### 未決
+- 「当月以外は全部アーカイブ（取りこぼし毎回回収）」に変更するかはマージ前に要確認（現状は前月のみ）。
+- Draft 解除・マージは利用者が実施。マージ後に各PCで `git pull` して反映。
