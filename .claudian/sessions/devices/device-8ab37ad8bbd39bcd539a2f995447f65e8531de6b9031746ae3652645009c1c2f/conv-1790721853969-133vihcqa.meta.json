@@ -4,8 +4,21 @@
   "title": "/daily-sync",
   "titleGenerationStatus": "failed",
   "createdAt": 1790721853972,
-  "lastActivityAt": 1790721854357,
-  "sessionId": null,
+  "lastActivityAt": 1790817409172,
+  "sessionId": "2566bb68-9abd-4aba-bbba-783509cdc2d0",
   "selectedModel": "opus",
-  "linkedContentPath": "01_Daily/2026-09-30.md"
+  "providerState": {
+    "providerSessionId": "2566bb68-9abd-4aba-bbba-783509cdc2d0"
+  },
+  "linkedContentPath": "01_Daily/2026-09-30.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 2,
+    "cacheCreationInputTokens": 612,
+    "cacheReadInputTokens": 29714,
+    "contextWindow": 1000000,
+    "contextTokens": 30328,
+    "percentage": 3,
+    "contextWindowIsAuthoritative": true
+  }
 }

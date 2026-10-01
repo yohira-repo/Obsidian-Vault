@@ -1075,3 +1075,17 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 
 ### 残（未決）
 - `/daily-sync` スラッシュコマンドの定義が `/usr/bin/python3` 直書きで、この Windows 機では存在せず毎回手動で `C:\Users\yohira\AppData\Local\Python\bin\python.exe` + `PYTHONUTF8=1` に読み替えている。`run.sh` 経由へ直す提案は未回答のため保留。
+
+## 2026-10-01 Daily ノート 2026-09-30 の claude-log マーカー重複を修正（承認済み）
+
+### 症状
+- `/daily-sync`（`--date 2026-09-30`）実行時に警告:「Daily の管理ブロックが壊れています: 01_Daily/2026-09-30.md: マーカーが重複しています（開始マーカー 2 個 / 終了マーカー 2 個）」。
+- `## Claude作業ログ` + `<!-- claude-log:start -->` 〜 `<!-- claude-log:end -->` のブロックが 2 組あり、内容は完全に同一だった。
+
+### 決定・対応
+- ユーザー承認（「マーカー重複を修正してください」）を得て修正を実施。
+- 2 つ目のブロック（見出し含む 93〜115 行目）を削除し、start/end 各 1 個に戻した。バックアップは `/tmp/2026-09-30.md.bak`。
+- 再同期で「Daily: 更新しました」となり、重複マーカー警告は解消。
+
+### 残（未決）
+- 警告「日付なし見出し 10 件: alphasystem/alphabsmail/docs/conversations.md」は未対応。見出しを `## YYYY-MM-DD タイトル` 形式へ直すか、ユーザー回答待ち。

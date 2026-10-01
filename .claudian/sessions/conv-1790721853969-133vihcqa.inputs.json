@@ -19,6 +19,34 @@
       "images": [],
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "70920e62-c062-4cde-8e89-3f8e2cceadfe"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790817317514-9so8637",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1790817317508-jzhz6gb",
+      "timestamp": 1790817317508,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "5998fb51-03f7-420d-859e-9ea95b76a994",
+      "providerAssistantMessageId": "5fcbd57f-2b17-4dce-bdd2-3221c9482cbc"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790817381841-oj9cndi",
+      "userTurnOrdinal": 3,
+      "state": "accepted",
+      "localMessageId": "msg-1790817381836-y0t58nt",
+      "timestamp": 1790817381836,
+      "rawDisplayText": "マーカー重複を修正してください。",
+      "canonicalText": "マーカー重複を修正してください。",
+      "images": [],
+      "contentDigest": "83b18f67b988f92f9c25b29efddea8e83ebbdaa0d7f13d9ce8100e101fa6dc05",
+      "providerUserMessageId": "b6cc5e9a-db85-42d6-807d-632880de2c35",
+      "providerAssistantMessageId": "31dea8ac-5fa0-4ffb-ac63-adbd231a2686"
     }
   ]
 }
