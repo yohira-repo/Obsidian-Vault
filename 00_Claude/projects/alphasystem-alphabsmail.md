@@ -296,3 +296,280 @@
 **現在のステータス**: ユーザーによる設計書レビュー待ち。承認後、`writing-plans` スキルへ引き渡す予定。
 
 ---
+
+## 2026-08-12 経営層向け説明資料（PowerPoint）の作成
+
+**ユーザーの依頼**: 設計検討とは別に、経営層への説明資料をパワーポイントで作成してほしい。
+
+**確認した前提**（作成前にヒアリング）:
+
+- 目的: 施策の承認・予算確保を得る（意思決定を促す）
+- 内容範囲: 全体構想（Track1/2/3）を同じ重みで提示
+- 技術詳細（Gmail/GMO/IMAP等）: 入れない
+- ページ数・デザイン: 数枚でシンプルデザインでOK（テンプレート指定なし）
+
+**対応**: `python-pptx` でスライド9枚を生成し、`docs/presentations/2026-08-12-営業メール可視化-経営層説明資料.pptx` に保存した。
+
+構成: ①表紙 ②課題 ③目指す姿 ④全体構想（Track1→Track2/3の図） ⑤Track1詳細 ⑥Track2/3将来構想 ⑦進め方 ⑧経営層への相談事項（承認・予算のAsk） ⑨まとめ
+
+**現在のステータス**: ユーザーによる資料の確認待ち。
+
+---
+
+## 2026-08-12 Contract紐づけへのAI推測機能の追加（Task 6）
+
+**きっかけ**: 実装計画のTask 3（Message-IDデデュープ）とGlobal Constraints（Contract紐づけは常に人による確認）についての質問から、「一度手動で紐づけたら、以降はAIが推測した1件をYes/Noで確認するだけにしたい」という要望が出た。
+
+**対応**:
+
+- `superpowers:claude-api` スキルで、モデル選定・料金・実装パターンを確認。分類タスクとして**Claude Haiku 4.5**（$1/$5 per MTok）を推奨し、Zodスキーマ＋`output_config.format`による構造化出力の実装例を提示。
+- ユーザーの承認を得て、設計書をv3に更新（「Contract紐づけの確定は常に人による確認」という方針は維持しつつ、確認の手間を減らすAI推測を追加）。
+- 実装計画に新規タスク「Task 6: `alphaexapi` — Contract AI推測サービス」を追加し、以降のタスクを1つずつ繰り上げ（旧Task6〜8 → 新Task7〜9）。
+- `alphadb`の`SalesEmail`テーブル定義（Task 2）に`suggestedContractNo`/`suggestedConfidence`/`suggestedReason`列を追加（Contractへの正式なリレーションは持たせない、ソフトな参照）。
+- `alphasys`の確認キュー（Task 8）に、推測結果がある場合の「契約○○ですか？」Yes/No確認UIを追加。Noの場合のみ既存の候補一覧を表示する。
+
+**現在のステータス**: 設計書（v3）・実装計画（全9タスク）ともに更新済み。ユーザーレビュー待ち。
+
+---
+
+## 2026-08-12 実行直前の重大発見: `alphasystem`（全体設計・タスク管理プロジェクト）の確認
+
+**きっかけ**: Subagent-Driven Developmentでの実行前、3リポジトリ（alphadb/alphaexapi/alphasys）のブランチ状況を確認したところ、いずれも今回の作業と無関係な、既にマージ済みの古いブランチがチェックアウトされていた。ブランチ方針をユーザーに確認したところ、「実装に入る前に、全体像・残タスクを管理している `../alphasystem` を確認してから進め方を相談したい」との指示があった。あわせて、`alphaaimail`（営業メールダッシュボードのデモ版）の存在が明かされた（当初、AIには見せない方針だったため今まで共有されていなかった）。
+
+**alphasystemの調査結果（重要）**:
+
+1. **`alphaaimail`は既に稼働中のデモ**: Next.js 15 App Router、Gmail API（OAuth、`business@`/`office@alphacmc.co.jp`宛）+ Claude APIで14種のdoc_typeに分類し、SQLiteに蓄積。実データ companies 59件 / deals 196件 / email_logs 681件が既にある。
+2. **既に詳細な統合検討資料が存在する**（[2026-07-27-aimail-integration-study.md](../../alphasystem/docs/design/2026-07-27-aimail-integration-study.md)）。今回のTrack1設計と重なる部分が非常に多く、むしろこちらの方が実データに基づき深く検証されている：
+   - `Contract.orderContract`（NULL=受注/値あり=発注）と`deals.direction`（receiving/ordering）が1対1対応（今回の理解と一致）
+   - **取引先(`Customer`)は常に社内システムが正**で、**案件発生時点**（契約前）から突合する（今回の「Customerまで自動、Contractは人」よりさらに早い段階から突合する設計）
+   - **`Project`はメール由来データと無関係**（メールから自動導出しない）。`Contract`をグルーピングする社内独自概念で、紐付けは常に管理担当者が判断
+   - **deal（案件）とContractは1対N**（今回の「1メールが複数Contractに関係しうる」という理解と同型の課題を、より詳細に検証済み）
+   - 新規テーブル案: `MailLink`（`alp_mail_link`。CUSTOMER/CONTRACT/BILL/DEALへの汎用リンク）、`CustomerContact`（`alp_customer_contact`。取引先の複数担当者）
+   - 段階的実装ロードマップが既に確定（前提整備→パイプライン→ダッシュボード営業中→締結時コピー→ダッシュボード契約中）
+   - **未決事項が7章に多数残っている**（契約締結の契機、締結後メールの契約特定方式、管理担当者の権限表現 等）
+3. **ブランチ運用ルールが確定済み**（[2026-07-30-branch-strategy.md](../../alphasystem/docs/design/2026-07-30-branch-strategy.md)）: **`main`からではなく`staging`からブランチを作成し`staging`にマージする**（`main`は本番リリース時のみ）。過去にこのルールを知らずに`main`から直接作業し、`staging`が数ヶ月分取り残される事故が実際に発生している。
+4. **セキュリティ課題**: alphaaimailは過去に`.env`/認証情報をコミットしていた（2026-07-29に追跡解除・ローテーション済み）。REST APIの無認証エンドポイントは残存リスクとして記録されている。
+
+**今回のTrack1設計との重要な相違点（要すり合わせ）**:
+
+- 今回の設計はメール取り込みを**GMOレンタルサーバ + IMAP + Workspace自動BCCルール**で行う想定だったが、`alphaaimail`は**Gmail API（OAuth）を`business@`/`office@alphacmc.co.jp`に対して直接**使っている。この2つのメールアドレスが、今回のセッションで議論した「営業担当/営業事務総務担当のバーチャルメールアドレス」と同一のものかどうかが未確認。
+- 今回はメールと契約の間に`SalesEmail`/`SalesEmailContractLink`という新規テーブルを想定していたが、既存資料は`MailLink`という汎用リンクテーブル＋`deal`という案件エンティティ（alphadb上に新設）という、より練られたモデルを提示している。
+
+**現在のステータス**: 実装（Subagent-Driven Development）は一旦保留。既存の`aimail-integration-study.md`との整合を取るため、ユーザーに確認事項を提示中。
+
+**追加確認**: `business@`/`office@alphacmc.co.jp` は、今回議論した「営業担当/営業事務総務担当のバーチャルアドレス」と同一であることを確認。
+
+**重要な訂正**: `alphaaimail`のGmail連携は、**バーチャルメールの転送先である「ユーザー自身の個人メールアドレス」に対してOAuth認証を行っていた**（デモとして動かすための簡易な方法）。これは、Track1設計で明確に避けるべきとしていた「個人のGmail受信箱への直接アクセス」そのものであり、**誰かのメールを犠牲にする方式**である。ユーザーの意向により、**alphaaimailの実装・データ・パイプラインは完全に無視する**（技術的な参照先としない）。
+
+一方、`aimail-integration-study.md`に記載されている**ビジネスドメインの理解**（Projectはメール由来ではなく常に人が判断／案件と契約は1対Nになりうる／取引先は案件発生時点で社内システムを参照する 等）は、**alphaaimailの実装とは独立した業務知識として保留（参考にしてよい）**と確認した。
+
+**結論**: これらの業務知識は、今回のTrack1設計（v3）の理解と整合しており、**設計・実装計画の変更は不要**と判断。個人メールボックスを避ける取り込み方式（GMOレンタルサーバ＋IMAP＋Workspace自動BCCルール）は、`alphaaimail`のような妥協をしないための正しい設計判断だったことが、むしろ裏付けられた。
+
+**次のアクション**: ブランチ運用ルール（`staging`起点）に従い、Subagent-Driven Developmentを再開する。
+
+**ユーザーからのフィードバック**: ダッシュボードイメージ（画面のモックアップ）がないと、資料としてインパクトが薄い。ダッシュボードイメージの目処が立ってから再開したい。
+
+**対応**: 経営層向け資料の作業はここでいったん保留。ダッシュボードイメージの方針が決まった時点で再開する。
+
+**確認**: 「今この場で簡易なモックアップを作る」か「ここで保留し、別の機会に再開する」かを確認 →「**ここでは保留し、別の機会に再開する**」を選択。
+
+**現在のステータス**: 経営層向け資料は保留。次に再開する際は、Track1のダッシュボード画面イメージ（モックアップ）作成から着手する想定。
+
+---
+
+### Track1設計書レビュー完了
+
+**ユーザーの回答**: 「Track1設計書は確認しました」（変更依頼なし）。
+
+**対応**: 設計書レビュー完了と判断し、`brainstorming` の次のステップである `writing-plans` スキルへ引き渡す。
+
+---
+
+## 2026-08-12 実装計画（writing-plans）の作成
+
+**前提の確認**: 新社内システム（Next.js/NestJS/Aurora）のリポジトリに現時点でアクセスできないことを確認。そのため、ディレクトリ構成（`apps/api`/`apps/web`）・ORM（Prisma）・テストランナー（Jest）は一般的な構成を仮定し、計画冒頭に明記。実リポジトリ確認タスク（Task 2）を計画の早い段階に組み込んだ。
+
+**対応**: 実装計画を作成し、`docs/superpowers/plans/2026-08-12-営業メール可視化-track1.md` に保存した。
+
+**構成（全10タスク）**:
+
+1. 前提確認（非コード。設計書4.4の4項目＋取り込み専用メールアドレスの作成・BCCルール設定）
+2. リポジトリ規約の確認とパス調整
+3. データベーススキーマ定義（Prisma）
+4. IMAP取り込みサービス
+5. 定期ポーリングジョブ（10分間隔、連続失敗時のアラートログ）
+6. 自動マッチングサービス
+7. 確認キューAPI
+8. 滞留状況算出API
+9. 案件ごとのやりとり履歴要約API
+10. フロントエンド（未対応・滞留状況一覧画面）
+
+**自己レビューで見つけ、修正した点**:
+
+- Task1に「取り込み専用メールアドレスの実際の作成」「BCCルールの実際の設定」の手順が欠けていたため追加
+- ライフサイクル遷移（新規→既存）の実装責務が本計画に含まれていない点、紐づけ状態の訂正履歴を保持しない点を、Task3に明記（Track3・将来対応として切り出し）
+- `fetchNewMessages`（IMAP接続部分）の結合的なテストが欠けていたため、モックを使った検証をTask4に追加
+- 連続失敗時のアラート通知（設計書7章）が未実装だったため、Task5に連続失敗カウントとアラートログを追加
+
+**現在のステータス**: 実行方式（Subagent-Driven / Inline Execution）の選択をユーザーに確認中。
+
+---
+
+## 2026-08-13 実リポジトリ確認による設計・計画の全面改訂
+
+**きっかけ**: ユーザーから新社内システムの実リポジトリパス（`../alphasys`＝フロントエンド、`../alphaexapi`＝バックエンド、`../alphadb`＝DB定義共有パッケージ、`../alphasyscdk`＝インフラ）が共有された。
+
+**調査結果（重要）**:
+
+- `alphadb`は複数プロジェクト共有のPrismaスキーマの単一情報源。**マイグレーションは`alphadb`からのみ実行**という運用ルールがある。
+- 既存スキーマに、Track1が必要とする構造がほぼそのまま存在していた: `Customer`（取引先）、`Project`（長期的取引単位）、`Contract`（`orderContract`列で受注/発注を判別）、`ContDetail`（`memberType`で体制を表現）、`Members`（協力会社所属）、`BillRecipt`/`BillDetail`（請求）。
+- `alphaexapi`（NestJS）は「外部システムからの取り込み」を担う既存の役割（Google Drive/スプレッドシート連携等）を持ち、メール取り込みはこの役割にそのまま合致する。
+- `alphasys`（Next.js）は、`alphadb`のPrismaクライアントを直接使って既存の`Customer`/`Project`/`Contract`のCRUDを行っている（`alphaexapi`のAPI経由ではない）。
+
+**ユーザーとの往復で判明した重要な訂正**（v1設計の誤りを修正）:
+
+1. 「案件（受注契約単位）」はv1で新設想定だった独自エンティティではなく、既存の`Contract`（受注契約側）に対応する。ただし`Project`はそれより長期的な単位で複数`Contract`を含み、かつ「既存Projectへの追加」か「新規Project化」かは商談時点で自動判定できない。
+2. さらに、1つの（商業的な意味の）案件が複数の`Contract`にまたがることもある（1:N）。
+3. 結論として、**メールを`Contract`に自動で一意に紐づけるロジックは作らない**方針に変更。自動化は「`Customer`（取引先）まで」に限定し、`Contract`への紐づけ（0件・1件・複数件）は常に人による確認に委ねる。
+4. 実装場所も、`Next.js/NestJS/Aurora`という単一システムではなく、`alphadb`（スキーマ）／`alphaexapi`（IMAP取り込み・Customer自動マッチング）／`alphasys`（表示・確認UI）の3リポジトリに役割分担することが判明。
+
+**対応**: 設計書（[track1-design.md](../superpowers/specs/2026-08-12-営業メール可視化-track1-design.md)）をv2に全面改訂し、改訂履歴セクションを追加。実装計画（[track1.md](../superpowers/plans/2026-08-12-営業メール可視化-track1.md)）も実リポジトリの実際のディレクトリ構成・コード規約（`alphaexapi`の`src/<feature>/`フラット構成、`alphasys`の`src/app/sales/<entity>/_repository|_action|_presentational`構成、Prismaの`Int`自動採番+`alp_`プレフィックスのマッピング規約等）に合わせて全面的に書き直した。
+
+**新しい実装計画の構成（全8タスク）**:
+
+1. 前提確認・取り込み専用メールアドレスの作成（非コード）
+2. `alphadb`にメール関連テーブルを追加（`CustomerDomain`, `SalesEmail`, `SalesEmailContractLink`。既存テーブルの列は変更しない）
+3. `alphaexapi`: IMAP取り込みサービス
+4. `alphaexapi`: 定期ポーリングジョブ
+5. `alphaexapi`: Customer自動マッチングサービス
+6. `alphasys`: 未対応・滞留状況一覧ページ
+7. `alphasys`: 確認キュー（メールと契約の紐づけ）
+8. `alphasys`: Customerごとのやりとり履歴表示
+
+**現在のステータス**: 改訂した設計書・実装計画のユーザーレビュー待ち。
+
+---
+
+## 2026-08-13 Subagent-Driven Development によるTrack1実装の実行
+
+**きっかけ**: alphasystem調査（デモ版alphaaimailの技術的採用は明確に拒否、business/officeバーチャルメールアドレスの共有知見のみ保留採用）を経て設計書v4を確定。実装計画をAI推測機能追加（Task6、Claude Haiku 4.5）を含む全9タスク構成に確定し、「Subagent-Driven でお願いします」の指示のもと実行を開始した。
+
+**実行方針**: superpowers:subagent-driven-development に従い、タスクごとに新規サブエージェント（実装者）→レビューパッケージ生成→新規サブエージェント（レビュアー）→Critical/Important是正ループ、を繰り返した。ブランチは3リポジトリ共通で`feature/track1-sales-mail-visualization`（`staging`から作成）。
+
+**タスク実行結果（全9タスク、Critical/Important指摘は一件もなし）**:
+
+1. Task1（前提確認テンプレート作成、非コード）: `alphabsmail`に完了。Google Workspace/GMO/代理店への確認結果は`[記入]`のまま、ユーザーの後続対応待ち。
+2. Task2（`alphadb`スキーマ追加）: `CustomerDomain`/`SalesEmail`/`SalesEmailContractLink`追加。使い捨てPostgresコンテナ（ポート5434）でマイグレーション検証。ユーザー承認のうえ`1.1.0`をCodeArtifactにpublish。レビュー: Approved。
+3. Task3（`alphaexapi` IMAP取り込みサービス）: `MailIngestionService`（Message-IDデデュープ）。レビュー: Approved。
+4. Task4（`alphaexapi` 定期ポーリングジョブ）: `MailPollingJob`（10分間隔、連続失敗3回でアラートログ）。レビュー: Approved。
+5. Task5（`alphaexapi` Customer自動マッチングサービス）: `CustomerMatchingService`。実装者が「`NEEDS_REVIEW`分岐がbrief記載コード上は到達不能（`CustomerDomain.domain`が`@unique`のため構造的にあり得ない）」を自己申告。レビュアーが`alphadb`の実スキーマで独立検証し、コードの欠陥ではなく計画の記述上の不整合と判定（Task8で人による確認時に別途`NEEDS_REVIEW`が設定されるため、このタスクでの修正は不要）。レビュー: Approved。
+6. Task6（`alphaexapi` Contract AI推測サービス）: `ContractSuggestionService`。Claude Haiku 4.5 + `@anthropic-ai/sdk`の`messages.parse()` + `zodOutputFormat`構造化出力。`SalesEmailContractLink`は作成せず、`suggestedContractNo`等のソフト参照列のみ更新。レビュー: Approved。
+7. Task7（`alphasys` 未対応・滞留状況一覧ページ）: `/sales/mail`。実行前に`alphadb`依存を`^1.1.0`へ更新（コミット済み）。この時点でalphasysの最初のコミットが入ったため、Draft PR #138を作成。レビュー: Approved。
+8. Task8（`alphasys` 確認キュー）: `/sales/mail/review`。AI推測のYes/No確認UI＋`linkContractsAction`。実装者がbrief記載コード自体の2件の不具合（`revalidatePath`のimport元誤り、Server Action戻り値の型不整合）を発見し自己修正。レビュアーが両修正を独立検証し正当と判定。「いいえ」時の候補選択UIは計画で明示的に次イテレーションへ先送り（指摘対象外）。レビュー: Approved。
+9. Task9（`alphasys` Customerごとのやりとり履歴表示）: 取引先詳細ページに「やりとり履歴」セクション追加。既存の`page.tsx`データ取得パターン（Server Component→props）にそのまま従う形で統合。レビュー: Approved。
+
+**作成したDraft PR**: alphadb #16 / alphaexapi #50 / alphasys #138（いずれもDraftのまま。解除・マージはユーザーが行う）。
+
+**現在のステータス**: 全9タスク完了。3リポジトリそれぞれについて、最終の全体レビュー（whole-branch review、opusモデル）をバックグラウンドで実行中。
+
+---
+
+## 2026-08-13 最終の全体レビュー結果
+
+各タスクの個別レビューではCritical/Important指摘は0件だったが、3リポジトリ横断の最終レビュー（opusモデル）では、個別タスクの視点では見えない構造的な問題が見つかった。ユーザーへの報告・承認待ちのため、まだ修正には着手していない。
+
+**alphadb**（Critical: 0 / Important: 4）
+1. `SalesEmail`等3テーブルに`updatedAt`列がない → 「いつ最後に触られたか」が追えず、Track1の目的（滞留の可視化）に支障
+2. `SalesEmail`等に検索用インデックスがない（`customerNo`+`matchStatus`+`receivedAt`等）→ Task7/8/9のクエリが将来的にフルスキャンになる
+3. `SalesEmailMatchStatus`に「人が確認して0件（紐づく契約なし）」を表す値がない → Task8の実装と衝突（下記alphasysの指摘7と直結）
+4. `buildspec.yml`の既存versionを削除して再publishする処理が、今回のような通常のバージョンアップ運用に切り替わったタイミングで危険になる
+
+**alphaexapi**（Critical: 2 / Important: 5）
+1. **[Critical]** IMAP取り込みループにメッセージ単位のtry/catchがなく、1件の異常メール（件名512文字超等）で以降の全メールが取り込み停止する
+2. **[Critical]** 取り込んだメールに`\Seen`フラグを立てていないため、`{seen:false}`が毎回全メールを再取得する。これが1と組み合わさると「同じ異常メールが毎回バッチを止める」永久デッドロックになる
+3. IMAPロック保持中にClaude API呼び出しが走り、cronの多重実行防止もないため、レース・IMAP切断のリスクがある
+4. 複数インスタンス構成だと全インスタンスが同時にポーリングしてしまう（多重実行防止フラグがない）
+5. メール本文・件名をClaudeに無制限に送信（トリミング・件数上限なし）
+6. `MATCHED→AI推測`のクロスタスク結合部分のテストが欠落
+7. CCのみに顧客ドメインがある場合にマッチングできない（要`alphadb`スキーマ変更、この場では対応不可）
+
+**alphasys**（Critical: 0 / Important: 8）
+1. `"use client"`コンポーネントがPrismaをimportするリポジトリファイルから型をimportしている（既存の`_dto`分離規約違反）
+2. `linkContractsAction`が入力の型検証のみで、認可・実在チェック・エラーハンドリングがない
+3. `/sales/mail/review`へのリンクがどこにもなく、UIから到達不能
+4. 新規2ページにサイドバー・既存スタイルがない
+5. `getStaleCustomerMailStatus`が顧客マスタ全件を無条件に読む
+6. 当日受信の未対応メールが「対応済み」と表示される（`staleDays===0`が「対応済み」と「今日来た」を区別できない）
+7. `getReviewQueue`が無制限・`matchStatus`未フィルタ。かつ人が「0件」と確認した際の`NEEDS_REVIEW`書き込みが、Task7/9の`MATCHED`フィルタと衝突し、確認済みメールが履歴・滞留一覧から消える（alphadb指摘3と同根）
+8. `linkContractsAction`（唯一のDB書き込み処理）にテストがない
+
+**共通して浮き上がった設計課題**: 「人が0件と確認した」状態を`matchStatus`だけでは表現できない、という同じ問題がalphadb/alphaexapi/alphasysの3箇所からそれぞれ指摘された。個別タスクレビューでは検出できなかった、計画そのものの設計ギャップ。
+
+**現在のステータス**: 上記指摘をユーザーに提示し、以下の承認を得た。
+- alphaexapiのCritical 2件は今すぐ修正（推奨案）
+- 設計ギャップ（matchStatus）は`REVIEWED_NO_CONTRACT`をenumに追加して対応（推奨案）
+- alphadb/alphasysのその他のImportant指摘はまとめて修正（推奨案）
+
+**alphadb修正・公開完了**: `updatedAt`列追加（3テーブル）、インデックス追加、`SalesEmailMatchStatus`に`REVIEWED_NO_CONTRACT`追加、`buildspec.yml`のバージョン上書き処理を削除（開発初期ワークアラウンドの正式な解除）。すべて追加のみで既存の`1.1.0`利用側と互換。レビュー: Approved（"Ready to publish: Yes"）。`1.2.0`としてCodeArtifactへpublish済み。
+
+**現在のステータス**: alphaexapiの修正（Critical 2件＋関連Important）を実行中。完了後、alphasysをalphadb 1.2.0に更新し、残りの修正に着手する。
+
+**alphaexapi修正（1回目）のレビュー結果**: Fix1（メッセージ単位のエラー分離）・Fix3（cron多重実行防止）・Fix4（P2002レース対策）・Fix5（AI推測tryブロック拡大）は正しく実装されていることをレビュアーが確認。**しかし Fix2（`\Seen`設定）に、レビュアーが実際にimapflowのコマンドキュー仕様を検証して発見したCriticalな欠陥があった**: `for await`ループの内側で`messageFlagsAdd`を呼ぶと、ImapFlowが1本のソケット接続でコマンドを直列化する都合上、進行中のFETCHコマンドとSTOREコマンドが循環待ちになりデッドロックする。本番だと5分のソケットタイムアウトで接続が切れ、かつ`'error'`イベントの購読者がいないためNestプロセスがクラッシュする可能性がある、という指摘。レビュアーは実際にIMAPクライアントで検証して確認した。
+
+**対応**: `\Seen`設定を、ループ内の逐次呼び出しから「ループが完全に終わった後の1回のバッチSTORE呼び出し」に変更する再修正、および`ImapFlow`クライアントへの`'error'`リスナー登録、失敗件数がある場合のログレベル昇格を、2回目の修正サブエージェントに依頼中。
+
+alphasysの修正（matchStatus対応・認可チェック・UI導線・スタイル・未制限リード対策・staleDays修正・_dto境界修正・テスト追加の8件）も並行して実行中。
+
+---
+
+## 2026-08-13 修正完了
+
+**alphaexapi**: 修正→レビューを3往復した。
+- 1回目: Critical2件（メッセージ単位のエラー分離、`\Seen`設定）＋Important2件（cron多重実行防止、P2002レース対策）を修正。レビューでFix1・3・4・5は正しいと確認されたが、**Fix2（`\Seen`設定）に新たなCriticalな欠陥が発覚**（`for await`ループの内側から`messageFlagsAdd`を呼ぶと、ImapFlowの1本のソケット上でのコマンド直列化により、進行中のFETCHコマンドと循環待ちしてデッドロックする。レビュアーが実際にIMAPクライアントで検証して確認）。
+- 2回目: `\Seen`設定を「ループが完全に終わった後の1回のバッチSTORE」に変更し、`ImapFlow`への`'error'`リスナー登録、失敗件数がある場合のログレベル昇格を実施。レビューで**デッドロックの本流は解消と確認されたが、バッチ呼び出しを`finally`ブロックに置いたため、ループが異常終了（接続エラー等）した場合に同じ問題が再発する**Important指摘が新たに発覚。
+- 3回目: バッチ呼び出しを`finally`から`try`の末尾（ループが正常終了した場合のみ実行される位置）に移動。レビュアーの指摘を受けてテストの検証力不足も修正者自身が発見・対応（「ハッピーパスでの呼び出し順序」だけでは`finally`と`try`末尾を区別できないことに気づき、ループが異常終了するケースを模したテストを追加し、旧コードでは実際に失敗することを確認）。**最終判定: Ready to merge - Yes**。
+
+**alphasys**: 修正→レビューを2往復した（1回目は通信エラーで一時中断、エージェントを再開して完遂）。
+- 1回目: `REVIEWED_NO_CONTRACT`によるmatchStatus対応（Task8書き込み・Task7/9の読み取りフィルタ）、`linkContractsAction`の認可チェック・エラーハンドリング、`/sales/mail/review`への導線・スタイリング、未制限リードの是正、staleDaysの誤表示修正、Prisma import境界の是正（`_dto`化）、`linkContractsAction`のテスト追加、をすべて実施。レビューで7/8項目は問題なしと確認されたが、**`createMany`と`update`の2つの書き込みが非トランザクションで、片方だけ失敗すると該当メールが全画面から消えてしまう**Important指摘。
+- 2回目: 2つの書き込みを`prisma.$transaction([...])`でラップ。レビューで本番コードは正しいと確認（テストのアサーションが配列の形状しか見ておらず要素の同一性までは検証していない、というテスト品質のみのMinor指摘が残ったが、ブロッカーではないため受容）。**最終判定: Ready to merge**。
+
+**alphadb**: 1往復で完了（Ready to publish: Yes、公開済み）。
+
+**push完了**: alphadb（PR #16）、alphaexapi（PR #50）、alphasys（PR #138）とも最新コミットをpush済み。いずれもDraftのまま維持（解除・マージはユーザーが行う）。
+
+**現在のステータス**: Track1の実装・レビュー・最終修正はすべて完了。Task1（Google Workspace/GMO/代理店への確認）はユーザー側の対応待ちのまま残っている。
+
+---
+
+## 2026-08-17 メール取り込み方式の見直し（設計書v5）
+
+**きっかけ**: ユーザーがalphadb/alphaexapi/alphasysの3リポジトリをすべてstagingへマージした後、「前提確認結果.mdは前提が異なるような気がする。メールを受信...」という指摘。やり取りの中で、当初の理解（GMO直接コピー、あるいはGMO受信/Workspace送信のハイブリッド）はいずれも「その他・別の理解がある」として訂正された。
+
+**ユーザーが実際に意図していた方式**: 受信・送信いずれも、**既存のバーチャルメールアドレス（`business@`/`office@`）の転送先リスト**（現状、営業担当・営業事務総務担当の各メンバーの個人Gmailへfan-outしている設定）に、取り込み専用メールアドレスを**追加の転送先として登録するだけ**で集信する。ドメイン判定によるGoogle Workspace自動BCCルールの新設は、今回は行わず保留する。CCが漏れているメールを自動的に救済する仕組みは作らず、当面は「CC漏れに気づいた担当者が手動転送する」という運用でカバーする。
+
+**設計への影響**:
+- v4までの「Google Workspace管理コンソールの自動BCCルール（ドメイン判定つき）」の構築は不要になった。
+- ダブルホップ転送（GMO→test-google-a.com→Workspace）のヘッダー・添付ファイル保持の確認も不要になった（既存の転送設定を1件拡張するだけで、新しい転送経路を経由しないため）。
+- 「送信経路がGmail一本化されているか」の確認は、送信クライアントに依らずCCさえあれば集信されるため、優先度が下がった（削除はせず参考情報として残した）。
+- `alphaexapi`のIMAP取り込み実装（Task3〜6、既にstagingにマージ済み）への影響はない。取り込み専用メールボックスに対してIMAPポーリングするという構成そのものは変わらないため、コード修正は不要と判断した。
+
+**対応**: 設計書を**v5**に改訂（4章のみ）。前提確認結果.mdの確認項目を、新しい方式に合わせて全面的に書き直した（旧5項目→新4項目。「バーチャルメールの転送先リストに取り込み専用アドレスを追加登録できるか」を新設）。両ファイルとも実際の修正前にユーザーへ内容を提示し、承認を得てから編集した。
+
+**現在のステータス**: 設計書v5・前提確認結果.mdの改訂は完了。Task1のステップ2〜5（実際の確認・設定作業）はユーザー側の対応待ちのまま。
+
+---
+
+## 2026-08-17 Task1 前提確認結果の記入完了
+
+ユーザーが`2026-08-12-営業メール可視化-track1-前提確認結果.md`の4項目すべてに回答した。
+
+1. バーチャルメールアドレスの転送先リストへの追加: **OK（大平氏の設定で追加済み）**
+2. GMOレンタルサーバのIMAP対応: **OK**（ポート143/993 SSL・TLS）
+3. 送信経路のGmail一本化: **担当者は全員Gmail使用で周知済み**
+4. 取り込み専用メールアドレス: **`sales-archive@alphacmc.co.jp`**、IMAPホスト名は`imap.alphacmc.co.jp`または`imap.blue.shared-server.net`（**候補2つのままで未確定**）、転送先リストへの追加設定は完了
+
+**現在のステータス**: Task1の前提確認は実質完了。残りは、(a) IMAPホスト名の2候補のどちらが正しいかの確定、(b) `alphaexapi`の実際のデプロイ環境（ECS Secrets Manager等）へ`SALES_MAIL_IMAP_HOST`/`PORT`/`USER`/`PASSWORD`・`ANTHROPIC_API_KEY`を設定すること、(c) 計画書末尾の「実行後の確認（結合確認）」項目5〜7（実環境でのポーリング動作・AI推測動作・`/sales/mail`系ページの動作確認）。(a)(b)は認証情報を伴う運用作業のため、AIが代行・推測すべきでないとユーザーに明示して対応を委ねた。
+
+**IMAPホスト名の確定**: `imap.alphacmc.co.jp`（独自ドメインのエイリアス）で接続すると証明書エラーが発生するため、GMOの案内どおり共有サーバー本来のホスト名`imap.blue.shared-server.net`を使う（ユーザーが一度`mail.blue.shared-server.net`と誤記したが、`imap.blue.shared-server.net`が正）。共有レンタルサーバではSSL証明書がサーバー本来のホスト名に対して発行されており独自ドメインのエイリアスは対象に含まれないため、との理由をユーザーに説明し合意を得た。証明書検証を弱めるのではなく、検証が正しく通る本来のホスト名を直接使う方針とした。`前提確認結果.md`の項目4に確定値として反映した。
+
+**現在のステータス**: Task1の前提確認・IMAPホスト名の確定まで完了。残るのは(b)実デプロイ環境への値設定と(c)実環境での結合確認で、いずれもユーザー側の対応待ち。

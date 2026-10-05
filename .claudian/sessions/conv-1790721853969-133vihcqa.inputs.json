@@ -47,6 +47,34 @@
       "contentDigest": "83b18f67b988f92f9c25b29efddea8e83ebbdaa0d7f13d9ce8100e101fa6dc05",
       "providerUserMessageId": "b6cc5e9a-db85-42d6-807d-632880de2c35",
       "providerAssistantMessageId": "31dea8ac-5fa0-4ffb-ac63-adbd231a2686"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790896832097-qou1l69",
+      "userTurnOrdinal": 4,
+      "state": "accepted",
+      "localMessageId": "msg-1790896832089-tib3vv0",
+      "timestamp": 1790896832089,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "63a4911c-0918-47b8-8671-c0c3f3f8da50",
+      "providerAssistantMessageId": "eee347eb-3c32-4377-89d8-357985bf94c7"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1790896903627-8x1d2vh",
+      "userTurnOrdinal": 5,
+      "state": "accepted",
+      "localMessageId": "msg-1790896903623-dr10w2c",
+      "timestamp": 1790896903623,
+      "rawDisplayText": "修正お願いします。",
+      "canonicalText": "修正お願いします。",
+      "images": [],
+      "contentDigest": "7dda825b0ea407c076a366b1cef6c80598c2f88ecc64fc0cc2da3a7a64ef735a",
+      "providerUserMessageId": "eb38d600-d27a-4589-9f41-df47d113d700",
+      "providerAssistantMessageId": "f2997d67-e321-49e8-9016-5ddeafc4b831"
     }
   ]
 }

@@ -4,7 +4,7 @@
   "title": "/daily-sync",
   "titleGenerationStatus": "failed",
   "createdAt": 1790721853972,
-  "lastActivityAt": 1790817409172,
+  "lastActivityAt": 1790896972148,
   "sessionId": "2566bb68-9abd-4aba-bbba-783509cdc2d0",
   "selectedModel": "opus",
   "providerState": {
@@ -14,11 +14,11 @@
   "usage": {
     "model": "opus",
     "inputTokens": 2,
-    "cacheCreationInputTokens": 612,
-    "cacheReadInputTokens": 29714,
+    "cacheCreationInputTokens": 793,
+    "cacheReadInputTokens": 42853,
     "contextWindow": 1000000,
-    "contextTokens": 30328,
-    "percentage": 3,
+    "contextTokens": 43648,
+    "percentage": 4,
     "contextWindowIsAuthoritative": true
   }
 }
