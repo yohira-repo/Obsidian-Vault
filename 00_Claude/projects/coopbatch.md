@@ -367,3 +367,29 @@ PR #24（`feature/replace-localstack-with-floci`ブランチ、未マージ・Dr
 
 ### ステータス
 PR #26は2026-09-24にマージ済み（ユーザー報告・`gh pr view`で確認）。テストフレームワーク導入の要否は上記の通り未相談のまま残っている。
+
+## 2026-10-05 Step4（PrepareRecoveryFileTasklet）追加に伴う、errors/・temporary振り分けの設計相談・決定
+
+### 背景・相談内容
+Step4追加後、以下2点の運用上の論点についてユーザーから相談があった。
+1. `untreated/errors/`配下に残るエラーCSV（Step2完了時に`ErrorCsvWriter`が書き出す全エラーの監査ダンプ）について、Step4が再投入ファイル（`_errorfixNN.csv`）を`untreated/`直下に作成した際、`errors/`配下のデータをどうすべきか（「残しておくと後で悪さしそう」という懸念）
+2. エラー発生したCSVファイルは`temporary/`に置かれるが、どのタイミングで`treated/`へ移すべきか（現状は元ファイルが`temporary/`に入ったきり永久に残り、`_errorfixNN`という別ファイルがtreatedに着地しても元ファイルとは紐付かない）
+
+### 提示した選択肢
+- ①: A.丸ごと削除／B.再投入対象の行だけ除いて書き直す／C.再投入対象reasonはそもそも`errors/`に書かない
+- ②: A.現状維持（元ファイルは`temporary`に永久保持）／B.元ファイルの全エラーが再投入対象reasonだった場合のみ`temporary→treated`へ自動移動／C.`_errorfixNN`の最終成功と連動して親子関係ごと移動
+
+### 決定
+- **①B採用**: `errors/`CSVは再投入した行（reason=`契約番号に紐づく契約情報なし`）だけを除いて書き直す（他reasonの行が残っていれば保持、空になれば削除）。理由: 「Cだと複数のステップに手が入ることになり、Step4は独立させておきたい（今後の拡張性を考慮）」とのこと。
+- **②B採用**: 元ファイルの全エラーが再投入対象reasonだった場合のみ、Step4が`temporary→treated`へ自動移動する。それ以外（他reasonのエラーが混在）の元ファイルは、解決した時点で人手による移動とする。
+
+### 実装方針（着手前メモ）
+- `context`に`errorCsvKeys`（Step2のafterStepフックが書き込んだ`errors/`CSVのS3キー）を追加し、Step4がそのキーを参照できるようにする（`main.ts`/`worker.ts`/`main-batch-context.ts`を変更）
+- `PrepareRecoveryFileTasklet`に`s3SuccessPrefix`（treated）を追加配線し、ソースファイル単位で「全エラーが再投入対象reasonか」を`earlyBillErrorCollector.countForFile()`と比較して判定し、該当すれば`temporary→treated`へ移動
+- `errors/`CSVの再書き込みは、S3からの再パースではなく、メモリ上の`earlyBillErrorCollector.getRecords()`から非該当reasonのみ抽出し`ErrorCsvWriter`で書き直す方式とする（CSV再パースの脆さを避ける）
+
+### 運用プロセスに関するフィードバック
+ユーザーより「相談時点でconversations.mdに記載してほしい。すぐに結論が出ないケースもある」との指摘があり、今後は結論を待たずに相談があった時点で記録する運用に変更（`~/.claude`配下のメモリに保存済み: `record-conversations-at-consultation-time`）。
+
+### 実装・ステータス
+`feature/step4-errors-cleanup-and-treated-promotion`ブランチで実装し、Draft PR [#27](https://github.com/alphacmc/coopbatch/pull/27)を作成済み。`npx tsc --noEmit`エラーなし、分岐ロジックはNode.jsで簡易シミュレーションし期待通りの挙動を確認。マージ・Draft解除はユーザー側で実施予定。
