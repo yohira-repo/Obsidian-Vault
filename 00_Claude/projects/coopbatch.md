@@ -393,3 +393,6 @@ Step4追加後、以下2点の運用上の論点についてユーザーから�
 
 ### 実装・ステータス
 `feature/step4-errors-cleanup-and-treated-promotion`ブランチで実装し、Draft PR [#27](https://github.com/alphacmc/coopbatch/pull/27)を作成済み。`npx tsc --noEmit`エラーなし、分岐ロジックはNode.jsで簡易シミュレーションし期待通りの挙動を確認。マージ・Draft解除はユーザー側で実施予定。
+
+### リリース・試験予定
+PR #27は2026-10-05にマージ済み（ユーザー報告・`gh pr view`で確認）。同日、ステージング環境へリリース実施。**試験は翌日（2026-10-06）に実施予定**。
