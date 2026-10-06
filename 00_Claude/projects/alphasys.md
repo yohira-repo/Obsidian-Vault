@@ -63,3 +63,9 @@ sales/bill(3)・sales/project(4)・sales/contract(6)・sales/customer/add,edit(2
 ## 2026-09-30 メニューレイアウト統一（PR ＃163）stagingマージ完了
 
 ユーザーが実機確認の上、`staging`ブランチへマージ済み。全52画面の展開作業はここで完了。
+
+## 2026-10-05 alphasysdeploy README追記（PR ＃3）マージ・ステージング試験の予定確定
+
+`alphasysdeploy`リポジトリのPR #3（version.jsonを変更せずECSを再起動するコマンドのREADME追記）をユーザーがマージ済み。
+
+- **段取り確定**: ステージング環境での試験を **2026-10-06（明日）** に実施予定
