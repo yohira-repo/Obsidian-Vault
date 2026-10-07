@@ -1422,8 +1422,6 @@ PageHeader へ移す」だけになり、52画面に左ナビを書く必要が�
 `page.tsx` を持たない中間ディレクトリのサイドバーは親ルートに寄せて集計されるため、
 `/sales/contract` と `/sales/project` が2行になる点に注意。
 
----
-
 ## 2026-09-24 alphadb の Prisma エンジンが Linux 専用で、Windows のローカル起動が落ちていた件
 
 ### 症状
