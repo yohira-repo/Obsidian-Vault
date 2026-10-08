@@ -54,3 +54,21 @@
 - 今夜 JST 1:00 が初回の自動実行。翌朝 CloudWatch Logs `/alphasys/staging/nightly-migration` で `RESULT: SUCCESS` を確認する（ユーザーが並行稼働期間中は毎日目視）。
 
 - 2026-10-06 ユーザーの承認により、ローカル検証用の Docker（`alphadb-source` / `alphadb-target` / ネットワーク `alphadb-net`）を削除。再度ローカルで通し実行（`nightly/tests/integration_local.sh`）する場合は、これらを作り直し、移行先に Prisma のマイグレーションを適用してから実行する。
+
+## 2026-10-08 設計バグ対応: 契約（Contract）への取引先番号の追加（alphadb 側）
+
+- 発端: alphasystem で確定した仕様（`alphasystem/docs/design/2026-10-08-契約への取引先追加-仕様.md`）。プロジェクトの受発注一体化により Contract が取引先を持たず、発注先（仕入先）が記録できない設計バグ。
+- 仕様: `Contract.customerNo` を**必須**で追加。受注契約=受注先（`Project.customerNo` と同値）、発注契約・仮契約=発注先。移行では**付け替え前の `project_id` が指すプロジェクトの `customer_no`**を取る（`alp_contract.customer_no` は使わない）。
+- 実データ検証（9/24 ダンプ）: 発注契約 3,338 件はすべて付け替え前PJが発注PJ（受注PJを指す行は 0 件）。仮契約・親なしは 0 件。受注契約のうち 5 件は付け替え前PJが発注PJだが、現行の抽出条件で除外済みのため影響なし。
+- 承認（ユーザー回答）: (1) Customer への**外部キー + index を付ける**、(2) バージョンは **0.1.0（minor）**、(3) ステージング反映は **PR マージ後、同日中に続けて実施**（マイグレーション適用 → `deploy.sh` で SQL 配布 → 手動1回実行 = 再投入）。途中で夜間実行（JST 1:00）が走ると、その夜は失敗する（ロールバックされ前日のデータが残る）ため、夜間実行より前に完了させる。
+- alphadb の作業: schema.prisma / マイグレーション（NULL許容で追加 → Project から埋める → NOT NULL → FK・index）/ `extract.sql` 03 contract / `load.sql` 列リスト / `verify.sql`・夜間 `check.sql` の整合チェック / ドキュメント / 0.1.0 で publish。alphasys の画面修正は alphasys のセッションで行う（alphadb は 0.1.0 を publish するまで）。
+
+- 2026-10-08 実装を完了し Draft PR #60（base: staging）を作成。ユーザーのレビュー・マージ待ち。マージ後の段取り（同日中、夜間実行 JST 1:00 より前）: (1) `alphadb-publish` で 0.1.0 を publish → (2) ステージングにマイグレーション適用（適用方法＝CodeBuild 経由か手動かは、マージ後に確認してから実施）→ (3) `nightly/deploy.sh` で Bastion に SQL 配布 → (4) 手動で1回実行（再投入）→ (5) 発注契約の取引先がプロジェクトと異なることを確認。
+- alphasys は 0.1.0 に更新し、契約の追加・編集で取引先を扱う（alphasys のセッションで実施。alphadb では行わない）。
+
+## 2026-10-08 契約への取引先追加 ステージング反映の完了
+
+- PR #60 をユーザーがマージ（alphadb `main` へも PR #61 で反映済み）。反映は同日中（12:2x〜12:3x JST）に実施し、夜間実行（JST 1:00）より前に完了。
+- 実施内容: (1) `alphadb-publish`（CodeBuild）で 0.1.0 を publish（CodeArtifact に 0.0.1 / 0.1.0 / 1.0.0 が存在）→ (2) `staging-prisma-merge-project-build`（CodeBuild。CDK の BuildTrigger と同じ。alphadb `main` から `prisma migrate deploy`）でマイグレーション `20261008120000_add_contract_customer_no` を適用（既存 6,337 契約が全件 NOT NULL）→ (3) `nightly/deploy.sh` で Bastion に新SQLを配布 → (4) 手動で1回実行（再投入）= `RESULT: SUCCESS`・`check ok`。
+- 結果（集計）: 受注契約 2,927 件は全件プロジェクトの取引先と一致、発注契約 3,410 件は全件プロジェクトと相違（発注先）。Track1 の `alp_sales_email`（740 件）は保持。
+- 影響: ステージングの alphasys（alphadb 0.0.1 使用）は、契約の**新規作成が NOT NULL 違反で失敗**する（`customer_no` を渡していないため）。alphasys を 0.1.0 に更新し、契約の追加・編集で取引先を扱うまで解消しない（alphasys のセッションで実施）。
