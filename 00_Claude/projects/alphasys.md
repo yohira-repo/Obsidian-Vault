@@ -278,3 +278,145 @@ alphasystemプロジェクトのセッションで、設計バグ（契約が取
 ### 別件で発見した、より深刻な懸念（要ユーザー判断・未着手）
 
 請求編集画面（`EditBillContent.tsx`）を調査した際、`sales-bill-edit.repository.ts`の`updateBillRecipt`が、画面で選択した取引先を**`Project.customerNo`に書き込んでいる**ことを発見。請求編集画面は`CustomerSearchModal`で取引先を変更できるため、**仕入請求を編集して発注先を選び直すと、プロジェクトの受注先そのものが上書きされてしまうデータ破損リスクがある**。この画面・ロジックには今回手を付けておらず、ユーザーに方針を確認してから対応する。
+
+## 2026-10-08 契約情報（契約修正）画面でも同じ取引先解決バグを発見・修正（同一ブランチへの追加コミット）
+
+ユーザーより、請求一覧の取引先表示は直ったが、契約情報（契約修正）画面では発注契約でも受注取引先のままだとの報告。調査したところ、`bill.repository.ts`と同じバグパターン（`Contract`ではなく`Project`経由で取引先を解決）が複数箇所に残っていた。
+
+- `src/app/sales/contract/edit/[contractNo]/_repository/contract.repository.ts`（契約情報/契約修正画面）: `alp_customer`の結合を`pro.customer_no`から`con.customer_no`に変更
+- `src/app/sales/contract/detail/add/[contractNo]/_repository/contract.repository.ts`（契約明細追加、課題19行目関連）: 同様に`cont.customer_no`経由に変更。不要になった`alp_project`の結合も削除
+- `src/app/sales/contract/detail/edit/_repository/contract-detail.repository.ts`（契約明細編集）: 同様に`c.customer_no`経由に変更。不要になった`alp_project`の結合も削除
+
+横断的に`pro.customer_no`/`prj.customer_no`/`p.customer_no`で取引先を解決している箇所を洗い出し、契約（Contract）に関連する箇所は全て修正済み。プロジェクト自体の取引先表示（プロジェクト一覧・プロジェクト情報）、および契約作成時のデフォルト値算出（新規契約は常に受注契約のため、プロジェクトの取引先を使うのが正しい）は対象外として維持。
+
+請求編集画面（`updateBillRecipt`）の懸念は引き続き未着手・ユーザー判断待ち。
+
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-08 全体検証: 請求編集の未修正バグ・取引先カスケードUIの設計不整合・発注契約作成機能の欠如を報告
+
+ユーザーより「請求編集時でも発注先になりません。契約明細追加の際には、受注先が固定されており、発注先契約が作成できません。全体を検証してもらえませんか？」との依頼。契約・請求まわりの取引先解決ロジックを横断的に調査し、3点の問題を報告した。
+
+- **A. 未修正バグ**: 請求編集画面の`sales-bill-edit.repository.ts`の`getBillByBillNo`が、請求一覧で直したのと同じバグ（取引先を`ALP_PROJECT`経由で解決）を残したままだった
+- **B. 設計上の不整合（要判断）**: 請求編集・請求追加画面の「取引先→プロジェクト→契約」のカスケード選択UIが新モデルと整合しない。`Project.customerNo`は常に受注先のため、発注先を選んでもプロジェクトが見つからず行き止まりになる。また、契約を選択しても「取引先」欄が選択した契約の実際の取引先に更新される仕組みが無い。加えて、請求編集の保存処理（`updateBillRecipt`）がこの（誤った）取引先を`Project.customerNo`へ書き込んでおり、データ破損リスクがある
+- **C. 機能欠如（要判断）**: 発注契約を新規作成するUI・フローがアプリのどこにも存在しない。「契約追加」画面は受注契約専用（取引先はプロジェクト由来で固定）、「契約明細追加」は既存契約への明細行追加のみ。ステージングの発注契約3,410件はすべて移行データ由来で、今後アプリから新規作成する手段が無い
+
+**承認（方針決定）**: 今回はA（請求編集の読み込み修正）のみ対応。B・Cは設計判断が必要なため別途相談とする。
+
+- **対応**: `sales-bill-edit.repository.ts`の`alp_customer`結合を`ap.customer_no`から`ac.customer_no`に変更
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-08 B（カスケード選択UI）・C（発注契約作成）の方針確定、実装
+
+ユーザーより、保留していたB・Cについて方針の指示があった:
+
+- **B-1**: 取引先選択時に表示するプロジェクトは、`Project.customerNo`（受注先）だけでなく、そのプロジェクト配下の契約の`Contract.customerNo`（発注先）経由でも見つかるようにする
+- **B-2**: 請求追加画面に、受注契約／発注契約を選べる「区分」セレクタを設ける（契約候補の絞り込みに使う）
+- **B-3**: `updateBillRecipt`の`Project.customerNo`への誤書き込みは削除で確定
+- **C**: 「発注契約追加」ボタンを新設し、取引先を指定可能にする。`orderContract`（対応する受注契約）は、作成時にそのプロジェクトの受注契約一覧から選べるようにする（1件しかなければ自動選択、未決の場合は仮契約=0として未設定のまま作成できるようにする）と確定（AskUserQuestionで確認）
+
+### Bの実装（別PR: feature/bill-customer-cascade-fix）
+
+- `getProjectNamesByCustomerNo`を、`Project.customerNo`または`Contract.customerNo`のいずれかが一致するプロジェクトを返すよう修正（Prismaのリレーションが無いため生SQLに変更）
+- `getContractNamesByProjectId`が`customerNo`・`customerName`も返すよう拡張
+- 請求編集・請求追加画面で、契約を選んだ際にその契約自身の取引先を「取引先」欄に反映するよう修正
+- 請求追加画面に「区分」（発行=受注契約／受領=発注契約）の能動的な選択UIを追加し、契約候補の絞り込みに使えるようにした
+- `updateBillRecipt`から`Project.customerNo`への書き込みを削除
+
+請求編集画面への「区分」セレクタの追加は、ユーザーが明示的に言及したのが請求追加画面のみだったため、今回は請求追加画面限定とした。
+
+### Cの実装（本PR: feature/order-contract-creation）
+
+- プロジェクト情報画面の「+ 契約追加」ボタンを「+ 受注契約追加」に改名し、隣に「+ 発注契約追加」ボタンを新設（`/sales/contract?projectId=X&mode=order`）
+- `/sales/contract`ページ（`AddContractInfo.tsx`）を`mode`（"receive"|"order"）で分岐:
+  - orderモードでは、取引先欄を固定表示ではなく取引先検索モーダル（新規`CustomerSearchModal.tsx`、`getAllCustomers`を再利用）での選択式にした
+  - 「対応する受注契約」セレクタを追加。そのプロジェクトの受注契約一覧（`getReceiveContractsByProjectId`で新規取得、`orderContract IS NULL`の契約）から選べ、1件しかなければ自動選択、0件または未選択時は「仮契約（対応する受注契約は未定）」(`orderContract=0`)がデフォルト
+  - 確認画面（`ConfirmContractInfo.tsx`）に選択した取引先・対応する受注契約を表示するようにした
+- `contractStore`・`addContractSchema`・`confirmContractSchema`・`contractRepository.create()`に`orderContract`を追加し、作成時にDBへ書き込まれるようにした（受注契約作成時は従来通り未指定→NULL）
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-08 PR ＃194・＃195 マージ確認。契約customerNo関連の一連の設計バグ対応が完了
+
+ユーザーよりPR #194・#195の内容確認・マージ完了の報告。staging最新を取り込んだ新規ブランチ`feature/alphasys-followup-20261008`を作成。
+
+2026-10-08に判明した設計バグ（プロジェクト受発注一体化によりContractが取引先を持たない問題）起点の一連の対応がこれで一区切り: alphadb側のスキーマ変更（PR済み）、alphasys側の読み込みバグ修正（取引先一覧・取引先詳細・契約情報・契約明細・請求一覧・請求編集）、カスケード選択UIの修正（B）、発注契約作成機能の新設（C）まで完了。
+
+スプレッドシート「alphasys課題」の21行目（仕入側の取引先名表示）は、この一連の対応により実質的に解消している見込みだが、表自体の21行目・B・Cに対応するPR#記入はユーザー側の更新待ち。表の21行目以外で残っている項目は、4・9・13・19行目（いずれも別途調整・未確認でユーザー側の入力待ち）と、5・14・15・17・18行目の「項目が間延びしている」部分（機能的な問題ではないため保留中）のみ。
+
+## 2026-10-08 プロジェクト一覧で発注先の取引先を選んだ際に対象プロジェクトが表示されないバグを修正
+
+ユーザーより「発注取引先からプロジェクト一覧を選択した場合、その発注先が抱える契約のプロジェクト一覧が表示されないように見える」との報告。
+
+調査したところ、`/sales/project?customerNo=X`のプロジェクト一覧検索（`searchProjectsByDateRange`、`src/app/sales/project/_repository/projectsRepository.ts`）が、取引先フィルタを`cus.customer_no`（プロジェクトの受注先）のみで判定しており、B（請求画面のカスケード選択）で修正したのと同じバグが残っていた。発注先（仕入先）の取引先No で絞り込んでも、その取引先が受注先であるプロジェクトが無ければ0件になっていた。
+
+- **対応**: 取引先フィルタを「プロジェクトの受注先(`cus.customer_no`)と一致する、または、そのプロジェクト配下の契約(`alp_contract`)の発注先(`customer_no`)と一致する」のいずれかに拡張（`EXISTS`サブクエリを追加）。プロジェクトのグルーピング表示（受注先名でのグループ化）自体は変更せず維持
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-08 PR ＃199 マージ確認、課題表にID列が追加され今後はIDで会話することに決定
+
+ユーザーよりPR #199の内容確認・マージ完了の報告。staging最新を取り込んだ新規ブランチ`feature/alphasys-followup-2-20261008`を作成。
+
+あわせて、スプレッドシート「alphasys課題」にID列が追加されたとの連絡。行番号は今後行の追加で意味がずれるため、**以後は行番号ではなくIDで会話する**ことに決定。
+
+## 2026-10-08 ドキュメントのみのpushでDocker build/pushをスキップする仕組みを追加（alphasys・alphaexapi）
+
+ユーザーより相談: 「alphasysやalphaexapiは、stagingへのマージの都度ビルド、ECS再起動が走る。conversationやドキュメントの変更時にビルドが走るのを抑止することは不可能か」との質問。
+
+調査の結果、実際の仕組みは以下の通りと判明:
+- ECS再起動自体は`alphasysdeploy`リポジトリの`version.json`変更push時のみ発火（既知）
+- ただし`staging-alphasys-frontend`/`staging-alphasys-backend`のCodeBuildプロジェクト（`alphasyscdk`の`ecr-codebuild.ts`）は、`alphasys`/`alphaexapi`それぞれの`staging`ブランチへの**全push**を無条件にwebhookトリガーしてDocker build/pushを実行していた（ファイルパスでの絞り込み無し）
+
+**対応方針の検討**: AWS CodeBuildのwebhookフィルタ（`FilterGroup.andFilePathIsNot`）での除外を提案したが、「1回のpushに複数ファイルが含まれる場合、除外判定が『全ファイル一致』なのか『1つでも一致』なのか」が公式ドキュメントで明確でなく、後者だった場合コード+ドキュメントの混在コミット（本セッションで多用している運用）までビルドされなくなるリスクがあった。
+
+- **承認**: リスクのあるwebhookフィルタ方式ではなく、**`buildspec.yml`のpre_buildで`git diff`により確実に判定する方式**を採用。パターンは`*.md`および`doc(s)/`配下
+- **対応**: `alphasys`・`alphaexapi`双方の`buildspec.yml`に、`CODEBUILD_WEBHOOK_PREV_COMMIT`とHEADの差分を取り、変更ファイルが全て`.md`終わりまたは`docs?/`配下のみの場合に限り、build/post_buildのdocker build・pushをスキップする処理を追加。前コミットが特定できない場合（webhook経由でない等）は必ず通常ビルドするfail-safe設計
+- ローカルの一時gitリポジトリで、コードのみ・ドキュメントのみ・混在・前コミット不明の4パターンの判定結果を直接検証済み（意図通り動作）
+- alphasys側PR: feature/skip-build-docs-only-push（本ブランチ）、alphaexapi側PR #82
+- 実際のCodeBuildでの動作確認（ドキュメントのみのpushでビルドがスキップされること）はユーザー側で実施
+
+## 2026-10-09 alphasys課題表への追加項目を確認、検討不要な項目を実装
+
+ユーザーより「alphasys課題にいくつか追加しました。検討不要で対応できるものを教えてください」との依頼。追加されたID（1_1_4, 3_1_6〜3_1_9, 3_2_1, 3_2_2, 3_3_1）を確認し、以下の通り整理:
+
+- **検討不要で対応可能**: 1_1_4, 3_1_6, 3_1_7, 3_1_8（EXP/FB削除のみ）, 3_1_9, 3_2_1
+- **既存方針により保留**: 3_2_2・3_3_1（「項目が間延びしている」。従来の合意通り機能的な問題ではないため保留のまま）
+
+**承認**: 対応可能な項目をまとめて実装することで確定（ユーザーが「対応できるものを進めてください」と回答）。
+
+- **1_1_4**: 取引先一覧のデフォルト表示を「稼働中のみ」に変更（`CustomerTable.tsx`の初期値）。並び順を取引先番号の昇順に変更（`customer.repository.ts`の`getCustomer`の`orderBy`を`desc`→`asc`）
+- **3_1_6**: 請求一覧の明細テーブルで契約名を左寄せにし、列幅を再配分（金額列が相対的に大きすぎたため縮小し契約名列を拡大）
+- **3_1_7**: 請求一覧の明細テーブルに行末の操作メニュー（編集・削除）を追加。取引先一覧の`CustomerRowActions`と同じパターンで`BillRowActions.tsx`・`delete-bill.action.ts`を新設
+- **3_1_8**: 請求一覧右上のEXP・FBボタンを削除（MFC請求書・MFC債務支払はご記載の通り仕様保留のまま据え置き）
+- **3_1_9**: 請求一覧の明細テーブルの契約名にリンクを設定し、契約情報画面（`/sales/contract/edit/{contractNo}`）へ遷移するようにした。`contractNo`を`bill.repository.ts`のSELECTから`BillListTableDto`まで一連のDTOに追加して配線
+- **3_2_1**: 請求編集画面の画面名を「請求情報」に変更
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-09 alphasys課題3_1_10・3_1_11を追加実装（PR ＃203、同一ブランチへの追加コミット）
+
+ユーザーがPR #203を実機（ローカルブランチ切り替え）で確認。あわせて課題表に3_1_10・3_1_11を追加。
+
+- **3_1_10**: 請求一覧のデフォルト請求年月が当月になっている。前月にしたい
+- **3_1_11**: 請求一覧から請求情報へ飛び、取消で戻ると、以前に表示していた一覧に戻らない（デフォルト月に戻ってしまう）
+
+いずれも検討不要で対応可能と判断し、まとめて実装:
+
+- **3_1_10**: `/sales/bill`のデフォルト年月を、現在月（`now`から算出）から`lastMonthYYYYMM()`（既存ヘルパー）に変更（`page.tsx`・`invoices-container.tsx`）
+- **3_1_11**: 請求一覧の検索条件（年月・区分・取引先）は、一覧画面自体のURLには反映されない設計（クライアント状態のみ）のため、請求情報画面への遷移時にクエリとして明示的に持ち回る方式で対応
+  - 一覧側: 行クリック・行末メニューの「編集」いずれも、`/sales/bill/edit/{billNo}?month=...&type=...&customerNo=...`に現在の検索状態を付与して遷移するよう変更（`columns.tsx`を`getColumns(returnQuery)`関数に変更、`BillRowActions`に`returnQuery`を追加）
+  - 請求情報側: 遷移時のクエリを`backToListUrl`として「取消」リンクに設定。保存・削除時のサーバーアクションも、フォームに`returnMonth`/`returnType`/`returnCustomerNo`の隠しフィールドを追加して同じURLへ`redirect`するよう修正（取消だけでなく保存・削除後も同じ一覧状態に戻るようにした）
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-09 3_1_11の残バグ修正: 仕入で検索後に戻ると売上に戻ってしまう不具合（PR ＃203、同一ブランチへの追加コミット）
+
+ユーザーより、3_1_11の対応後も「最初の検索が仕入の場合、請求情報から戻ると売上で再検索されている」との報告。
+
+調査したところ、`/sales/bill`のpage.tsx自体が`type`クエリパラメータを一切読み取っておらず、`getBills(month, "売上", customerNo)`と区分を常に"売上"にハードコードしていたことが原因と判明（前回の3_1_11対応では、請求情報側からのクエリに`type`を含めて戻すところまでは実装したが、戻り先の`/sales/bill`側がそのクエリを無視する作りだったため、仕入の場合だけ症状が残っていた）。
+
+- **対応**: `page.tsx`が`type`クエリパラメータ（`"仕入"`のみ特別扱い、それ以外は`"売上"`）を読み取り、`getBills`へ渡すよう修正。`InvoiceContainer`に`initType`propを追加し、クライアント側の初期状態にも反映されるようにした
+- 変更後、`tsc --noEmit`・`eslint`・`jest`（16 suites / 126 tests pass）・`next build`で回帰が無いことを確認済み
+
+## 2026-10-09 3_1_12は方式検討のためalphasystemへ、間延びは後日一律対応の方針を確認
+
+ユーザーより、課題表に追加した3_1_12（請求一覧: MFC請求書・MFC債務支払ボタンの実装）について、方式検討が必要なため**alphasystemプロジェクトで検討した後、結果をalphasysへ連携する**とのこと。alphasys側では現時点では着手しない。
+
+あわせて、各画面に散在する「項目が間延びしている」系の項目（1_2_1, 2_1_5, 2_2_1, 2_3_1, 2_4_1, 3_2_2, 3_3_1等）は**後でまとめて一律対応する**方針を確認。ユーザーが対応を決めたタイミングで、alphasys課題に追記のうえ改めて依頼する、とのこと。それまでは現状維持（保留）で待機する。
