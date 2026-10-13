@@ -72,3 +72,65 @@
 - 実施内容: (1) `alphadb-publish`（CodeBuild）で 0.1.0 を publish（CodeArtifact に 0.0.1 / 0.1.0 / 1.0.0 が存在）→ (2) `staging-prisma-merge-project-build`（CodeBuild。CDK の BuildTrigger と同じ。alphadb `main` から `prisma migrate deploy`）でマイグレーション `20261008120000_add_contract_customer_no` を適用（既存 6,337 契約が全件 NOT NULL）→ (3) `nightly/deploy.sh` で Bastion に新SQLを配布 → (4) 手動で1回実行（再投入）= `RESULT: SUCCESS`・`check ok`。
 - 結果（集計）: 受注契約 2,927 件は全件プロジェクトの取引先と一致、発注契約 3,410 件は全件プロジェクトと相違（発注先）。Track1 の `alp_sales_email`（740 件）は保持。
 - 影響: ステージングの alphasys（alphadb 0.0.1 使用）は、契約の**新規作成が NOT NULL 違反で失敗**する（`customer_no` を渡していないため）。alphasys を 0.1.0 に更新し、契約の追加・編集で取引先を扱うまで解消しない（alphasys のセッションで実施）。
+
+## 2026-10-13 MFクラウド連動 alphadb側スキーマ追加の方針確定
+
+- 発端: alphasystem の仕様（`alphasystem/docs/design/2026-10-09-MFクラウド連動-仕様.md`、前提のタスク0仕様 `2026-07-27-task0-mf-api-foundation-spec.md`）のうち alphadb 担当分の検討依頼。完了後に alphasys/alphaexapi へ修正依頼予定とのこと。
+- 現状確認: 前提1「契約への取引先追加」は実装済み（PR #60/#61/#62、ステージング反映済み）。前提2「タスク0（MfOauthToken/MfLink）」は 2026-07-27 に実装計画まで書かれていたが、**alphadb・alphaexapi・alphasys いずれにも未着手**（該当PR/ブランチなし、schema.prismaにMf*定義なし）と判明。
+- 承認（ユーザー回答）:
+  1. **PRは2つに分ける**（既存計画通り）。まずタスク0分（`MfOauthToken`/`MfLink`/`MfProduct`/`MfEntityType`/`MfSyncStatus`）のPRを作り、その後に7章分（`MfJob`/`MfJobDetail`/`MfJobType`/`MfJobStatus`/`MfJobDetailResult`）のPRを作る。
+  2. `MfJobDetail.contractNo` / `customerNo` は Contract/Customer への正式リレーションを張らず、`SalesEmail.suggestedContractNo` と同様の**緩い参照**（Int型のみ、リレーションなし）にする。
+- 着手: `feature/add-mf-integration-schema` ブランチ（staging起点）で `MfOauthToken`/`MfLink` と関連3 enumを `schema.prisma` に追加し `prisma validate` 成功を確認。マイグレーションSQL生成（`prisma migrate diff`、DB接続不要な方式）を試みたところ、ローカル `.env` の接続先（`localhost:5434` の `track1_dev`）が未起動で、起動中の docker コンテナ（`pgsql_db`, port 5432）には alphadb 用DBが存在しないことが判明。ユーザーがコンテナ状況を確認中のため作業中断（**マイグレーションSQLファイルは未生成、schema.prismaの変更はコミット前**）。
+
+## 2026-10-13 MFクラウド連動 alphadb側スキーマ追加の方針確定と実装
+
+- 発端: alphasystem の仕様（`alphasystem/docs/design/2026-10-09-MFクラウド連動-仕様.md`、前提のタスク0仕様 `2026-07-27-task0-mf-api-foundation-spec.md`）のうち alphadb 担当分の検討依頼。完了後に alphasys/alphaexapi へ修正依頼予定とのこと。
+- 現状確認: 前提1「契約への取引先追加」は実装済み（PR #60/#61/#62、ステージング反映済み）。前提2「タスク0（MfOauthToken/MfLink）」は 2026-07-27 に実装計画まで書かれていたが、**alphadb・alphaexapi・alphasys いずれにも未着手**（該当PR/ブランチなし、schema.prismaにMf*定義なし）と判明。
+- 承認（ユーザー回答）:
+  1. **PRは2つに分ける**（既存計画通り）。まずタスク0分（`MfOauthToken`/`MfLink`/`MfProduct`/`MfEntityType`/`MfSyncStatus`）のPRを作り、その後に7章分（`MfJob`/`MfJobDetail`/`MfJobType`/`MfJobStatus`/`MfJobDetailResult`）のPRを作る。
+  2. `MfJobDetail.contractNo` / `customerNo` は Contract/Customer への正式リレーションを張らず、`SalesEmail.suggestedContractNo` と同様の**緩い参照**（Int型のみ、リレーションなし）にする。
+- ローカルDB: ユーザーがdockerコンテナを新システム用（`alphaexapi-postgres-1`, postgres:16, port 5432, db `alphasys`）に変更。`.env` をこれに合わせて修正（`postgresql://postgres:postgres@localhost:5432/alphasys`）。既存7マイグレーション適用済みで健全なことを確認。
+- 実装・PR作成:
+  - PR #64（タスク0: `MfOauthToken`/`MfLink`、`feature/add-mf-integration-schema`、base: staging）。`prisma migrate dev`で実際にローカルDBへ適用し、生成Prisma Clientの型（`prisma.mfOauthToken`/`prisma.mfLink`、複合ユニーク名`entityType_localId_mfProduct`）を確認、`npm test`通過。
+  - PR #65（7章: `MfJob`/`MfJobDetail`、`feature/add-mf-job-schema`、base: staging、PR #64とは独立・依存なし）。このブランチはPR #64のマイグレーションを含まないため、ローカル共有DBとの履歴不整合（ドリフト）を避ける目的で、一時シャドウDB（`alphadb_shadow_tmp`。生成後に削除済み）を使った`prisma migrate diff`でSQLのみ生成し、実DBには未適用（型確認は`prisma generate`のみで実施）。
+  - 両PRとも `prisma/doc/table_design.md` ＋ `prisma/doc/tables/alp_mf_*.md` を同時更新。既存テーブルへの`ALTER`/`DROP`は含まれない（追加のみ）ことを確認済み。
+- 残作業: PR #64→#65の順でユーザーがレビュー・マージ。マージ後、ステージングDBへのマイグレーション適用・publishの要否・手順は契約取引先追加（2026-10-08）と同様の流れになる見込み（実施前に確認）。alphasys/alphaexapiへの修正依頼は、このalphadb対応の完了後にユーザーが行う予定。
+
+## 2026-10-13 PR ＃64/＃65 マージ時のコンフリクトでschema.prismaが破損（発見・修正）
+
+- ユーザーがPR #64・#65を`staging`へマージ。コンフリクトが発生したため手動で解消。
+- 確認を依頼され、`prisma validate`を実行したところ `P1012` エラーでパース不能と判明。原因は手動マージで `enum MfJobDetailResult` の閉じ括弧 `}` が1つ欠落していたこと。それ以外（`MfOauthToken`/`MfLink`/`MfJob`/`MfJobDetail`とその enum、`table_design.md`の一覧27-30、`tables/alp_mf_*.md`の4ファイル、マイグレーション2本）は欠落・重複なく正しくマージされていた。コンフリクトマーカーの残存もリポジトリ全体でなし。
+- 修正をDraft PR #67（`fix/mf-job-detail-result-missing-brace`、base: staging）として作成。`prisma validate`/`prisma format --check`/`npm test`すべて通過。ユーザーのレビュー・マージ待ち。
+- 教訓: Prismaスキーマのコンフリクト解消後は`prisma validate`で必ず構文確認する（今回のように壊れていてもGit上は「コンフリクト解消済み」に見えてしまうため）。
+
+## 2026-10-13 PR ＃67マージとバージョンアップ（0.2.1）の指示
+
+- ユーザーがPR #67（schema.prisma破損修正）を`staging`へマージ。
+- 承認: publish用のバージョンを**0.2.1**にする、とユーザーが指定（現在CodeArtifact公開済みは`0.0.1`/`0.1.0`/`1.0.0`、`latest`タグは`0.1.0`。package.json側も`0.1.0`で一致）。
+- 対応: `package.json`/`package-lock.json`の`version`を`0.1.0`→`0.2.1`に変更し、Draft PR #69（`chore/bump-version-0.2.1`、base: staging）を作成。マージ後は`alphadb-publish`（CodeBuild）での publish が必要（未実施）。
+
+## 2026-10-13 MFクラウド連動 alphadb側対応の完了
+
+- ユーザーがPR #69（`staging`）とPR #70（`staging`→`main`）をマージ。`alphadb-publish`・`staging-prisma-merge-project-build`（どちらもwebhook無し・手動起動）を実行完了。
+- CodeArtifact上で`0.2.1`が`Published`・`latest`になっていることを確認（`0.0.1`/`0.1.0`/`0.2.1`/`1.0.0`が存在）。
+- **alphadb側の作業はここで終了**。以降はalphasys/alphaexapi側のセッションで、`package.json`の`alphadb`依存を`0.2.1`に上げてからの作業（MF APIクライアント・OAuth基盤・ジョブ実行状態の活用等）を継続する。
+
+## 2026-10-13 MfLink — 新規作成待ち・対象外の状態を表現する方式を決定
+
+- 発端: alphasystem仕様3.6章「継続的な新規取引先の扱い」で、alphaexapiセッション側が
+  `MfLink.mfId`必須のため「担当者が新規作成を承認したがまだMF側IDが無い」状態を
+  表現できないと判明。alphadb側セッションで検討依頼。
+- 整理: 担当者の3設定（新規作成/更新/対象外）のうち、**「更新」は既存`MfLink`行の
+  `syncStatus`を`PENDING`に戻すだけでスキーマ変更不要**と判明。論点は「新規作成待ち」
+  「対象外」の2状態をどう永続化するかに絞られた。
+- 提示した2案: (A) `MfLink`を拡張（`mfId`をNULL許容＋`EXCLUDED`状態追加）/ (B) 担当者の
+  設定を別テーブル（`MfJob`/`MfJobDetail`と同様に「事実とログを分ける」設計）に分離。
+- **承認（ユーザー回答）: A案を採用**。実利用者（alphaexapi実装）がまだ無いため
+  NOT NULL緩和のリスクは小さい、という理由。
+- 実装: `MfLink.mfId`を`String?`に変更、`MfSyncStatus`に`EXCLUDED`を追加。
+  バージョンは当初ユーザー指定の`0.1.3`から、**公開済み最新`0.2.1`より古くlatestタグが
+  後退するリスクを指摘し、ユーザーが`0.2.2`に訂正**。Draft PR #73（base: staging）を作成。
+- ユーザーがPR #73（`staging`）とPR #74（`staging`→`main`）をマージ、`alphadb-publish`・
+  `staging-prisma-merge-project-build`を実行完了。CodeArtifactで`0.2.2`が`Published`・
+  `latest`になっていること、`staging`/`main`の同期・`prisma validate`/`npm test`正常・
+  コンフリクト破損無しを確認。**alphadb側の対応完了**。
