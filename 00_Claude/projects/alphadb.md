@@ -134,3 +134,38 @@
   `staging-prisma-merge-project-build`を実行完了。CodeArtifactで`0.2.2`が`Published`・
   `latest`になっていること、`staging`/`main`の同期・`prisma validate`/`npm test`正常・
   コンフリクト破損無しを確認。**alphadb側の対応完了**。
+
+## 2026-10-15 Contract「入金予定日」のテーブル設計もれが発覚
+
+- ユーザーが旧システムの契約情報修正画面のスクリーンショットから指摘。`alp_contract`に
+  「入金予定日」（数値項目）があるが、alphadbの`Contract`モデル・`alp_contract.md`・
+  夜間移行`extract.sql`のいずれにも存在しないことを確認（スキーマ設計のもれ）。
+- 業務ルール: `0` = 翌月末日、`0以外` = 翌々月の該当日（最大で翌々月末日）。
+- 旧システム側の列名は**`scheduled_payment_date`（int型）**とユーザーが確認・回答。
+- 提案した対応方針（ユーザーの最終承認は未取得・提示直後）: `Contract.scheduledPaymentDate`
+  （nullable想定）を追加し、`alp_contract.md`に業務ルールを記載、夜間移行の`extract.sql`/
+  `load.sql`に列を追加（`verify.sql`/`check.sql`は他の非FK数値列と同様、個別チェックは
+  追加しない）。スコープはalphadb側まで（alphasys側の画面実装は別セッション）。
+- ユーザーが提案方針を承認しDraft PR #77（記録のみ）をマージ。「実装をお願いします」との
+  指示を受け実装・Draft PR #78（base: staging）を作成。publishバージョンは
+  ユーザーに確認のうえ**0.2.3**（公開済み最新0.2.2の次）に決定。
+- ユーザーがPR #78（`staging`）とPR #79（`staging`→`main`）をマージ、`alphadb-publish`・
+  `staging-prisma-merge-project-build`を実行完了。CodeArtifactで`0.2.3`が`Published`・
+  `latest`になっていること、`staging`/`main`の同期・`prisma validate`/`npm test`正常・
+  コンフリクト破損無しを確認。**alphadb側の対応完了**。
+
+## 2026-10-16 MFクラウド連動 CSV経路追加（alphadbスキーマ対応）
+
+- 発端: alphasystemの仕様書に「2.4 CSV経路（移行期間中の並行経路）」「7.1 CSV経路の扱い」
+  が2026-10-16付けで追加され、現行システム（alphaofficesystem）の手動CSV連携をAPI経路とは
+  別のトリガーとして実装しつつ、実行履歴は既存の`MfJob`/`MfJobDetail`で一元管理する方針と
+  判明。alphadb側の対応が必要と確認し、ユーザーに修正依頼。
+- 提案方針: enum `MfJobSource`（API/CSV）・`MfUploadMode`（NEW/ADD）を新設し、`MfJob`に
+  `source`（既定値API）・`uploadMode`・`deletedCount`を追加。`MfJobDetail`/`MfLink`/
+  `MfOauthToken`は変更なし。
+- 承認: ユーザーが方針とバージョン**0.2.4**（公開済み最新0.2.3の次）を承認。
+- 実装: `feature/add-mf-job-source-and-upload-mode`ブランチで実装、Draft PR #82（base:
+  staging）を作成。`prisma validate`・型チェック（API経路のデフォルト動作／CSV経路の
+  NEWモード指定）・`npm test`で確認済み。既存テーブルへの変更は列追加のみ。
+- 併せて、CLAUDE.mdの新ルール（ベースブランチにマージ済みのローカルブランチは新規ブランチ
+  作成時に削除する）に従い、マージ済みローカルブランチ18本を削除。

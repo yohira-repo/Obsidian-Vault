@@ -429,3 +429,129 @@ alphasystemプロジェクトのセッションで、設計バグ（契約が取
 - **画面構成・UIの検討はalphasys側で行う方針**（ユーザー確認済み）。本依頼はAPI契約のハンドオフのみ
 - 前提として`alphadb`を`0.2.2`以降に上げる必要があり、package.json/package-lock.jsonを合わせて更新（本ブランチに含む）
 - `INVOICE_SEND`等の実業務ロジック（Plan C/D）はalphaexapi側で未着手のため、該当ジョブ種別は起動すると必ず失敗する。画面を出すかどうかはalphasys側の判断に委ねる
+
+## 2026-10-14 MFクラウド連動: alphasys側UI検討（brainstorming、方針確定分）
+
+上記API契約を受けて、alphasys側のUI検討をbrainstormingで実施。検討順は「1. 請求一覧画面の送信/取込まわり → 2. 取引先確認・設定画面 → 3. 管理者画面のMF認可ボタン」の順と確認。以下、ユーザー確認済みの方針（詳細設計はdocs/superpowers/specs配下に別途まとめる）。
+
+- **請求一覧画面（`/sales/bill`）**: 現在ダミーリンクの「MFC請求書」「MFC債務支払」ボタンを、**「月次送信」「月次取込」**に名称変更し、それぞれ`POST /jobs/send`・`POST /jobs/import`を叩く本実装に差し替える
+- **実行状況の確認は請求一覧画面にインライン表示せず、既存の「バッチ共通処理」（`/common`、現状空のプレースホルダ）配下に新設するサブメニューで見る**方針。ボタン押下直後は請求一覧画面上でトースト表示＋「バッチ共通処理」へのリンクを出す形（自動遷移はしない）
+- 「バッチ共通処理 > MF実行状況」画面のジョブ一覧は、**送信チェーン（CUSTOMER_SYNC→INVOICE_SEND→PAYABLE_SEND）／取込チェーン（INVOICE_IMPORT→PAYABLE_IMPORT）の2グループ表示**とする（フラットな5種別1テーブルは不採用）
+- 失敗・警告件の明細確認（`GET /jobs/:jobId/details`）は**モーダル（ダイアログ）で開く**方式とする（別ページ遷移は不採用）
+- MF取引先照合・設定画面（`customer-sync/candidates` API用、新規画面）は、**既存の「取引先管理」のサブメニューに追加**する方針（「バッチ共通処理」配下への集約は不採用）
+
+続けて以下3点も承認（OK）:
+
+- MF実行状況画面で、`RUNNING`かつ`startedAt`から**60分以上経過**している行には「⚠ 応答なし？要確認」タグを追加する（API契約書記載の既知の制約への対応。必須ではないが採用する）
+- MF取引先照合・設定画面の各操作（新規作成/更新する/対象外/取り消し）は、**確認モーダルなしの即時反映＋トースト**とする（`PENDING`は`CANCEL`でいつでも取り消せるため軽量操作として扱う）
+- 管理者画面のMF認可ボタン（請求書/債務支払）は、クリックで**別タブ**を開く
+
+上記方針に基づき、設計書`docs/superpowers/specs/2026-10-14-MFクラウド連動-UI設計.md`を作成し、`feature/mf-cloud-integration-api-contract`ブランチにコミット済み（コミット`76c834f`）。
+
+ユーザーより設計書の内容に**問題なし、実装計画の作成に進んでよい**との承認を得た。次はwriting-plansスキルで実装計画を作成する。
+
+## 2026-10-14 MFクラウド連動UI: ブランチ誤り（staging直コミット）を是正しPR ＃209作成
+
+実装計画（subagent-driven-development、12タスク）の実行中、作業ディレクトリのブランチが`feature/mf-cloud-integration-api-contract`から`staging`へ外部要因（PR #208のマージ後、ユーザー側でローカルを`staging`へcheckout＋pullしたものと推測）で切り替わっていたことに気づかないまま、設計書確定コミット以降の18コミット（設計書・計画書・実装12タスク分）を誤って`staging`ブランチ直下にコミットしていた。
+
+- **是正内容**: 誤コミット時点ではまだ`origin/staging`へpushされていなかったため、安全に是正可能と判断。18コミットの先頭（`aa03762`）を指す新ブランチ`feature/mf-cloud-integration-ui`を作成し、ローカル`staging`を`origin/staging`（`e3e6c83`）へ`git branch -f`でリセット。pushしていない範囲のみの操作であり、共有履歴の書き換えは発生していない
+- `feature/mf-cloud-integration-ui`をpushし、base=`staging`でDraft PR [#209](https://github.com/alphacmc/alphasys/pull/209)を作成（ユーザー承認待ちのdraftのまま）
+- 教訓: 長時間のセッション中に外部（ユーザー自身のIDE操作等）でブランチが切り替わりうる。今後、まとまった単位でコミットする前に`git branch --show-current`を確認する
+
+## 2026-10-14 MFクラウド連動UI: 最終全体レビューの指摘2点を承認
+
+全12タスク完了後の最終全体レビュー（opus）で、設計書/実装計画自体に起因する仕様上の抜けが2点見つかり、ユーザーに確認した。
+
+- **MF取引先照合・設定画面の「対象外にする」(EXCLUDE)ボタン欠落**: API契約上「任意の状態で対象外にできる」はずが、状態ごとに1ボタンのみ表示する設計にしたため実装から漏れていた。→ **今回追加する**ことで承認
+- **MF実行状況・取引先照合画面のGET系一覧取得アクション**: 失敗時にconsole.errorのみで空配列を返す設計のため、「未実行/対象なし」と「API障害で取得失敗」が画面上区別できない問題。→ **エラー表示を追加する**ことで承認
+
+このほかCritical 1件（tscの型エラー）、Important数件（/commonがmiddlewareの認証対象外、再実行成功後に一覧が更新されずポーリングが始まらない、サーバーアクションのパラメータ未検証、日時がISO生文字列表示、取引先照合画面でproduct切替時のレースコンディション）は、設計との矛盾ではない純粋なバグ・改善のため、ユーザー確認なしで修正する方針とした。
+
+## 2026-10-14 MFクラウド連動UI: 全12タスク完了、Draft PR ＃209作成済み
+
+subagent-driven-developmentで実装計画の全12タスクを完了。各タスクをサブエージェントが実装→別のサブエージェントがスペック準拠・品質をレビュー→指摘があれば同じ実装エージェントが修正→再レビュー、のサイクルで進めた（Task 8で動的importの却下、Task 9でモーダルのデータ競合修正など複数ラウンドのやり取りあり）。
+
+- 最終全体レビュー（opus）で見つかった指摘（Critical 2件・Important 6件）はユーザー承認の2点を含め全て修正し、さらに修正自体の再レビューで1件のリグレッション（product切替失敗時の操作ボタン誤有効化）を検出・修正。最終的に「Ready to merge: Yes」の判定
+- テスト全件グリーン（32 suites / 194 passed, 2 skipped）、`tsc --noEmit`・`npm run build`も確認済み
+- ブランチ`feature/mf-cloud-integration-ui`をpush、base=`staging`でDraft PR [#209](https://github.com/alphacmc/alphasys/pull/209)を作成済み。**Draftの解除・マージはユーザーが行う**（ユーザー方針通り）
+- 残課題として、`src/app/sales/bill/page.tsx`の既存`confirmAdmin()`（ADMIN限定）と、今回追加した経理担当者向けボタンとの権限不整合の可能性をユーザーに再度報告済み（本ブランチ以前からの既存挙動で未解決のまま）。また、実機（devサーバー）での目視確認は未実施
+
+ユーザーがPR #209をマージ。ローカルの`staging`を`origin/staging`へ更新し、マージ済みのローカルブランチ`feature/mf-cloud-integration-ui`を削除（リモートブランチはマージ時に自動削除済み）。
+
+**未解決のまま残っている点**（次回以降フォローが必要）:
+- `confirmAdmin()`の権限不整合（上記）
+- 実機での目視確認（ポーリング・再実行・明細モーダル等）
+- 最終レビューで指摘されたMinor項目（MfJobsContainerの月切替時の同種レース、SSR初回ロード失敗時の無表示、eslint-disable、isPendingのoptional化等）は意図的に今回スコープ外のまま
+
+## 2026-10-14 MFクラウド連動UI: 月次送信/取込ボタンの配置を方針転換（請求一覧→バッチ共通処理）
+
+PR #209マージ後、ユーザーより「MFC請求書、MFC債務支払ボタンの実装は、トップ画面（請求一覧）ではなくバッチ共通のメニュボタンとしてください」との方針変更の指示。
+
+- 確認の結果、**既存の「MF実行状況」画面（`/common/mf-jobs`）の上部に「月次送信」「月次取込」ボタンを統合する**方針で承認（別画面として新設する案は不採用）
+- 請求一覧画面（`/sales/bill`）からは当該ボタンを完全撤去する
+- 実装方針（ファイル移動: `MfJobTriggerButtons.tsx`・`trigger-mf-job.action.ts`を`sales/bill`配下から`common/mf-jobs`配下へ、実行成功時はトースト+リンクではなく即時一覧再取得に変更）を提示し、ユーザーの最終確認待ち。着手時は`staging`から新規`feature/xxx`ブランチを作成する
+
+ユーザーより上記実装方針（請求一覧からボタン撤去、MF実行状況画面へ統合、ファイル移動）で**承認**を得た。着手する。
+
+実装完了。請求一覧からボタンを撤去し、MF実行状況画面へ統合（ファイル移動含む）。テスト全件グリーン・tsc・buildも確認済み。ブランチ`feature/move-mf-trigger-buttons-to-batch-menu`をpushし、base=`staging`でDraft PR [#211](https://github.com/alphacmc/alphasys/pull/211)を作成。
+
+ユーザーがPR #211をマージ。staging/ブランチ整理済み。
+
+## 2026-10-14 MFクラウド連動UI: MF認可ボタンの配置とバッチ共通処理の権限方針を確認
+
+ユーザーより、PR #211で`/admin`に残していた「MF認可（請求書）」「MF認可（債務支払）」ボタンについても「バッチ共通側へ移動をお願いしたはず」との指摘。あわせて以下の重要な方針を確認:
+
+- **ログイン後のトップ画面（`/admin`等）はポータル画面としてまだ未決定**であり、機能固有のボタンを置く前提がそもそも無い
+- **「バッチ共通処理」（`/common`配下）自体がADMIN専用**という方針。これにより、以前から残っていた疑問点（`src/app/sales/bill/page.tsx`の`confirmAdmin()`と経理担当者向けボタンの権限不整合の懸念）とは別に、`/common`配下（MF実行状況画面等）はそもそも経理担当者ではなくADMIN権限者が使う前提であることが判明
+
+これを受け、以下3点の実装方針を提示し、ユーザーの最終確認待ち:
+1. 「MF認可」ボタンを`/admin`から`/common/mf-jobs`（MF実行状況画面）へ移動
+2. `/common`配下全体をADMIN限定にする権限チェックを`src/middleware.ts`に追加（`/admin`と同様の方式）
+3. `/admin`画面から「MFクラウド連携」セクションを完全撤去し、`ProvisionalScreenNotice`のみに戻す
+
+実装完了。MF認可ボタンを/common/mf-jobsへ移動し、/adminをProvisionalScreenNoticeのみに戻し、middleware.tsで/common配下をADMIN限定化。テスト全件グリーン・tsc・buildも確認済み。ブランチ`feature/mf-auth-to-batch-admin-only`をpushし、base=`staging`でDraft PR [#213](https://github.com/alphacmc/alphasys/pull/213)を作成。
+
+ユーザーより「部門管理（/division）、社員情報管理（/manager）もADMIN専用」との情報提供あり。現状確認したところ、/divisionはログインチェックのみでADMIN限定チェックは無く、/managerはmiddlewareのmatcher自体に含まれておらずログインチェックすら無い状態。今回のPRのスコープには含めず、別途対応要否をユーザーに確認する。
+
+## 2026-10-14 バッチ共通処理トップ画面（/common）が未着手のダミーのまま、という指摘
+
+ユーザーより「バッチ共通画面イメージができてない」との指摘。確認した結果、`/common`（バッチ共通処理のトップ、業務メニューの親リンク先）が、今回一連のMF実装では一切手を入れておらず、元のダミー文言「これはバッチ共通処理のダミー画面です」のままであることが判明。子画面「MF実行状況」（`/common/mf-jobs`）は作り込まれているが、親画面だけ放置されている状態。
+
+既存の`/sales`トップページが`redirect("/sales/customer")`で主要な子画面へリダイレクトする構成になっているのと同じパターンで`/common`も`/common/mf-jobs`へリダイレクトする案を提示し、ユーザーの確認待ち。
+
+ユーザーより「バッチ処理は今後いくつか増えるので、他の処理同様、左メニュー方式で統一したい」との方針確認。既存の`manager/page.tsx`（`BusinessNav`+`Title`+`confirmAdmin()`）と同じパターンに統一する形で実装し、ブランチ`feature/common-top-page-left-menu`をpush、base=`staging`でDraft PR [#215](https://github.com/alphacmc/alphasys/pull/215)を作成。テスト全件グリーン・tsc・buildも確認済み。
+
+## 2026-10-15 MFクラウド連携（認可）を独立した左メニュー項目に分離
+
+ユーザーがPR #215をマージ。続けて「MF実行状況画面にあるMFクラウド連携（認可）ボタンを左メニューに独立させてほしい。MFクラウド連携（認可）画面は2つのボタンのみ」との指示。
+
+- `MfOauthLinks`コンポーネントを`/common/mf-jobs`配下から新設`/common/mf-oauth`配下へ移動し、専用ページ化
+- バッチ共通処理の左メニューに「MFクラウド連携（認可）」項目を追加（`src/config/menu.ts`）
+- MF実行状況画面からは認可セクションを除去し、実行状況の表示に専念する構成に戻した
+
+ブランチ`feature/mf-oauth-independent-menu`をpush、base=`staging`でDraft PR [#217](https://github.com/alphacmc/alphasys/pull/217)を作成。テスト全件グリーン・tsc・buildも確認済み。
+
+PR #217マージ済みとの報告を受けた後、ユーザーから実機スクリーンショットで「MFクラウド連携（認可）」画面の見出し重複（PageHeaderのTitleとMfOauthLinks内部のh2が両方表示）の指摘。マージ済みPRのブランチには追加コミットせず、ルール通りstagingから新規ブランチ`feature/mf-oauth-remove-duplicate-heading`を作成し修正。Draft PR [#219](https://github.com/alphacmc/alphasys/pull/219)を作成。テスト全件グリーン・tsc・buildも確認済み。
+
+## 2026-10-15 契約情報画面に入金予定日（Contract.scheduledPaymentDate）を追加
+
+ユーザーより、alphadb側で追加されたContract.scheduledPaymentDate（alphadb conversations.md「2026-10-15 Contract「入金予定日」のテーブル設計もれが発覚」参照）を、旧システムのスクリーンショットを参考にalphasysの契約情報修正画面へ反映する依頼。
+
+- 業務ルール: 0=翌月末日、0以外=翌々月の該当日（最大で翌々月末日）
+- ユーザー指示: 空欄は作らず、デフォルト0とする
+- alphadbを^0.2.3へ更新、ContractData/EditContractDataに項目追加、編集フォームに入力欄追加（0〜31の整数バリデーション、既存のcontEarnings入力欄と同じパターン踏襲）、生SQLに列追加
+- このディレクトリ配下に既存テストが無いため新規テストは追加せず
+
+作業中、`npm install alphadb@0.2.3`後に`@next/swc-darwin-arm64`のネイティブバイナリ(.nodeファイル)が欠落しjestが動かなくなる問題が発生。`rm -rf node_modules/@next/swc-darwin-arm64 && npm install`で復旧（原因不明、環境側の問題とみられる）。また、CodeArtifact経由のnpm操作全般（install/postinstallのprisma generate等）には`CODEARTIFACT_AUTH_TOKEN`環境変数のexportが毎回必要（1回のBashコマンド内でのみ有効、シェル状態は永続化されないため）。
+
+ブランチ`feature/contract-scheduled-payment-date`をpush、base=`staging`でDraft PR [#221](https://github.com/alphacmc/alphasys/pull/221)を作成。テスト全件グリーン・tsc・buildも確認済み。
+
+## 2026-10-15 契約追加画面にも入金予定日を追加、誤ってstagingへ直接push→revertで是正
+
+PR #221マージ後、ユーザーより「契約追加画面にも追加してください」との依頼。契約追加（entry画面`AddContractInfo.tsx`→確認画面`ConfirmContractInfo.tsx`、zustandストア経由）フローに`scheduledPaymentDate`を同様に反映する作業を実施。
+
+**作業中の事故と是正**: featureブランチを作成し忘れ、変更一式を直接`staging`へコミット・push（`9f60db8`）してしまった。このリポジトリはブランチ保護が無効（GitHub Freeプランのため有効化不可）で、pushがそのまま通った。ユーザーに即座に報告し、承認を得たうえで`git revert`（`01f4e0e`、force-pushなし・履歴改変なし）でstagingを是正。その後、正しくfeatureブランチ`feature/add-contract-scheduled-payment-date`を作成し、revertをrevertする形（`0a313b3`）で変更を再適用、Draft PR [#223](https://github.com/alphacmc/alphasys/pull/223)を作成した。
+
+教訓: このセッション中に同種の「ブランチ切り忘れ→staging直push」が2回発生した（1回目は外部要因でブランチが切り替わっていたことに気づかなかったケース、今回は単純な見落とし）。今後はコミット前に毎回`git branch --show-current`を確認することを徹底する。
+
+ユーザーがPR #223をマージし、実機でも修正を確認済みとの報告。staging/ブランチ整理済み。
