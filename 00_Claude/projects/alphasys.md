@@ -608,3 +608,13 @@ Subagent-Driven Developmentで5タスク全て実装・個別レビュー完了�
 ## 2026-10-17 PR ＃227（CSV連携）マージ完了
 
 ユーザーがPR #227をマージ。請求書・債務支払（INVOICE/PAYABLE）のCSVエクスポート/インポート画面（バッチ共通処理配下「CSV連携」）がstagingに統合完了。ローカルstagingをpullで同期し、マージ済みの`feature/mf-csv-io-ui-design`ブランチは削除済み。
+
+## 2026-10-19 MF給与CSV人件費取込 alphasys側の実装計画を作成
+
+alphasystem-92からの引き継ぎ（設計確定済み: alphasystem `docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md`）を受け、`feature/mf-payroll-csv-import`ブランチでDraft PR [#229](https://github.com/alphacmc/alphasys/pull/229)を作成。
+
+alphasys固有の実装判断（設計書に明記が無かった2点）をユーザーに確認し決定: MF実行状況画面に新チェーン「給与・賞与取込」を追加し、かつ**再実行ボタンは出さない**（推奨案で承認）。alphaexapi-4cへSendMessageで確認したところ、給与・賞与取込はアップロード一時ファイルを保持しない設計のため、alphaexapi側も専用スタブrunnerで「再実行は必ずFAILEDになる」方針で実装するとのことで、alphasys側の判断と整合することを確認。
+
+alphadb-e5からMfJobType（PAYROLL_SALARY_IMPORT/PAYROLL_BONUS_IMPORT）のpublish完了（0.2.5）の連絡を受け、alphasysの`package.json`を更新（コミット`0918cf4`）。確認の結果、alphasysはこのenumをPrisma経由で直接消費しておらず（MF連動は全てalphaexapi経由のREST）、機能的な影響は無いバージョン追従のみと判明。
+
+alphasys実装方針書（`docs/superpowers/specs/2026-10-19-mf給与csv人件費取込-alphasys実装方針.md`）と実装計画（`docs/superpowers/plans/2026-10-19-mf給与csv人件費取込-ui.md`、5タスク構成）を作成・コミット・push済み。実行方式の選択待ち。
