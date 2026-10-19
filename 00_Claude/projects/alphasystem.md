@@ -2630,3 +2630,169 @@ alphaofficesystemの現行CSV連携は、仕様書4.3章（請求書、38列）�
   API経路と実行履歴を一元管理。7.4(二重起動防止)にCSV/API同時実行の論点を追記
 - 10章(未決事項): 「CSV経路の廃止時期・条件」「API経路とCSV経路の同時実行時の扱い」を追加
 - 11章: alphadb/alphaexapi/alphasysそれぞれの作業にCSV経路分を追記
+
+## 2026-10-19 alphasystem セッション開始時に配下プロジェクトの状況一覧を表示する仕組みを導入
+
+- **経緯**: alphasystem は全体調整担当のセッションであり、作業の起点で「各配下プロジェクトが今どのブランチにいて、未コミットや放置ブランチが無いか」を毎回手で確認していた。セッション開始時に自動で一覧表が出るようにしたい、という要望。
+- **方式**: Claude の記憶や CLAUDE.md の指示では「毎回必ず」は保証できないため、Claude Code の **SessionStart フック**で実現する。
+  - [.claude/settings.json](../.claude/settings.json) に SessionStart フック（matcher: `startup|resume|clear`。compact 後は再表示しない）を定義。
+  - 本体は [.claude/hooks/project-status.sh](../.claude/hooks/project-status.sh)（bash のみ、外部依存なし、実行約1秒）。
+  - フックの出力は Claude へのコンテキスト注入になるため、「最初の応答の冒頭でこの表をそのまま表示すること」という指示を付けて渡し、Claude が初回応答で表を出す（既存の `~/.claude/hooks/record/session-start-context.sh` と同じ流儀）。
+- **対象プロジェクトの決め方**: [CLAUDE.md](../CLAUDE.md) の「構成」表の `| 名前 | ../path |`（または `./path`）行をそのまま読む。**対象の追加・削除は CLAUDE.md の表を直すだけでよく、スクリプトは触らない**（二重管理を避けるため、スクリプト内への固定列挙は不採用）。
+- **表示項目（選択結果）**: プロジェクト / ブランチ / 未コミット件数 / 最終コミット（相対日時・日本語） / コミットメッセージ（40文字で切る）。
+  - ブランチ列には補助表示: `⚠upstream消失`（リモートブランチ削除済み＝マージ済みの可能性大。ローカルブランチ掃除ルールの判断材料）、`(未push)`（main/staging 以外で upstream 未設定）。
+  - 未 clone は「未clone」、alphasystem 配下の alphabsmail は「alphasystem内」と表示。
+  - **不採用**: Open PR 一覧（gh 経由で約4秒・ネット必須）、リモートとの ahead/behind（要 fetch で合計7秒前後）。起動のたびに待たされるコストに見合わないと判断。必要なら後から追加できる。
+- **配置先**: alphasystem リポジトリ内（コミット対象）。別PCで clone しても同じ動作になることを優先。ユーザー設定（~/.claude）や settings.local.json はこのPC限定になるため不採用。
+- **実装上の学び**: `set -o pipefail` 下で `locale -a | grep -q` を使うと、grep -q が先に終了して locale -a が SIGPIPE で非0になり、条件分岐が常に偽になる。`grep -q` をやめて `grep ... >/dev/null` にして解決（UTF-8 ロケール未設定だと日本語メッセージの切り詰めが文字の途中で壊れる）。
+- **有効化の注意**: 設定ファイルの監視はセッション開始時に存在した設定ファイルのみ対象のため、このPRをマージ・取り込んだ直後のセッションではフックは発火しない。以後は自動。有効化手順は環境で異なる（2026-10-19 に訂正）:
+  - CLI: `/hooks` を一度開く（設定再読込）か、`/exit` で終了して `claude` を再実行。
+  - VS Code 拡張: `/exit` は無い。コマンドパレットで `Developer: Reload Window` を実行してから、Sessions アイコンの新規作成または `Claude Code: Open in New Tab`（Cmd+Shift+Esc）で新しい会話を始める。読み込み状態は入力欄 `/` → Customize → Hooks で確認できる。
+- **確認済み**: パイプテスト（`echo '{}' | .claude/hooks/project-status.sh`）で9プロジェクト分の表が出力されること、`jq` でフック定義のスキーマ妥当性を確認。
+- **VS Code 拡張での実機確認（2026-10-19 11:10）**: `Developer: Reload Window` 後に始めた新規会話で SessionStart フックが発火し、初回応答の冒頭に表が表示されることを確認した（セッション記録 `~/.claude/projects/-Users-yohira-git-alphasystem/<session-id>.jsonl` に `SessionStart:startup hook success: 以下は alphasystem ...` が記録されている）。一方、フック追加作業を行っていた直前のセッション（10:37 開始）には記録が無く、「開始時に存在した設定のみ読む」仕様どおり。
+  - **「動いていないように見える」理由**: フックの出力は Claude へのコンテキスト注入であり、VS Code の画面上にはフックが走った痕跡が出ない。結果は新規会話の**最初の応答に表が出るか**でしか判別できない。会話を始める前に画面を眺めても何も起きないのは正常。
+  - **切り分け手順**: (1) 新規会話で最初の応答に表が出るか → 出れば正常。(2) 出なければ `/` → Customize → Hooks に SessionStart が載っているか（載っていなければ Reload Window 未反映）。(3) 載っているのに出なければ、該当セッションの jsonl に `SessionStart:startup hook` があるかを grep し、`success` か `error` かでフック側・Claude 側のどちらの問題か判断する。
+
+## 2026-10-19 セッション開始時の状況一覧フックの Windows 対応（調査結果・提案中、承認待ち）
+
+- **経緯**: 上記フック導入後、「Windows 上でも対応できるか」との質問。実機は無いため机上で確認した。
+- **調査結果**: Git for Windows（Git Bash）があれば動かせる。Claude Code のフックは Windows では Git Bash があれば bash、無ければ PowerShell で実行されるため、bash 専用の本スクリプトは Git Bash が前提条件。WSL 上は Linux そのものなので手当て不要。
+- **現状のままだと起きる問題（3点）**:
+  1. `.gitattributes` が無く、Windows 側で `core.autocrlf=true` だと `.sh` が CRLF で checkout され bash が失敗する。`*.sh text eol=lf` の追加が必要（最重要）。
+  2. Git for Windows の `git rev-parse --show-toplevel` は `C:/...` 形式、スクリプト内の `pwd -P` は `/c/...` 形式を返すため比較が一致せず、alphabsmail 行の「alphasystem内」判定がずれる。比較前の正規化が必要。
+  3. `CLAUDE_PROJECT_DIR` がバックスラッシュ区切りで渡る。Git Bash は概ね解釈するが、`cygpath` がある環境では POSIX 形式へ変換する保険を入れたい。
+- **問題にならない点**: `locale`/`sed -E`/`date`/`wc`/`tr`/`grep` は Git Bash に揃っている。配下リポジトリの相対パスは Windows 側も `~/git` 直下に clone してあれば同じ構成で解決できる。
+- **提案（未承認）**: 上記3点を PR #76 に追加修正として入れる（`.gitattributes` 新規追加＋`project-status.sh` のパス正規化数行。Mac 側の挙動は不変）。Windows 実機確認は、Windows 側で `/hooks` を一度開いた後に新しいセッションを始めて表が出るかを見てもらう。
+- **見送り推奨（未決）**: Git Bash 無し環境向けの PowerShell 版スクリプトは二重保守になるため今回は作らない方針を提案。ユーザーの判断待ち。
+
+## 2026-10-19 状況一覧フックの表示方式の見直し（/project-status コマンド案、承認待ち）
+
+- **経緯**: 上記の実機確認後、「Reload Window しても表示されない」との再報告。ユーザーの希望は **「Reload したら何もしなくても表が出る」こと。コマンド発行で表が出る形でも可**。現行方式は「新規会話で何か一言送ると最初の応答に表が出る」までが上限で、希望を満たしていなかった。
+- **調査結果（公式ドキュメント・GitHub Issue）**:
+  - SessionStart フックの出力は Claude へのコンテキスト注入であり、ユーザー画面には出ない。
+  - CLI には `systemMessage`（ユーザーへ直接表示）があるが、**VS Code 拡張は systemMessage / statusMessage を一切描画しない**（未解決バグ Issue #76736、要望 Issue #15344）。しかも systemMessage はプレーンテキスト描画で Markdown 表にならない。
+  - 結論: **「Reload 直後に何もせず表が出る」は VS Code 拡張では現時点で実現不可。**
+- **提案（承認待ち）**: `/project-status` スラッシュコマンドを [.claude/commands/project-status.md](../.claude/commands/project-status.md) として追加する。
+  - 既存の resume-session / save-session と同じ置き場・流儀。コマンド本文でフック本体 `.claude/hooks/project-status.sh` をインライン実行し、出力をそのまま表として表示させる（スクリプトは1本のまま共用、二重管理しない）。
+  - 既存の SessionStart フックは残す（最初の応答に自動で出る動作はそのまま）。
+  - リポジトリにコミットし、別PCでも同じコマンドが使えるようにする。
+- **承認（2026-10-19 11:19）**: 「この方針でお願いします」で `/project-status` コマンド案を承認。
+- **実施結果（2026-10-19 11:20）**: [.claude/commands/project-status.md](../.claude/commands/project-status.md) を追加（frontmatter の `allowed-tools: Bash(.claude/hooks/project-status.sh)` と、本文中の `!` インライン実行でフック本体を呼ぶ）。追加直後に同じ会話のスキル一覧へ自動認識され、`/project-status` で 9 プロジェクト分の表が表示されることを実機確認済み（新規会話を開き直す必要は無かった）。
+  - **使い方**: 新規会話でも作業途中でも、入力欄に `/project-status` と打つだけ。Reload Window 直後に表を見たい場合はこれを使う。
+  - SessionStart フックは残しており、何かメッセージを送った最初の応答にも従来どおり表が出る。
+  - **やらないと決めたこと**: `systemMessage` による起動直後の自動表示。VS Code 拡張が描画しない（Issue #76736）うえ、CLI でもプレーンテキストで表が崩れるため不採用。Issue が解消されたら再検討する。
+
+## 2026-10-19 プロジェクト全体の次作業の棚卸し（データ移行は夜間自動移行で稼働中と確認、課題表の追加待ち）
+
+- **経緯**: 「プロジェクト全体での次作業は何か」との問いに対し、各リポジトリの直近マージ・記録・仕様書を横断して棚卸しし、(1) 2026-10-07 方針の本筋（alphasys 課題表の残件）へ復帰、(2) MF クラウド連動の仕上げ（実環境通し検証・仕様書 10/11 章の整理）、(3) データ移行の整合、(4) 本番環境、の順で提案した。
+- **訂正（確認結果）**: (3) で「9/30 に決めた一気通貫の再実施が実施済みか不明」と述べたのは誤り。データ移行は **alphadb の夜間自動移行**（Bastion の systemd timer、毎日 JST 1:00。設計: `alphadb/prisma/doc/migration/nightly_automation.md`、alphadb PR #56/#58、alphasyscdk PR #89）に置き換わっており、CloudWatch ロググループ `/alphasys/staging/nightly-migration` で **10/12〜10/19 の毎晩 `RESULT: SUCCESS`** を確認した。移行 SQL（`load.sql`）には契約の `customer_no`・`scheduled_payment_date` も反映済み。したがって**再実施という作業は存在しない**。
+  - (3) で残るのは文書整合のみ: `alphadb/prisma/doc/migration/overview.md` の「6. 残タスク」（一気通貫・D3・画面確認）と「2. 移行ステータス一覧」の「未」表記が夜間自動移行の実態と食い違っている。D3 は 9/30 に「移行対象外」で確定済みだが「要判断」のまま。alphadb セッションで更新する。
+  - 夜間移行の運用上の注意（Bastion 置換で無音停止、毎日 CloudWatch を目視）は nightly_automation.md 7 章に記載済みの既知事項。
+- **ユーザー指示（段取り）**:
+  1. alphasys の**課題表を大幅に追加する**ので、(1) の本筋着手はそれまで待つ。
+  2. (3) の確認が済んだ後に、**(2) MF クラウド連動の仕上げ**の進め方を詰める（(3) は確認完了。続けて本セッションで詰める）。
+  3. **(4) 本番環境は、staging 環境の目処がついた時点で開始する。今は何もしない**（不作為の決定）。
+
+## 2026-10-19 MFクラウド連動の仕上げの進め方（調査結果と4段階案、承認待ち）
+
+- **経緯**: 次作業の棚卸しで (2) とした「MF クラウド連動の仕上げ」の進め方を詰めるため、staging の AWS 側まで含めて現状を確認した。
+- **調査で判明した事実**:
+  - **staging では MF 連動がまだ一切動かせない。** 実 MF 環境への疎通確認（取引先作成・請求書送信→取込・債務支払取込）はすべてローカル PC から MF テスト環境へ行ったもので、staging からは未実施。
+    - SSM `/alpha/staging/alphaexapi/` に `MF_*` が 1 つも無い（ANTHROPIC/BANKCODE/SALES_MAIL 等のみ）。
+    - staging ECS タスク定義（`staging-alphasys-unified:75`）に `MF_*` シークレットが未注入。alphasyscdk PR #95 はマージ済みだが**未デプロイ**。
+    - alphasystem の [scripts/register-secret-parameters.py](../scripts/register-secret-parameters.py) の `MAPPING` に MF キーが無い。`alphaexapi/.env.staging` は 8 月のまま（MF 値なし）。ローカル `alphaexapi/.env` には 15 キーすべて値あり。
+    - **デプロイ順序の注意**: SSM 未登録のまま #95 をデプロイすると `secureParam` の解決に失敗してタスクが起動できず staging が落ちる。必ず「SSM 登録 → cdk deploy」の順。
+    - 不一致 2 点: コードが参照する `MF_PAYABLE_OFFICE_ID`（15 キー目）が CDK の注入一覧（14 キー）に無い。staging の HTTPS コールバック URL が MF 側両アプリの登録に入っているか未確認。
+  - **ユーザー単位 OAuth 連携**（alphaexapi 設計 2026-10-16 承認済み、`docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md`）は、alphadb の `MfOauthToken` 変更（製品単位 → 製品×ユーザー）も alphaexapi 実装も**未着手**。認可フローとトークンの持ち方が変わるため、staging で認可を済ませた後に行うと認可のやり直しになる。
+  - 仕様書の未反映: 未決事項 3（新規取引先設定のスキーマ）は alphadb v0.2.2（`MfLink.mfId` NULL 許容 + `MfSyncStatus.EXCLUDED`）で解決済み。11 章の作業表に完了状況が無い。`GET /money-forward/jobs` の応答に `source`/`uploadMode`/`deletedCount` は未追加（alphasys 側の表示見送りはそのまま）。
+- **提案（承認待ち）: 4 段階**
+  1. **staging で MF を動かせる状態にする**（alphasystem + alphasyscdk）: 登録スクリプトに MF 15 キーを追加 → `.env.staging` に staging 固有値（コールバック URL 等）を記入（ユーザー）→ dry-run → SSM 登録 → MF 側両アプリに staging コールバック URL を追加（ユーザー）→ CDK に `MF_PAYABLE_OFFICE_ID` を追加して #95 の内容をデプロイ → alphaexapi 起動と staging 画面からの MF 認可を確認。
+  2. **ユーザー単位 OAuth を段階 3 の前に実装**（推奨）: alphadb スキーマ（v0.2.5 想定）→ alphaexapi（承認済みの 3 フェーズ計画）。
+  3. **staging で月次フローの通し検証**: 取引先照合・設定 → 月次送信（取引先同期 → 請求書送信）→ 取込、債務支払は CSV 送信 + API 取込、CSV 連携画面の両モード。staging DB は夜間移行の実データのため、取引先設定で検証対象以外を「対象外」にする・対象月を絞る等で MF 側に実顧客データを大量に作らない計画を事前に立てる。使用する MF 側事業者（テスト環境か）も決める。
+  4. **文書化**: 仕様書 2 章（ユーザー単位 OAuth）・3.6/未決 3（解決済み）・11 章（完了反映）・9 章前提 3（MF 上限の回答）を更新。月次の運用手順書を alphasystem の運用ドキュメントとして新規作成。実行状況画面の経路種別表示は alphaexapi の一覧 API 拡張とセットで最後。
+- **ユーザーに確認中**: (a) 段階 1 に今すぐ着手してよいか、(b) 段階 2 を段階 3 の前に行うか、(c) 段階 3 で使う MF 側事業者と対象データの絞り方。
+
+## 2026-10-19 MF連動の仕上げ 段階1に着手（SSM登録完了、CDK修正PR作成、staging認可フローの設計ギャップ発見）
+
+- **承認**: 「段階 1 を今すぐ着手」。
+- **実施済み（2026-10-19）**:
+  1. alphasystem [scripts/register-secret-parameters.py](../scripts/register-secret-parameters.py) に MF 15 キーを追加 → Draft PR [#85](https://github.com/alphacmc/alphasystem/pull/85)。
+  2. `alphaexapi/.env.staging` には 15 キーすべて値が入っていた（確認時点で更新済み。コールバック URL は `https://alphasys.alphacmc-test.com/money-forward/oauth/callback`）。ドライラン確認後、`--apply --expect-account 570024666076` で **staging の SSM に 15 キーを登録完了**（`/alpha/staging/alphaexapi/MF_*` が 15 件あることを確認）。既存 10 キーも同スクリプトで上書き登録された（`.env.staging`/`.env` の値、従来運用どおり）。`ANTHROPIC_API_KEY` は従来どおりスキップ（手動登録済み）。
+  3. alphasyscdk `lib/constructs/ecs.ts` に `MF_PAYABLE_OFFICE_ID` の注入を追加（build・synth で MF 15 キー出力を確認）→ Draft PR [alphasyscdk #97](https://github.com/alphacmc/alphasyscdk/pull/97)。alphasyscdk のマージ済みローカルブランチ 25 本を削除。
+- **残り（段階1）**: (a) #97 マージ後に `cdk diff` を確認して StagingStack をデプロイ（SSM 登録済みなので順序は満たしている。#89 時点で指摘のあった無関係な `AUTH_URL` 差分の有無を diff で確認する）。(b) MF 側両アプリの登録リダイレクト URI に staging のコールバック URL が入っているかの確認（ユーザー）。
+- **新たに判明した設計ギャップ（要対応）**: **現状の実装では staging 画面からの MF 認可が成立しない。**
+  - alphasys の「MFクラウド連携（認可）」画面は `<a href="${API_URL}/money-forward/oauth/authorize?product=…">` のブラウザ直リンク。staging の `API_URL` はタスク内の `http://localhost:3001` のためブラウザから到達できず、かつ `/authorize` は Google ID トークン（Bearer）と `x-user-role` ヘッダーが必須で、直リンクでは付与できない。
+  - MF からのコールバック `https://alphasys.alphacmc-test.com/money-forward/oauth/callback` は ALB 既定で alphasys（Next.js）へ行き **404**（実機で確認）。ALB の `/api/*`→backend ルールは存在するが、`/api/health`・`/api/auth/*`・`/api/money-forward/*` はいずれも Next.js が応答しており、alphaexapi はタスク内 localhost 経由でしか到達できない構成。
+  - ローカルの疎通確認は `scripts/mf-oauth-verify.js` が code/state を手動中継していたため成立していた。
+  - **提案（未承認）**: alphasys 側にサーバーサイドの中継を実装する（既存の `src/app/api/money-forward/csv-export` の Route Handler プロキシと同じ型）。(1) 認可開始: ログインユーザーの ID トークンを付けて alphaexapi `/authorize` を呼び、返る nonce Cookie をブラウザ（alphasys ドメイン、path `/money-forward/oauth/callback`）に載せ替えて MF の認可 URL へリダイレクト。(2) コールバック: `src/app/money-forward/oauth/callback/route.ts` で code/state と nonce Cookie を alphaexapi `/callback` に中継し、結果画面を表示。ALB・alphaexapi の変更は不要で、段階2（ユーザー単位 OAuth。認可 API の呼び方は変わらず、alphaexapi 側で Bearer のユーザーを state に埋める設計）とも両立する。実装は alphasys セッションで行う。
+
+## 2026-10-19 MF連動 段階1: alphasyscdk ＃97 マージ後の cdk diff 確認（AUTH_URL の差分原因を解消）、デプロイはユーザー実行へ
+
+- **確認済み（ユーザー）**: alphasyscdk PR #97 をマージ。MF 側両アプリに staging のコールバック URL が登録済み。
+- **cdk diff の結果**: MF 15 キーの追加（IAM ポリシー・タスク定義の `Secrets`）に加えて、**`AUTH_URL` が稼働中の `https://alphasys.alphacmc-test.com` から `https://alphasystem.alphacmc-test.com` へ変わる差分**が出た（PR #89 の時に「ステージング実環境とコードの差分」と指摘されていたもの）。
+  - **原因**: alphasyscdk の `.env.staging`（git 管理外のローカルファイル）の `AUTH_URL` が古い `alphasystem.alphacmc-test.com`（DNS レコード無し）になっていた。手順書・cdk.json（subDomain=alphasys）・DNS はいずれも `alphasys.alphacmc-test.com` が正。
+  - **対処**: ローカルの `alphasyscdk/.env.staging` の `AUTH_URL` を `https://alphasys.alphacmc-test.com` に修正。再 diff で AUTH_URL の差分が消え、**MF シークレット追加のみ**になったことを確認。別 PC の `.env.staging` にも同じ古い値が残っている可能性があるため、デプロイ前は必ず `cdk diff` で `AUTH_URL` 差分が無いことを確認すること。
+  - SharedStack には CodeArtifact リポジトリの説明文（文字化け→日本語）だけの無害な差分あり。
+- **デプロイ**: Claude 側からの `cdk deploy` は自動モードの権限判定でブロックされたため、**ユーザーが実行する**。コマンド: `cd ~/git/alphasyscdk && npx cdk deploy StagingStack --profile staging --require-approval never`（SSM は登録済み、順序条件は満たしている）。
+- **デプロイ後の確認（Claude が実施予定）**: 新しいタスク定義リビジョンに `MF_*` 15 件が入っていること、サービスが running=desired で安定していること、alphaexapi の起動ログにシークレット解決エラーが無いこと、サイトが応答すること。
+
+## 2026-10-19 MF連動 段階1: StagingStack デプロイ完了を確認（MF 15 キー注入済み、AUTH_URL は正しい値のまま）
+
+- **デプロイ**: ユーザーが `cdk deploy StagingStack` を実行（13:26〜13:34 JST にロールアウト）。AUTH_URL の差分確認は未実施とのことだったため、Claude が実環境を確認した。
+- **確認結果（すべて OK）**:
+  - 稼働中のタスク定義は `staging-alphasys-unified:76`。alphaexapi コンテナに `MF_*` シークレット **15 件**が注入されている。alphasys コンテナの `AUTH_URL` は **`https://alphasys.alphacmc-test.com`（正しい値のまま）**。
+  - サービスのロールアウトは COMPLETED、running 2 / desired 2。旧リビジョン 75 のタスク 2 つはデプロイによる置き換えで停止（alphaexapi の exit 143 は SIGTERM による正常停止）。
+  - alphaexapi の起動ログ: MoneyForward 各モジュールの初期化と `/money-forward/oauth/authorize`・`/callback` のルートマッピングを確認。シークレット解決エラー・例外なし。
+  - サイト応答: `/` 307（ログインへ）、`/api/health` 200、`/api/auth/providers` 200。Google サインインの `redirect_uri` ホストも `alphasys.alphacmc-test.com`。
+  - 補足: デプロイ前は desired=1 で動いていたが、デプロイで CDK 既定の desired=2 に戻った（コスト観点で 1 に落として運用していたなら再度調整が必要）。
+- **段階1の到達点**: staging の alphaexapi は MF の設定を持って起動している。ただし「staging 画面からの MF 認可」は、前節で記録した設計ギャップ（直リンク・認証ヘッダー・コールバック経路）により**未達**。alphasys 側のサーバーサイド中継（前節の提案）の承認待ち。
+
+## 2026-10-19 ステージングの ECS は desired=1 で常時運用する（決定）と、デプロイで 2 に戻る不具合の修正
+
+- **決定（ユーザー）**: staging 環境の ECS サービスは **desired=1** とする。
+- **原因**: `lib/staging-stack.ts` は `desiredCount: 0` を渡していたが、`lib/constructs/ecs.ts` が `props.desiredCount || 2` としているため 0 が未指定扱いになり、`cdk deploy` のたびに desired=2 へ戻っていた（`scripts/start-staging.sh` は `--desired-count 1` で起動するため、手動起動後にデプロイすると 2 に増える）。
+- **対処**:
+  1. 実環境: `aws ecs update-service --desired-count 1` で即時に 1 へ変更（running は順次 1 に収束）。
+  2. CDK: `||` → `??` に修正し、StagingStack の `desiredCount` を 1 に変更（synth で `DesiredCount: 1` を確認）→ Draft PR [alphasyscdk #99](https://github.com/alphacmc/alphasyscdk/pull/99)。マージ後の次回デプロイから値が一致し、以後 2 に戻らない。本番（ProductionStack）は context 由来で影響なし。
+
+## 2026-10-19 新規要望: MF給与CSVによる人件費アップロードの移植と、MFクラウド給与API連携（調査結果、判断待ち）
+
+- **要望（ユーザー）**:
+  1. バッチ共通処理の CSV 連携に、現行 alphaofficesystem の「人件費のアップロード」（MF クラウド給与のエクスポート CSV「支給控除一覧表」の取込）を追加したい。サンプル: Google Drive `社内システム/MFクラウド/MF給与/` の `支給控除一覧表_2026年09月25日支給.csv`（給与、118列、Shift-JIS、末尾に「合計」行）と `支給控除一覧表(賞与)_2026年夏期賞与.csv`（賞与、50列）。
+  2. MF クラウド給与の API 連携を追加したい。
+- **現行システムの調査結果（①）**:
+  - 専用画面ではなく汎用「ファイルアップロード」画面（`/upload`: 年月（month入力）・ジョブ選択・ファイル・新規/追加）から `updateSalaryInfo`（給与原価情報更新）/`updateBonusInfo`（賞与原価情報更新）の Spring Batch ジョブを起動する方式。定期タスク `MaintenanseTask.updateSalaryInfo`（MFクラウド給与連携）は **コメントアウト・TODO のまま未実装**。
+  - 取込先 `alp_usercost(ym, data_type 給与0/賞与1, scode)`。`SalaryCostItemProcessor` が CSV 支給項目を集計: 固定給=役員報酬+基本給+加算給付金+住宅手当+技術手当+職務手当+専門職手当+資格手当 / 変動給=欠勤控除+各種残業・休日・深夜手当+テレワーク手当+業績手当+賞与手当 / 賞与分割=賞与(月次分割分) / その他給=その他手当+テレワーク手当 / 法定福利=健康・介護・厚生年金・子ども子育て拠出金・雇用・労災・一般拠出金の各(会社) / 非課税通勤費=通勤手当/非課(支給)。holiday_draw・dc_contribution・commuting_cost・indirect_cost は 0 固定。
+  - 列は見出し名で突合（`salarycost.properties`）し、**無い列は空＝0** 扱い（`DelimitedLineTokenizerEx`）。「合計」行は除外。**賞与判定は「賞与手当(支給)」列の値の有無**。社員番号は CSV「従業員番号」をそのまま scode として使用。
+  - 取込前に `DELETE alp_usercost WHERE ym AND data_type` を実行してから挿入（新規モード相当）。給与ジョブはさらに `alp_labcost_rate(ym)` を削除し `alp_belong`（旧: 所属マスタ）から当月分を再生成していた。**新システムでは alp_belong が年月付きに統合済み（D6）で labcost_rate は存在しない**ため、この後処理の扱いは設計判断。
+  - 新システムの消費側: alphasys 人件費原価一覧（単価設定）が `alp_usercost` を直近12か月で集計して参照している。
+  - 現行の見出し定義とサンプルの見出しは一致（給与CSVには賞与手当列が無く、賞与CSVには給与各列が無いが、「無い列は0」で吸収可能）。
+- **調査結果（②）**: [クラウド給与 API v2 ドキュメント](https://payroll.moneyforward.com/api/v2/document) によると、**連携パートナー向けで一般ユーザーには開放されていない**。認証は OAuth ではなく MF から直接渡される API 識別子＋`office_api_key`＋接続元 IP 制限。提供 API には給与計算結果・賞与計算結果の一覧/詳細があり、利用できれば ① と同等の情報が取れる見込み。
+- **追記（同日）**: ユーザーより「MFC 請求書同様にアプリ登録した」との報告（クラウド給与向けのアプリ登録を実施済み）。公開の[開発者サイト](https://developers.biz.moneyforward.com/docs/)にはアプリポータル経由（OAuth）の給与 API の掲載が無いため、登録画面で表示された内容（A: 連携先に「クラウド給与」を選べスコープ・ドキュメントリンクあり / B: 選べたが Client ID/Secret のみ / C: 給与側「連携設定」の UUID 識別子＝API v2 方式）を確認した。**回答: A に近いが、スコープは表示されず（請求書のときも同様）**。請求書はスコープ・認可 URL を開発者サイトの OpenAPI 仕様書から確認したが、給与にはアプリポータル（OAuth）向けのリファレンスが公開されておらず、見つかるのはパートナー向け API v2（識別子＋IP 制限、OAuth なし）のみ。
+- **提案（確認中）**: ② は、アプリポータルの登録済みアプリ詳細に給与 API ドキュメントのリンクがあるか確認、無ければ MF サポートへ問い合わせ（スコープとリファレンスの所在）とし、回答まで**保留**。① の CSV アップロードを先行し、「MF 給与データを alp_usercost に集計して取り込む」処理を ①② で共用できる設計にする（② は API からデータを取る入口を足すだけにする）。
+
+## 2026-10-19 MF給与連携の進め方を承認（② は保留、① CSV アップロードを先行、取込ロジックは共用）
+
+- **承認（ユーザー）**: 「この方法で良い」。② MF クラウド給与 API 連携は、アプリポータルの登録済みアプリ詳細に給与 API ドキュメントのリンクが無ければ MF サポートへ問い合わせ、回答まで保留。① の CSV アップロードを先行して設計・実装し、「MF 給与データを alp_usercost に集計して取り込む」処理は ①② で共用する（② は API からデータを取る入口を足すだけにする）。
+- **マージ済み**: alphasystem PR #84（本日の記録）・#85（SSM 登録スクリプトの MF キー追加）、alphasyscdk #99（staging desired=1 固定）。ローカルのマージ済みブランチは削除済み。
+- **次**: ① の設計を brainstorming で詰める（年月と給与/賞与の判定、配賦率の後処理、新規/追加モードの意味、検証ルール、ジョブ履歴の持ち方）。設計書は alphasystem `docs/design/` に作成し、実装は alphadb（enum 追加）→ alphaexapi（取込ジョブ）→ alphasys（CSV 連携画面のタブ追加）の順で各セッションへ引き継ぐ。
+
+## 2026-10-19 MF給与CSV取込の設計決定（brainstorming、順次追記）
+
+- **決定1（年月と給与/賞与の決め方）: B**。画面で対象年月を選び、さらに **給与/賞与も画面で明示的に選ぶ**。CSV の列（「賞与手当(支給)」の有無）による自動判定と食い違った場合は**エラー**にする（現行は自動判定のみ。ファイル名から年月を取る案 C は賞与側で機械的に取れないため不採用）。
+- **決定2（配賦率の後処理）: B**。取込は **alp_usercost のみ**に限定し、現行が給与取込時に行っていた「当月の配賦率表の再生成」は引き継がない。alp_belong（年月付き所属・配賦率）の月次生成は**部門管理側の別機能として切り出す**（新システムには翌月分の alp_belong を自動生成する仕組みが無いため、別途設計が必要。本件のスコープ外）。
+- **決定3（新規/追加モード）: B**。給与タブでは**モード選択を出さず、常に「対象年月・種別（給与/賞与）の既存行を削除してから投入」**とする（現行どおり）。既存の請求書/債務支払タブの「新規/追加」とは画面が揃わないが、単純さを優先。
+- **決定4（行ごとの検証）: B**。現行どおり **「合計」行の除外のみ**。従業員番号が alp_users に無くてもそのまま取り込む（alp_usercost は社員表への外部キーを持たない）。数値に変換できない値があれば**ファイル全体を中断**（部分取込しない）。
+- **決定5（実装方式）: 案1**。既存の MF 連動基盤に乗せる。alphaexapi に給与取込ジョブ（既存 CSV 経路の Shift-JIS 解析・MfJob/MfJobDetail 履歴・アドバイザリロックを流用）、alphasys の CSV 連携画面に「給与」タブ、alphadb に製品 PAYROLL / ジョブ種別 PAYROLL_IMPORT の enum 追加。案2（alphasys 単独）は履歴が残らず ② との共用方針に反する、案3（履歴なしの単発 API）は他タブと揃わないため不採用。
+- **設計セクション1・2（画面・API契約）を承認（2026-10-19）**: CSV 連携画面に「給与」タブ（アップロードのみ。対象年月・種別〔給与/賞与〕・ファイル。モード選択なし）。API は `POST /money-forward/jobs/csv/payroll-import?targetMonth&dataType`、202＋ジョブ概要。ジョブ種別は **PAYROLL_SALARY_IMPORT / PAYROLL_BONUS_IMPORT** の2つを alphadb に追加（履歴に種別列は足さない）。履歴は source=CSV・uploadMode=NEW・deletedCount を記録。受付時 400: 「従業員番号」列なし、種別と CSV 内容の食い違い（「賞与手当(支給)」に値のある行の有無で判定）。数値変換エラーはジョブ FAILED・1件も書かない。エラーメッセージは行番号と列名のみ（氏名・金額を含めない）。詳細は設計書に記載。
+- **設計セクション3〜5（集計ロジック・履歴と個人情報・作業分担とテスト観点）を承認（2026-10-19）**。全セクション承認により設計確定。設計書 [docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md](design/2026-10-19-MF給与CSV人件費取込-仕様.md) を作成し、MF 連動仕様書に 12 章「関連仕様（別紙）」として参照を追加。
+  - 要点: 入口（CSV/API）と集計（`PayrollCostAggregator`）を分離し ①② で共用。集計ルールは現行 `SalaryCostItemProcessor` と同一（テレワーク手当の二重計上も現行再現、未決事項に記載）。履歴は MfJob の件数のみで MfJobDetail は作らない。ログ・エラーに氏名・金額を出さない。実装順は alphadb → alphaexapi → alphasys。
+
+## 2026-10-19 MF給与CSV人件費取込の設計を各プロジェクトのセッションへ引き継ぎ
+
+- **設計書マージ済み**: PR #87（最初の記録のみで早期マージ）の続きとして PR #89 で設計書本体・決定記録をマージ。設計書は [docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md](design/2026-10-19-MF給与CSV人件費取込-仕様.md)。
+- **引き継ぎ（ユーザー指示「内容引き継ぎお願いします」、2026-10-19 16:55 頃）**: `SendMessage` で稼働中の 3 セッションへ設計書の場所と各担当作業を送付。
+  - alphadb-e5: `MfJobType` に `PAYROLL_SALARY_IMPORT` / `PAYROLL_BONUS_IMPORT` を追加して publish（`MfProduct.PAYROLL` は今回追加しない）。版数は alphaexapi / alphasys セッションへ直接連絡。
+  - alphaexapi-4c: `POST /money-forward/jobs/csv/payroll-import` と共用部品（`PayrollRecord` / `PayrollCostAggregator`）、取込サービス（削除→挿入の 1 トランザクション）、受付検証、履歴（件数のみ）。
+  - alphasys-f1: CSV 連携画面の「給与」タブ（アップロードのみ、種別ラジオ、確認モーダル）、API クライアント、実行状況画面の種別表示名。
+- **実装順**: alphadb → alphaexapi → alphasys（alphaexapi と alphasys は計画作成まで並行可）。各セッションは通常どおり feature ブランチ + Draft PR（base=staging）で進め、契約変更があれば相互と alphasystem-92 へ連絡する。

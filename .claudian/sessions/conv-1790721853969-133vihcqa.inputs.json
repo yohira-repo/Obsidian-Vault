@@ -140,6 +140,140 @@
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "8a6533e0-c766-446d-b506-2198d652cf64",
       "providerAssistantMessageId": "c08bc4ba-7c6f-4443-b656-4bd8337988cb"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792385039360-xwbhl0j",
+      "userTurnOrdinal": 10,
+      "state": "accepted",
+      "localMessageId": "msg-1792385039344-q7rftvh",
+      "timestamp": 1792385039344,
+      "rawDisplayText": "私は社内システム、AI、研修採用担当です。\n意見を聞かせて欲しいことがあります。\n社員の約1割がメンタルアウトの休職する時代とも言われています。\nメンタルアウトの休職からの復帰の際には、一旦、社内システム担当に配属し、私の方で外部プロジェクトでも大丈夫だと判断した場合、\n外部プロジェクトの現場マネージャと相談して配属を決めます。\nまた、しばらく社内システム担当を継続する場合もあります。\nしかし、実際には、復帰後数ヶ月で、退職に至るのがほとんどになりました。\nそうすると、私の担当での教えは全く無駄になります。今やAIでほぼ作業が自動化でき、\nリハビリ者に与える仕事などないのが実情です。あえて切り出して仕事を割当てても無駄になることを考えると、自習していてもらった方が、私の負担もなく、辞めても何のインパクトはありません。なまじ作業切り出し、任せるものですから、退職となれば、ほぼ中途半端な状態を引き取り、場合により一から再検討が必要になります。\nこの状況をどう見ますか？しばらく自習で、辞めなそうな感じであれば、次のステップに進む方が良いでしょうか？",
+      "canonicalText": "私は社内システム、AI、研修採用担当です。\n意見を聞かせて欲しいことがあります。\n社員の約1割がメンタルアウトの休職する時代とも言われています。\nメンタルアウトの休職からの復帰の際には、一旦、社内システム担当に配属し、私の方で外部プロジェクトでも大丈夫だと判断した場合、\n外部プロジェクトの現場マネージャと相談して配属を決めます。\nまた、しばらく社内システム担当を継続する場合もあります。\nしかし、実際には、復帰後数ヶ月で、退職に至るのがほとんどになりました。\nそうすると、私の担当での教えは全く無駄になります。今やAIでほぼ作業が自動化でき、\nリハビリ者に与える仕事などないのが実情です。あえて切り出して仕事を割当てても無駄になることを考えると、自習していてもらった方が、私の負担もなく、辞めても何のインパクトはありません。なまじ作業切り出し、任せるものですから、退職となれば、ほぼ中途半端な状態を引き取り、場合により一から再検討が必要になります。\nこの状況をどう見ますか？しばらく自習で、辞めなそうな感じであれば、次のステップに進む方が良いでしょうか？",
+      "images": [],
+      "contentDigest": "69d7e3719d6bcaad0c3bdef37a6fc1670321d0b4ad864a59e510acbdfcfd1b15",
+      "providerUserMessageId": "d88b5fbd-65c8-4cce-b653-6ad862addbee",
+      "providerAssistantMessageId": "d48231e7-37eb-455e-8d96-ff8b31fbe228"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792385176741-8yyczxf",
+      "userTurnOrdinal": 11,
+      "state": "accepted",
+      "localMessageId": "msg-1792385176733-74pho03",
+      "timestamp": 1792385176733,
+      "rawDisplayText": "専用ノートで対応したいです。",
+      "canonicalText": "専用ノートで対応したいです。",
+      "images": [],
+      "contentDigest": "e29801aff39dc841ad94349a6d5ce8e2eb61423c61c89e28f5012d562e5fc2bb",
+      "providerUserMessageId": "72c25586-9470-4932-985c-524f122c0de6",
+      "providerAssistantMessageId": "9b7df535-cc88-4a32-856a-599ebabfe78b"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792385933376-65g6q3k",
+      "userTurnOrdinal": 12,
+      "state": "accepted",
+      "localMessageId": "msg-1792385933359-zm61kbs",
+      "timestamp": 1792385933359,
+      "rawDisplayText": ">「自習させて様子を見る」は因果が逆の可能性が高い\nこれは、自主学習、いわばリスキリングであり、IT業界ではこれができないと、そもそもやっていけません。これをリスクだと言われるのは心外です。",
+      "canonicalText": ">「自習させて様子を見る」は因果が逆の可能性が高い\nこれは、自主学習、いわばリスキリングであり、IT業界ではこれができないと、そもそもやっていけません。これをリスクだと言われるのは心外です。",
+      "context": {
+        "editorSelection": {
+          "notePath": "02_Note/復職者受け入れ/conversations.md",
+          "mode": "selection",
+          "selectedText": "「自習させて様子を見る」は因果が逆の可能性が高い",
+          "lineCount": 1,
+          "startLine": 23
+        }
+      },
+      "images": [],
+      "contentDigest": "e73bdd8bc7d12680af91a848685229cdf93ffc98858d9fc7d950b287003ed916",
+      "providerUserMessageId": "9b9d0c0c-ce2d-4756-a042-9478b61a9fab",
+      "providerAssistantMessageId": "44264326-e5d4-4e5e-a367-c641d01e1d5c"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792386158402-gvcndi0",
+      "userTurnOrdinal": 13,
+      "state": "accepted",
+      "localMessageId": "msg-1792386158390-jl6hu2v",
+      "timestamp": 1792386158390,
+      "rawDisplayText": "理解しました。私の方の考え方に一部至らない点がありました。",
+      "canonicalText": "理解しました。私の方の考え方に一部至らない点がありました。",
+      "images": [],
+      "contentDigest": "f2605bfb5d919183d83ad4854427885c2cb47047a48653accd485cc75d3b5348",
+      "providerUserMessageId": "e3a4a781-c9b8-4b6a-b205-79f596a54008",
+      "providerAssistantMessageId": "69b94081-cc81-4b4c-a78c-a75b51f12edf"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792386333786-zu41m69",
+      "userTurnOrdinal": 14,
+      "state": "accepted",
+      "localMessageId": "msg-1792386333767-jh5acu9",
+      "timestamp": 1792386333767,
+      "rawDisplayText": "具体化にあたり決めるべき4点　は、対象者により変わるものと思います。\nその都度作成し、本人と合意をとって進めていきます。",
+      "canonicalText": "具体化にあたり決めるべき4点　は、対象者により変わるものと思います。\nその都度作成し、本人と合意をとって進めていきます。",
+      "context": {
+        "editorSelection": {
+          "notePath": "02_Note/復職者受け入れ/conversations.md",
+          "mode": "selection",
+          "selectedText": "具体化にあたり決めるべき4点",
+          "lineCount": 1,
+          "startLine": 81
+        }
+      },
+      "images": [],
+      "contentDigest": "a05c79901d2e799dc750696fa108ff9bd50b2f17ac9db766a020eb4db85f6606",
+      "providerUserMessageId": "2818fb6d-df14-4f4e-bf82-a9418720e8dd",
+      "providerAssistantMessageId": "5ab59bb0-4a87-4284-8eee-540f451eca38"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792386371587-hjfq0ws",
+      "userTurnOrdinal": 15,
+      "state": "accepted",
+      "localMessageId": "msg-1792386371579-tuhslqc",
+      "timestamp": 1792386371579,
+      "rawDisplayText": "テンプレートの叩き台の作成お願いします。",
+      "canonicalText": "テンプレートの叩き台の作成お願いします。",
+      "context": {
+        "editorSelection": {
+          "notePath": "02_Note/復職者受け入れ/conversations.md",
+          "mode": "selection",
+          "selectedText": "具体化にあたり決めるべき4点",
+          "lineCount": 1,
+          "startLine": 81
+        }
+      },
+      "images": [],
+      "contentDigest": "2e46b6913d6ef7c151c837a5bdb0ac6dde5682936070029f0066fea510d9ac44",
+      "providerUserMessageId": "d663be7a-193c-46c0-b2a5-9d217b11a796",
+      "providerAssistantMessageId": "a07f1db8-72b3-495f-99b3-49e03e818147"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792386424759-u7usevt",
+      "userTurnOrdinal": 16,
+      "state": "accepted",
+      "localMessageId": "msg-1792386424756-n2kw2mw",
+      "timestamp": 1792386424756,
+      "rawDisplayText": "差し替えはお願いします。",
+      "canonicalText": "差し替えはお願いします。",
+      "context": {
+        "editorSelection": {
+          "notePath": "02_Note/復職者受け入れ/conversations.md",
+          "mode": "selection",
+          "selectedText": "具体化にあたり決めるべき4点",
+          "lineCount": 1,
+          "startLine": 81
+        }
+      },
+      "images": [],
+      "contentDigest": "42ac4f8f01816dcee0ace97c7deef8b16c754c18c2dfab34541384f0284ecc18",
+      "providerUserMessageId": "acf988d1-dd3c-46d4-b9d6-44ef0fc1fa58",
+      "providerAssistantMessageId": "a5e9b35f-9590-4b4a-b380-b371a30f6219"
     }
   ]
 }

@@ -169,3 +169,25 @@
   NEWモード指定）・`npm test`で確認済み。既存テーブルへの変更は列追加のみ。
 - 併せて、CLAUDE.mdの新ルール（ベースブランチにマージ済みのローカルブランチは新規ブランチ
   作成時に削除する）に従い、マージ済みローカルブランチ18本を削除。
+
+## 2026-10-19 MF給与CSV人件費取込 — alphadb側対応（alphasystemセッションからの引き継ぎ）
+
+- 発端: alphasystemセッション（alphasystem-92）からクロスセッションメッセージで引き継ぎ。
+  設計書は`alphasystem/docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md`（brainstorming
+  で全セクション承認済み・確定）。設計書8章の内容を直接確認し、引き継ぎ内容と一致している
+  ことを確認したうえで着手。
+- 対応: enum `MfJobType`に`PAYROLL_SALARY_IMPORT`/`PAYROLL_BONUS_IMPORT`を追加（MfJobに
+  種別列は足さない）。`MfProduct.PAYROLL`は今回追加しない（MFクラウド給与API連携は②として
+  保留、着手時に追加）。`alp_usercost`(Usercostモデル)・`MfJobDetail`には変更なし（給与取込は
+  社員ごとの明細行を作らず、MfJobの件数のみ記録する設計のため、仕様書7章）。
+- バージョンをCodeArtifact公開済み最新`0.2.4`の次`0.2.5`に決定。`feature/add-mf-job-type-payroll`
+  ブランチで実装、Draft PR #84（base: staging）を作成。`prisma validate`・型チェック・
+  `npm test`で確認済み。既存テーブルへの変更はenum値追加のみ。
+- 実装順はalphadb→alphaexapi→alphasys。alphaexapi-4cとalphasys-f1が並行して同じ設計書で
+  作業中。alphasys-f1から進捗確認のクロスセッションメッセージがあり、「Draft PR #84作成済み・
+  未マージ・未publish。publishされれば0.2.5」と返信。
+- ユーザーがPR #84（`staging`）とPR #85（`staging`→`main`）をマージ、`alphadb-publish`・
+  `staging-prisma-merge-project-build`を実行完了。CodeArtifactで`0.2.5`が`Published`・
+  `latest`になっていること、`staging`/`main`の同期・`prisma validate`/`npm test`正常・
+  コンフリクト破損無しを確認。alphaexapi-4c・alphasys-f1へ「0.2.5がpublish済み」を連絡。
+  **alphadb側の対応完了**（実装順の次はalphaexapi→alphasys）。

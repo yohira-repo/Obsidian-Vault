@@ -608,3 +608,23 @@ Subagent-Driven Developmentで全3タスク(①`getPayableOfficeId`の共通化�
 上記2件の修正(品目nameの例外対応、CSV取込との優先度統一)について再レビューを実施。(1)品目nameが文字列でない場合の回避が、実際に例外を投げず同一バッチ内の他の正常な明細の処理を継続することを確認、(2)対象月の既存行削除が、API取得・集計が完全に完了した後(書き込み直前)に実行される順序になっていることを削除呼び出しと`upsertBillRecipt`呼び出しの順序を記録するテストで確認(請求書CSVのImportant-Bと同じ順序保証)。`PayableImportRepository`の新規DI依存も含め、モジュール全体のコンパイルテストが通ることを確認済み。
 
 **最終判定: マージ可能(Ready to merge: Yes)**。`npm test`は全件PASS。これにより、債務支払API取込(Plan D取込)の実装が完了した。
+
+## 2026-10-19 MF給与CSV人件費取込: alphasystem-92から引き継ぎ、サンプルCSVヘッダー確認、rerunエンドポイントの給与対応方針をalphasys-f1と確定
+
+alphasystem-92(全体調整担当)からのセッション間メッセージで、MF給与CSV人件費取込機能([alphasystem/docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md](../../alphasystem/docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md))の実装を引き継いだ。設計はbrainstormingで確定済み・承認済みのため、brainstormingは行わず実装計画の作成から着手する。
+
+**サンプルCSVヘッダーの確認**: Google Driveの実ファイル2点(`支給控除一覧表_2026年09月25日支給.csv`=給与118列、`支給控除一覧表(賞与)_2026年夏期賞与.csv`=賞与50列)をヘッダー行のみ取得し、設計書6.2章の集計ルール表と突き合わせた。設計書が指摘していた表記揺れ`賞与(月次分割分）(支給)`(開き括弧が半角、閉じ括弧が全角)を実データで確認し一致を確認した。**個人情報保護のため、ヘッダー行以外(従業員氏名・金額を含む実データ行)は取得直後に破棄し、会話記録・実装計画・テストフィクスチャのいずれにも一切含めない**(テストはすべて匿名化した固定データで作成する、仕様書7章・9章の方針どおり)。
+
+**alphadbのブロッカー確認**: alphaexapiが依存する`alphadb`パッケージは現時点で`^0.2.4`のままで、`PAYROLL_SALARY_IMPORT`/`PAYROLL_BONUS_IMPORT`の`MfJobType`enum値はまだpublishされていない(alphadb-e5が別途対応中)。実装計画にはこの依存を明記し、publish後に着手する前提とする。
+
+**rerunエンドポイントの給与対応方針(alphasys-f1との確定事項)**: alphasys側からMF実行状況画面の「再実行」ボタンを給与・賞与取込にも出すべきか問い合わせがあった。調査の結果、既存の`POST /money-forward/jobs/:jobType/rerun`は常に`MF_JOB_RUNNERS[jobType]`に登録されたAPI経路のrunnerを呼び出す仕組みであり、INVOICE_IMPORT/PAYABLE_IMPORTで機能するのは「アップロード済CSVの再処理」ではなく「MF API経由の取込を独立に再実行する」別経路が存在するからだと判明した。給与・賞与取込にはこのAPI経路の代替手段が存在せず(②のMFクラウド給与API連携は保留中)、アップロード一時ファイルも処理後即削除されるため、rerunに使える元データが無い。
+
+方針として、`PAYABLE_SEND`で使っている`NotImplementedMfJobRunner`と同じパターンで、`PAYROLL_SALARY_IMPORT`/`PAYROLL_BONUS_IMPORT`用にも専用スタブrunnerを`MF_JOB_RUNNERS`に登録し、呼び出された場合は例外によりジョブを即FAILEDにする(エンドポイント自体はクラッシュしないが、再実行として機能しない)ことに決定。`GET /money-forward/jobs`のレスポンス形状(MfJobSummary)は給与ジョブでも変更しない。この性質上、alphasys側は給与・賞与取込の行に「再実行」ボタンを表示しない実装とすることで合意した。この決定はalphaexapi側の実装計画(MfJobType配線タスク)にも反映する。
+
+## 2026-10-19 MF給与CSV人件費取込: 実装計画を作成・PR＃147作成、alphadb@0.2.5のpublishを確認
+
+legacy(`alphaofficesystem`)の`SalaryCostItemProcessor.java`・`salarycost.properties`・`DelimitedLineTokenizerEx.java`・`MemberCostRepository.xml`を直接調査し、設計書6.2章の集計ルール表(テレワーク手当(支給)が変動給・その他給の両方に加算される二重計上を含む)および見出し名(`賞与(月次分割分）(支給)`の半角開き括弧・全角閉じ括弧の表記揺れ)がすべて一致することを確認した。
+
+`feature/mf-payroll-csv-import`ブランチを作成し、5タスク構成の実装計画(`docs/superpowers/plans/2026-10-19-mf-payroll-csv-import.md`)をコミット、Draft PR #147を作成した。Task 1(CSV解析・見出し/種別検証)、Task 2(集計ロジック)、Task 3(削除→挿入リポジトリ)、Task 4(取込サービス)は現行の`alphadb@0.2.4`だけで実装・テスト可能。Task 5(エンドポイント・オーケストレータ配線・`MfJobType`登録)のみ、`PAYROLL_SALARY_IMPORT`/`PAYROLL_BONUS_IMPORT`の追加が必須。
+
+alphadb-e5から`alphadb@0.2.5`としてpublish済み(CodeArtifact上でlatest確認済み)との連絡を受けた。`npm install alphadb@0.2.5`を試みたが、ローカルの`CODEARTIFACT_AUTH_TOKEN`が失効しており(`.npmrc`記載の`aws codeartifact get-authorization-token`での再取得が必要)、かつそのAWS CLI実行がサンドボックスの自動承認対象外だったため、依存更新は未実施。Task 5着手時に利用者の承認を得て認証トークンを再取得し、`npm install alphadb@0.2.5`を実行してから着手する。
