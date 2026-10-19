@@ -126,6 +126,20 @@
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "dd66c729-3970-4c59-9054-405bc6f38e19",
       "providerAssistantMessageId": "bb2ffac3-c61c-4f20-b306-ab5b299bb499"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792372899908-o9ptvw5",
+      "userTurnOrdinal": 9,
+      "state": "accepted",
+      "localMessageId": "msg-1792372899898-9rjij8m",
+      "timestamp": 1792372899898,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "8a6533e0-c766-446d-b506-2198d652cf64",
+      "providerAssistantMessageId": "c08bc4ba-7c6f-4443-b656-4bd8337988cb"
     }
   ]
 }
