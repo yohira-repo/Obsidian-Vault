@@ -555,3 +555,56 @@ PR #221マージ後、ユーザーより「契約追加画面にも追加して�
 教訓: このセッション中に同種の「ブランチ切り忘れ→staging直push」が2回発生した（1回目は外部要因でブランチが切り替わっていたことに気づかなかったケース、今回は単純な見落とし）。今後はコミット前に毎回`git branch --show-current`を確認することを徹底する。
 
 ユーザーがPR #223をマージし、実機でも修正を確認済みとの報告。staging/ブランチ整理済み。
+
+## 2026-10-16 請求書CSV連携画面（新設）のbrainstorming、方針を確定
+
+alphaexapi側で請求書CSV経路の実装設計が確定（[alphaexapi: 2026-10-16-invoice-csv-io-design.md](https://github.com/alphacmc/alphaexapi/blob/feature/mf-csv-io-design/docs/superpowers/specs/2026-10-16-invoice-csv-io-design.md)、`feature/mf-csv-io-design`ブランチ、未マージ・未実装）。スコープは請求書（INVOICE）のみ、債務支払（PAYABLE）は別設計。エンドポイント: `GET /money-forward/jobs/csv/invoice-export`（同期・CSVダウンロード）、`POST /money-forward/jobs/csv/invoice-import`（非同期・202、既存のMfJobSummaryDtoと同形状）。
+
+alphasys側でbrainstormingを実施し、以下を確定:
+
+- **画面配置**: バッチ共通処理配下に新規メニュー項目「請求書CSV連携」として独立させる（既存のMF実行状況・MF取引先照合・設定・MFクラウド連携(認可)と同じ並び）
+- **インポート後の進捗確認**: トースト＋「MF実行状況を見る」アクションで`/common/mf-jobs`へ遷移（独自ポーリングは実装しない）
+- **インポートの確認モーダル**: 必要。特に「新規モード」選択時は「既存明細を削除してから取り込む」旨を明示する
+- **MF実行状況画面でのsource/uploadMode/deletedCount表示**: 今回は見送り。`GET /money-forward/jobs`のレスポンス契約にこれらのフィールドが追加される確約が無いため（alphaexapi側の設計書は新規2エンドポイントのみを定義しており、既存エンドポイントの変更は明記されていない）
+
+次: 設計書を`docs/superpowers/specs/`配下に書き起こし、ユーザーレビューを経て実装計画を作成する。
+
+ユーザーより「債務支払（PAYABLE）のCSV連携も入れてほしい」との追加依頼。alphaexapi側の確定設計書では、債務支払CSV経路は「API経路の送信・取込自体が未実装のため、別途設計する」と明示的にスコープ外とされている（未確定のAPI契約をalphasys側で推測して設計しない方針を維持）。
+
+CLAUDE.mdのセッション間連携ルールに従い、`ListAgents`で稼働中のalphaexapiセッション（alphaexapi-43）を発見し、`SendMessage`で債務支払CSV経路の設計状況を直接問い合わせた（応答待ち）。
+
+ユーザーが「CSV連携に関しては、同時に進めてください」と明示。請求書・債務支払のCSV連携を1つの設計としてまとめる方針を確定。alphaexapiセッションからの債務支払CSV設計状況の返信を待ってから、両方を踏まえた設計書を書き起こす。
+
+alphaexapiセッションより補足: CSV経路を復活させた本来の理由は「債務支払(PAYABLE)の支払依頼作成APIがMF側に存在しないこと」であり、**本来は債務支払側のほうが優先度が高い**（請求書側はAPIのみで完結でき、CSV経路が無くても業務上支障はない）。この原則はalphasystem仕様書2.4章に明記済み（alphasystem PR #74）。ただし実務上、請求書CSV経路は計画が先に完成していたためalphaexapi側で先行実装・マージ済み（PR #132）。債務支払CSVの設計は依然として未着手。
+
+この優先度原則を踏まえてalphasys側の進め方をどうするか、ユーザーに確認中（回答待ち）。
+
+alphaexapi側で請求書・債務支払の両CSV経路がAPI実装・マージ完了（PR #132, #137）したとの報告を受け、実コード（`money-forward-job.controller.ts`/`mf-job-orchestrator.service.ts`）まで確認してエンドポイント契約を把握。画面構成について「1画面をproductタブ（請求書/債務支払）で切り替え」る方針で確定（MF取引先照合・設定画面と同じパターン）。設計書の作成に進む。
+
+ユーザーより、スコープ外記述の訂正（債務支払送信は「恒久的にAPI化不可」ではなく「現時点でMF側に支払依頼新規作成APIが無いため未対応、承認APIなど周辺は一部サポート済みで将来対応予定」、債務支払取込は「ユーザー単位OAuth完了後に順序待ち」）で**OK**との承認。設計書の作成に進む。
+
+## 2026-10-17 画面作成時はpage-mock.htmlで事前確認する運用を追加
+
+ユーザーより「以降、画面周りを作成する際には、まずpage.tsxのモック(page-mock.html)を作成して確認を入れてください」との指示。ブラウザでローカルファイルとして開いて確認する形（Artifact等の外部公開はしない）で合意。共有CLAUDE.mdは複数プロジェクトで同期されているため、alphasys固有の内容と分かるよう「alphasys固有のルール」セクションを新設して追記する方針で合意し、実施。ブランチ`docs/page-mock-rule`をpush、base=`staging`でDraft PR [#225](https://github.com/alphacmc/alphasys/pull/225)を作成。
+
+上記方針に基づき、設計書`docs/superpowers/specs/2026-10-16-mfクラウドcsv連携-ui設計.md`を作成し、`feature/mf-csv-io-ui-design`ブランチにコミット・push済み。ユーザーのレビュー待ち。
+
+実装計画を`docs/superpowers/plans/2026-10-16-mfクラウドcsv連携-ui.md`として作成し、`feature/mf-csv-io-ui-design`ブランチにコミット・push済み（5タスク構成）。CSVダウンロードはServer Actionではなく既存の`additional-skill-sheet`と同じRoute Handler経由プロキシ方式を採用。実行方式（Subagent-Driven/Inline）の選択待ち。
+
+ユーザーがPR #225をマージ、CSV連携の実装計画実行方式として**Subagent-Driven Development**を選択。staging同期・ブランチ整理済み。
+
+`feature/mf-csv-io-ui-design`ブランチ作成時にDraft PR作成を失念していたことに気づき、是正してDraft PR [#227](https://github.com/alphacmc/alphasys/pull/227)を作成。
+
+新ルール（画面作成前にpage-mock.html確認）に従い、CSV連携画面のモック（`src/app/common/mf-csv/page-mock.html`）を作成しユーザーに提示。承認待ち。
+
+ユーザーがCSV連携画面のモック（ドラッグ&ドロップ対応版、CSS崩れ修正後）を確認し承認。`page-mock.html`は運用ルール通り削除。実装計画のTask 5（アップロードセクション）にドラッグ&ドロップ対応を反映してから、Subagent-Driven Developmentでの実装に進む。
+
+## 2026-10-17 CSV連携 Subagent-Driven Development完了、最終レビューと修正ラウンドを経てPR＃227反映
+
+Subagent-Driven Developmentで5タスク全て実装・個別レビュー完了後、最終全体レビュー（opusモデル）を実施。Critical指摘なし、Important指摘3件（productタブ切替時にアップロード済みファイルが残り誤った製品へ送信され得るバグ／アップロード処理の例外が未捕捉でモーダルが固まる／ドラッグ&ドロップ時のファイル種別チェック欠如）＋Minor数件。1回の修正ラウンドで全Important項目と一部Minor（設計書記述の実態との不一致修正等）を対応し、再テスト（57/57件パス、tsc新規エラーなし）で解消を確認。`<FileDropzone>`共通化やServer Actionのbody-size上限等は意図的に先送り（別チケット・既存全画面共通の事前条件のため本ブランチでは対応せず）。
+
+`feature/mf-csv-io-ui-design`ブランチをorigin へpush、Draft PR [#227](https://github.com/alphacmc/alphasys/pull/227)（base: staging）に実装内容を反映済み。マージはユーザーが実施。
+
+## 2026-10-17 PR ＃227（CSV連携）マージ完了
+
+ユーザーがPR #227をマージ。請求書・債務支払（INVOICE/PAYABLE）のCSVエクスポート/インポート画面（バッチ共通処理配下「CSV連携」）がstagingに統合完了。ローカルstagingをpullで同期し、マージ済みの`feature/mf-csv-io-ui-design`ブランチは削除済み。

@@ -420,6 +420,8 @@ PASS基準(温存対象すべて残存・`restore-stg-db.sh`のcronのみ停止)
 「本日実施予定」)。Claude側の追加対応は不要。Task 10(`cf/`配下のCloudFormation
 テンプレート整理)はTask 9と作業が重複しないため、ユーザーの指示により着手する(2026-09-09)。
 
+---
+
 ## 2026-09-24 Task 9: 正式な手順書を`coop`リポジトリに作成済みと確認・Task 10完了を再確認
 
 ユーザーより、[`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 9(旧バッチを

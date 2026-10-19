@@ -453,3 +453,158 @@ brainstormingで提示した設計案(アーキテクチャ・フィールドマ
 ## 2026-10-16 請求書CSV経路: 行構造違反時の扱いを訂正
 
 設計書作成時、「品目行の前に請求書(ヘッダー)行が無い」場合をSKIP扱いとしていたが、ユーザーより**CSVの構造上、請求書行→1件以上の品目行の繰り返しが保証されており、あり得ないケース**との指摘を受けた。個別行のSKIPではなく、CSV自体の構造異常として例外を投げジョブ全体を`FAILED`にする扱いに修正した。
+
+## 2026-10-16 請求書CSV経路の実装計画を作成
+
+実装計画(`docs/superpowers/plans/2026-10-16-invoice-csv-io.md`)を作成（全6タスク構成: MfJobRepository拡張 → InvoiceImportRepositoryの新規モード削除処理 → CSV行構築純関数 → InvoiceCsvExportService → InvoiceCsvImportService → ジョブ統合・エンドポイント）。
+
+計画自己レビューで2件の不整合を発見・修正:
+1. 設計書§10「CSVが不正な場合はMfJobを作成しない」が、実装順序(先にMfJob作成→後からCSV解析)と矛盾していたため、「CSV解析失敗はジョブ全体の失敗(markFailed)として記録される」に修正
+2. Task 3のテストで`CSV_COLUMNS`の列数を誤って36と記載していた(正しくは38)ため修正
+
+## 2026-10-16 PR＃130マージ後にブランチへ追加pushしていた件を発見・是正（恒例インシデント再発）
+
+`feature/mf-csv-io-design`のPR#130が既にマージ済みであるにも関わらず、その後も同ブランチへ実装計画のコミット(`d9ea48f`, `4ec870d`)をpushしてしまっていた（今セッションで繰り返し発生している既知のパターン）。
+
+`git log origin/staging..feature/mf-csv-io-design`で該当2コミットのみが未マージであることを確認し、新ブランチ`feature/mf-csv-io-impl`を作成してpush、新規Draft PR #132(base: staging)を作成。旧ブランチ`feature/mf-csv-io-design`は内容が新ブランチに完全に含まれることを`git merge-base --is-ancestor`で確認後、ローカルから削除（恒常ルールどおり）。リモートブランチの削除はauto-mode classifierにブロックされたため未実施(手動削除は任意)。
+
+以降、請求書CSV経路の実装(Subagent-Driven Development)はPR #132・ブランチ`feature/mf-csv-io-impl`上で進める。
+
+## 2026-10-16 優先順位の見直し: 請求書CSV先行・債務支払CSV後回しの矛盾を指摘、両方並行着手に修正
+
+請求書CSV経路の実装着手直前に、ユーザーより「そもそもCSV経路を復活させた理由は債務支払(PAYABLE)の支払依頼作成がAPIでできないことであり、既にAPI完全実装済みの請求書より債務支払CSVを優先すべきでは」との指摘を受けた。
+
+指摘の通り、請求書CSVを先行させる判断には業務上の緊急性に基づく根拠が無く、計画が先に完成していたという理由のみで順序を提案していた。これを踏まえ、**両方を並行して進める**方針に修正:
+- alphaexapiセッション(本セッション)では、請求書CSVの実装(Subagent-Driven Development、計画: `docs/superpowers/plans/2026-10-16-invoice-csv-io.md`、ブランチ`feature/mf-csv-io-impl`、PR #132)をこのまま継続する。
+- ユーザー自身が別途、債務支払CSV経路(alphaofficesystemの`importBillData`ジョブ・CSV列構成を参照)の検討を開始する。
+
+## 2026-10-16 請求書CSV経路: 最終全体レビューの指摘・修正方針を決定
+
+Subagent-Driven Developmentで全6タスク実装・個別タスクレビュー完了後、最終全体レビュー(opus)を実施。個別タスクレビューでは見えない横断的な問題が複数発見され、「Ready to merge: No」の判定。ユーザーに方針を確認し、以下の通り決定:
+
+1. **Important-E(エクスポートの排他制御)**: CSVエクスポートはロック不要(計画のGlobal Constraint)としていたが、CSV取込(特にNEWモードの全削除直後)と同時実行すると、削除済み・未再投入の契約で誤った金額のCSVが出力されうる。**計画を変更し、エクスポートも`MF_JOB_LOCK_KEY`を取得する**方針に修正する。
+2. **Important-B(削除・取込の非トランザクショナル問題)**: 新規モードでの削除後、取込途中で例外が発生すると削除済みのまま残る問題。**事前検証パス(全行を先にパース・検証してから削除・書き込みを行う)を追加**して対応する。
+3. 持ち越しMinor(1) CSV日付パースの不正値検出・Important-A(新規モード削除条件を現行同様の月レンジに修正)・Important-C(CSV経路にも税率10%以外のSKIPガードを追加)・Important-D(`MfJobListItemDto`に`source`/`uploadMode`/`deletedCount`を追加)は、設計判断を伴わない客観的な不具合として、今回まとめて修正する。
+4. Minor指摘10件(Content-Type charset不整合、ファイル未添付時500、エクスポート失敗時RUNNING残り、Swagger注記欠落、新規テストのlintエラー4件、CSV経路の重複契約チェック欠如、コントローラレベルテスト未追加、設計書のGET/POST表記矛盾)は、対応可能なものを全て今回まとめて修正する。引用符の扱い・端数差異の2件は現行システムとの仕様差として記録のみに留める。
+5. 本ブランチと無関係の既存バグとして、`google-auth.strategy.ts`がAuthorizationベアラートークンを含むヘッダー全体を`console.log`で出力しCloudWatchに資格情報が残る件を発見。**別ブランチで今すぐ修正**する方針とした。
+6. `RolesGuard`が`x-user-role`ヘッダー(クライアント制御可能)でロール判定している件は、既存の他の`@Roles('ADMIN')`エンドポイント群と同じ扱いであり本ブランチが悪化させたものではないため、マージブロッカーとはせず別タスクとして起票する方針とした。
+7. DIグラフ解決の自動テストについては、既存の`money-forward-job.module.spec.ts`/`money-forward-invoice.module.spec.ts`が本ブランチの新規配線もカバーしていることを確認し、追加対応は不要と判断した。
+
+## 2026-10-16 請求書CSV経路: 最終レビュー指摘の修正完了、マージ可能と判定
+
+上記の決定に基づき、1件のSubagent-Driven Developmentの修正ラウンドで12項目すべてを修正（ブランチ`feature/mf-csv-io-impl`に5コミット追加）:
+- Important-A(削除条件を月レンジに修正)・Important-B(削除前の全行事前検証パス追加)・Important-C(税率ガード・重複契約チェック追加)・Important-D(`MfJobListItemDto`への`source`/`uploadMode`/`deletedCount`追加)・Important-E(CSVエクスポートもロック取得)
+- CSV日付の厳格検証(`parseCsvDateStrict`、曆日オーバーフローも検出)
+- Minor: Content-Type charset修正、ファイル未添付時400化、Swagger注記追加、`mf-job.repository.spec.ts`のlintエラー解消、新規コントローラテスト追加
+
+修正後、再度opusによる全体再レビューを実施し、全項目が正しく修正されていること（コード・テストの両方を独立に確認）、既存の振る舞いへの回帰が無いことを検証。1件のみテストカバレッジの軽微な指摘（新規モードのテストが削除後の取込成功まで検証していなかった）があり、その場で1行追加して対応。
+
+**最終判定: マージ可能(Ready to merge: Yes)**。`npm test`は50 suites/315 tests全PASS、`npm run build`成功。
+
+残課題として別途起票する方針のもの:
+- `RolesGuard`が`x-user-role`ヘッダー(クライアント制御可能)でロール判定している件(本ブランチは悪化させていない、既存の他ADMIN限定エンドポイントと同じ扱い)
+- ファイル未添付等でバリデーションエラーになった際、multerが`/tmp`に書き込んだアップロード済み一時ファイルが削除されずに残る(本ブランチと無関係の既存のアップロード基盤の挙動)
+- 引用符の扱い・税額端数計算が現行システム(alphaofficesystem)と完全一致ではない点(実害軽微と判断し、手動確認チェックリストへの追記に留める)
+
+なお、最終レビュー中に偶発的に発見した本ブランチと無関係の既存バグ(`google-auth.strategy.ts`のAuthorizationベアラートークンのログ出力)は、別ブランチ`fix/google-auth-remove-header-log`・PR #133で既に修正済み。
+
+## 2026-10-16 債務支払CSV経路のbrainstorming開始、スコープと経費科目の扱いを決定
+
+請求書CSV経路のマージ・優先度原則の是正後、ユーザー指示により本セッションで債務支払(PAYABLE)CSV経路のbrainstormingに着手(ブランチ`feature/payable-csv-io-design`、PR #137)。
+
+調査の結果、Payableにはリポジトリ層・サービス層が一切存在しない(請求書は先行実装済みだったのに対し、債務支払はorchestratorの`NotImplementedMfJobRunner`スタブのみ)ことを確認。以下を決定:
+
+1. **スコープ**: 今回はCSV経路(エクスポート/インポート)のみ。API経路の`PayableSendService`/`PayableImportService`(MF API呼び出し)は、PAYABLE向けユーザー単位OAuth設計が完了してから別途着手する。`PAYABLE_SEND`/`PAYABLE_IMPORT`は引き続き`NotImplementedMfJobRunner`のまま。
+2. **経費科目(経費科目)の扱い**: 既存システム(alphaofficesystem)のコードは外注費/交通費以外を無警告で読み飛ばすが、alphasystem仕様書(§5.2/§5.4)は「監視対象のみ、想定外でも契約番号形式ならWARN付きで取込む」と明記しており、食い違いがあった。**仕様書に従う(監視対象のみ、取込は継続)**方針で確定。
+3. **アーキテクチャ**: `findContract`/`upsertBillRecipt`(製品フィルタ無しで汎用)・`computeTaxAmounts`/`parseMfDate`・`computeDueDate`・`groupContractsByCustomerAndDueDate`を、`src/money-forward/`配下の共通層(`BillReciptRepository`等)に切り出し、請求書・債務支払の両方から使う方針で承認。既存Invoiceコードへの**挙動変更のないリファクタ**(import元の付け替えのみ)を伴う。`orderContract`条件が異なる`findTargetContracts`/`deleteTargetMonthBillRecipts`は製品ごとに残す(新規`PayableSendRepository`/`PayableImportRepository`を`src/money-forward-payable/`に新設)。API送信固有の`buildBillingRequest`は踏襲しない(API経路は今回スコープ外のため)。
+4. **重複契約番号の扱い**: alphasystem仕様書§5.2が「費用計上日・契約番号が同一の行は合算する」と明記しており、請求書CSV(2回目以降ERROR)とは異なる挙動だが、**仕様書どおり合算する**方針で確定。
+5. **CSVエクスポート/インポートの詳細設計(列構成・フィールドマッピング・ジョブ統合)を承認**: エクスポートは32列(`BillPaymentCsvBean`相当、支払依頼行→明細行)、インポートは29列中7列のみ読むフラット構造(請求書と違いヘッダー引き継ぎ不要)。ジョブ統合は請求書CSVと同じ非同期パターン・ロック共用・`MfUploadMode`共用。設計書作成に進む。
+6. **設計書(`docs/superpowers/specs/2026-10-16-payable-csv-io-design.md`)をユーザーが確認・承認**。自己レビューで、請求書CSVの「削除前の事前検証パス」をそのまま踏襲しようとした矛盾(本CSVはフラット構造で行間依存が無く、構造異常という概念自体が成立しない)を発見・修正済み。実装計画の作成に進む。
+7. **実装計画(`docs/superpowers/plans/2026-10-16-payable-csv-io.md`)を作成(全6タスク構成: 共通層への移設→PayableSendRepository/PayableImportRepository→CSV行構築純関数→PayableCsvExportService→PayableCsvImportService→ジョブ統合・エンドポイント)**。計画自己レビューで2件の不整合を発見・修正: (1) Task 2の`customerNick`取得方法について、テストの mockデータが`contract.customerNick`(トップレベル)なのに実装コードを後から`contract.customer.customerNick`に修正する記述になっており、両者が食い違っていた(「まず間違ったコードを書いてから直す」という計画のアンチパターン)。テスト・実装コードの両方を最初から`contract.customer.customerNick`に統一して修正。(2) 共通化した`parseCsvDateStrict`のエラーメッセージを製品中立な文言に変えたことで、請求書CSVの既存テスト(`rejects.toThrow('CSVの構造が不正です')`)が壊れる regression を発見。`InvoiceCsvImportService`内に`parseHeaderDate`というラッパーメソッドを追加し、共通関数の中立なエラーを「CSVの構造が不正です」という請求書CSV固有の分類でラップし直すことで、既存テストの文言依存を維持しつつ共通化した。
+
+## 2026-10-16 債務支払CSV経路: 最終全体レビューでImportant-1バグを発見・修正
+
+Subagent-Driven Developmentで全6タスク実装・個別タスクレビュー完了後、最終全体レビュー(opus)を実施。請求書CSVと意図的に異なる5つの挙動差異(経費科目は監視のみ・同一契約+同一費用計上日は合算・ファイル全体の構造異常の概念が無い・エクスポートも最初からロック取得・共通層リファクタの無挙動変更)はすべて正しく実装されていることを確認。
+
+一方で、個別タスクレビューでは見えなかった横断的なバグを1件発見(Important-1、請求書CSVの最終レビューで発見した「Important-B」と同系統): `PayableCsvImportService.importCsv`で`parseItemName(row['品目'])`がtry/catchの外にあり、`品目`列が存在しないCSV(例: 誤って請求書CSVをアップロードした場合)を新規モードでアップロードすると、**新規モードの削除が実行された後に例外で処理全体が中断**し、その月の発注契約データが削除されたまま復元されない。空のCSV(明細行0件)を新規モードでアップロードした場合も同様に、月のデータを削除した上で「成功(全件0)」と報告してしまう問題もあった。
+
+設計判断を伴わない客観的なバグのため、以下を同じコミットでまとめて修正:
+- 新規モードの削除より前に、CSVが想定する列構成(品目・経費科目・合計(税抜)・費用計上日・支払期日)と明細行の存在を検証する`validateColumns`を追加。不正な場合は削除を実行せず例外を投げる
+- Minor指摘として、合算対象の行で支払期日が食い違う場合に現行システム同様WARNログを出すよう追加(最初の明細の支払期日を採用する既定動作自体は変更しない)
+
+修正後、再度レビューを実施し、新規テストが実際に修正前のコード(削除がvalidateColumns呼び出しより前に実行される状態)に対して失敗することを確認(回帰テストとして機能していることの証明)。
+
+**最終判定: マージ可能(Ready to merge: Yes)**。`npm test`は全件PASS、既存7件のテストのアサーションは変更なし。新規テストで1件、既存の`(service as any).logger`スパイパターンと同種の`no-unsafe-member-access`lintエラーが出たが、リポジトリ内の既存パターン(`mail-polling.job.spec.ts`)と同じであり、CIのlintゲートも無いため、現状維持(修正しない)とした。
+
+## 2026-10-16 請求書CSV経路のPR ＃132・認証ログ出力修正のPR ＃133がマージ完了
+
+ユーザーよりPR #132(請求書CSVエクスポート/インポート経路の実装、`feature/mf-csv-io-impl`)・PR #133(認証ヘッダーのログ出力削除、`fix/google-auth-remove-header-log`)がともにマージ済みとの報告。`staging`で両マージコミット(それぞれ`28e1ca9`・`a67c145`)を確認し、ローカルの両ブランチを恒常ルールに従い削除した。
+
+これにより、請求書(INVOICE)のCSVエクスポート/インポート経路(上位仕様2.4章「CSV経路の並行維持」)の実装が完了。残っているフォローアップ(本計画スコープ外、設計書に記載済み):
+- 実際にExcel(Shift-JIS)で開いて文字化けしないことの手動確認
+- 実際のCSVアップロード→DB反映の手動確認
+- 債務支払(PAYABLE)のCSV経路の設計(ユーザー側で別途検討中)
+- alphasysへのAPI契約(CSVアップロード/ダウンロード画面、モード選択UI)のハンドオフ
+- 別タスクとして起票予定: `RolesGuard`のロール判定方式の改善、バリデーションエラー時にmulterの一時ファイルが残る件
+
+## 2026-10-16 CSV経路の優先度原則を再確認、alphasystem仕様書に根本理由を明記（全プロジェクト共通認識化）
+
+請求書CSV経路のマージ完了を報告した後、ユーザーより「CSV経路の優先度について、請求書を後回しにすることはあっても債務支払を後回しにすることはあり得ない、この話は2回目であり、全プロジェクトで共有されていないのが問題」との指摘を受けた。
+
+[2026-10-16 優先順位の見直し](#2026-10-16-優先順位の見直し-請求書csv先行債務支払csv後回しの矛盾を指摘両方並行着手に修正)の時点では、alphaexapi側のconversations.mdに「両方並行して進める」という対処のみを記録し、**根本理由（債務支払の支払依頼作成APIが存在しないこと）そのものを、cross-project共通の仕様書(alphasystem)に明記していなかった**。このため、本セッション内では是正したにもかかわらず、プロジェクト横断の共通認識として定着していなかった。
+
+alphasystemの仕様書(`docs/design/2026-10-09-MFクラウド連動-仕様.md`)2.4章に、以下を明記した(alphasystem PR #74、Draft):
+- CSV経路復活の直接のきっかけは債務支払の支払依頼作成APIが存在しないことであり、請求書側はAPI経路のみで完結可能
+- **CSV経路の作業優先度は、請求書側を後回しにすることはあっても、債務支払側を後回しにしてはならない**という原則
+
+以後、alphaexapi側でCSV関連の作業順序を検討する際は、この原則(alphasystem仕様書2.4章)を必ず起点にすること。alphasys-8f(進行中の別セッション)にも同内容を伝達済み。
+
+## 2026-10-16 債務支払CSV経路PR ＃137・関連記録PR ＃136・alphasystem PR ＃74がマージ完了
+
+ユーザーよりalphaexapi PR #136(CSV優先度原則の記録)・PR #137(債務支払CSVエクスポート/インポート経路の実装)、alphasystem PR #74(CSV経路復活の根本理由・優先度原則の明記)がすべてマージ済みとの報告。`staging`で各マージコミットを確認し、ローカルの関連ブランチ(`docs/csv-priority-principle-correction`・`feature/payable-csv-io-design`・`docs/record-csv-merge-and-cleanup`、alphasystem側の`docs/csv-revival-rationale-priority`)を恒常ルールに従い削除した。
+
+これにより、請求書(INVOICE)・債務支払(PAYABLE)の両方のCSVエクスポート/インポート経路(上位仕様2.4章「CSV経路の並行維持」)の実装が完了した。残作業は以下の通り(前回整理した内容から変化なし):
+- 完了後のフォローアップ(手動確認・alphasysへのAPI契約ハンドオフ等、両CSV共通)
+- 別タスクとして起票予定の2件(`RolesGuard`のロール判定方式、multerの一時ファイル残存)
+- 大きめの未着手機能: API経路の`PayableSendService`/`PayableImportService`(ユーザー単位OAuth設計完了後)、ユーザー単位OAuthの実装計画作成、債務支払の支払明細受信API可否(MF回答待ち)
+
+## 2026-10-16 債務支払API取込(Plan D取込)のbrainstorming: MF API仕様を実機調査で確定
+
+ユーザー指示により、債務支払の取込側(API経路、`PayableImportService`)の実装に着手。ブランチ`feature/payable-import-api-design`・PR #141を作成しbrainstormingを開始。
+
+「支払明細受信API可否」が未解決のままだったため、実機のOpenAPI仕様(`https://payable.moneyforward.com/api/index.json`)を再取得し、実際にPAYABLE用の保存済みOAuthトークンでAPIを呼び出して検証した。以下が確定:
+
+1. **明細一覧取得エンドポイント**: `GET /api/external/v1/offices/{office_id}/invoice_transactions`(「事業者全体の支払明細リストを返す」、user token)。`query_object[book_date_from/to]`(費用計上日)・`query_object[approval_status]`等でフィルタ可能、`next`/`prev`によるページネーション。実際に呼び出し、現在の本番データ(例: 品目`"営業支援費"`、経費科目`"業務委託料"`等、alphasystem仕様書§5.4の実データサンプルと一致)が取得できることを確認した。
+2. **費用計上日・支払期日の取得方法が当初不明だった点を解決**: `invoice_transactions`のレスポンス自体にはこれらの値が含まれず、`book_date`フィルタで絞り込んでも実際に返ってくる値と`deal_date`(取引日)が一致しない(異なる`deal_date`を持つ明細が同じ`book_date`指定で混在して返ってくることを実証)ことを発見。ユーザーから「費用計上日は常に対象月の月末日固定でよい」との指摘があり、`book_date_from/to`は対象月範囲での絞り込みにのみ使う方針に確定。さらにユーザーの指摘を受け`GET /invoice_reports/{id}`を実際に呼び出したところ、レスポンスの`report_form_inputs`配列に`{"label":"費用計上日","value":"2026/08/31"}`・`{"label":"支払期日","value":"2026/10/15"}`がラベル付きでそのまま含まれていることを発見。各明細の`report_id`をキーに`GET /invoice_reports/{id}`を呼び出し(重複`report_id`はキャッシュ)、`report_form_inputs`から実際の費用計上日・支払期日を取得する方式に確定した。
+3. **承認ステータスの絞り込み**: `approval_status=3`(承認済み)のみを取込対象とする方針で確定(未申請/申請中の明細はまだ確定していないため除外)。
+4. **金額計算**: MF側の`excise_value`(消費税額)は信用せず、`total_value`(税抜合計)から既存の`computeTaxAmounts`で独自に再計算する方針(請求書・債務支払CSV経路と同じ既存方針を踏襲)。
+
+これらの実機調査は`scratch-payable-*.ts`という一時スクリプト(NestJS ApplicationContextを使いMoneyForwardClientServiceで実際にAPIを呼び出す)で行い、検証完了後すべて削除済み(コミットには含めていない)。
+
+## 2026-10-16 債務支払API取込: ユーザー提案のアーキテクチャに方針転換(支払集計単位での絞り込み)
+
+上記4点の確定後、ユーザーから「現在のMFC債務支払の明細CSVダウンロードの画面構成」を踏まえた、より簡潔な代替方式が提案された。`GET /invoice_reports/{id}`の`report_form_inputs`を個別取得する方式(上記2番)は不要になり、以下の方式に置き換える:
+
+1. `GET /offices/{office_id}/invoice_report_units`(支払集計のリスト)を`payment_date_from`/`payment_date_to`で絞り込み、かつクライアント側で`title`が「仕入支払」で終わるものだけに絞り込む
+2. 絞り込んだ各`invoice_report_unit`配下の`invoice_transactions`を全件、取込対象とする
+
+このアーキテクチャに伴い、以下2点を確認・確定した:
+- **タイトルの絞り込み条件は文字通りの末尾一致**。`"2026年10月15日_仕入支払_奥田様・上野様"`のように「仕入支払」の後に文字列が続くものは対象外(この実データ自体、今回の取込対象には含まれない)。
+- **支払日の絞り込み範囲は`[(対象年月+1)月末日, (対象年月+2)月末日)`で、上限((対象年月+2)月末日そのもの)は含まない**。これは`computeDueDate`の出力域上、対象月Nの上限((N+2)月末日ちょうど)と対象月N+1の下限((N+1+1)月末日=(N+2)月末日、scheduledPaymentDate=0の場合)が同じ日付になり得るため、その日をN+1月側に割り当てる境界の取り決め。
+
+この絞り込み方式により、該当する`invoice_report_unit`配下の明細は論理的に必ず対象月の費用計上日を持つとみなせるため、`billDate`は対象月末日で固定でよく、`completeDate`は`invoice_report_unit.payment_date`をそのまま使えばよい(individual`invoice_reports/{id}`への個別アクセスは不要)。
+
+## 2026-10-16 債務支払API取込: 全3タスク実装完了、最終レビューで2件修正(品目nameの例外・CSVとの優先度)
+
+Subagent-Driven Developmentで全3タスク(①`getPayableOfficeId`の共通化、②`PayableImportService`、③`PayableImportJobRunner`・モジュール配線)を実装、個別タスクレビュー完了。Task 2のレビューで「支払期日が異なるunit間で合算した場合のWARNログが未テスト」という指摘(Important)があり、その場でテストを追加して対応済み。
+
+その後、最終全体レビュー(opus)を実施。日付境界計算(年またぎ含む)・タイトル末尾一致・費用計上日/支払期日の区別・経費科目の監視のみ処理・合算ロジック・税額再計算など、すべてのライブ検証済みルールが正しく実装されていることを確認し、**「Ready to merge: Yes」**の判定。Critical指摘は無かったが、Minor指摘のうち2件を同日中に対応した:
+
+1. **品目(`name`)が文字列でない明細があると例外で処理全体が中断する問題**: 請求書CSVの最終レビューで発見した「Important-B」と同系統だが、破壊的な削除が絡まないため実害は軽微と判定されつつも、客観的なバグとして修正(その明細のみ読み飛ばす扱いに変更)。
+2. **債務支払CSV取込(手動)とAPI取込(自動チェーン)の優先度が未定義な点**: API経路は承認済み(`approval_status=3`)のみを対象とするため、CSVに含まれる未承認分がある場合、後から実行された方が金額を上書きしてしまう問題があった。ユーザーの判断により、**API経路にもCSVと同様の「対象月の既存行を削除してから取込む」処理を追加し、常にAPI結果を正とする**方針に確定。API取込は自動チェーン実行のみでモード選択UIが無いため、CSVのような新規/追加の切り替えは設けず、実行のたびに常に削除する。削除はAPIからの全データ取得・集計が完了した後(書き込み直前)に行う設計とし、取得中の失敗で削除済み・未再投入のまま残る事態を防いだ(請求書CSVのImportant-Bと同じ考え方)。
+
+## 2026-10-17 債務支払API取込: 最終レビュー修正2件の再レビュー完了、マージ可能と判定
+
+上記2件の修正(品目nameの例外対応、CSV取込との優先度統一)について再レビューを実施。(1)品目nameが文字列でない場合の回避が、実際に例外を投げず同一バッチ内の他の正常な明細の処理を継続することを確認、(2)対象月の既存行削除が、API取得・集計が完全に完了した後(書き込み直前)に実行される順序になっていることを削除呼び出しと`upsertBillRecipt`呼び出しの順序を記録するテストで確認(請求書CSVのImportant-Bと同じ順序保証)。`PayableImportRepository`の新規DI依存も含め、モジュール全体のコンパイルテストが通ることを確認済み。
+
+**最終判定: マージ可能(Ready to merge: Yes)**。`npm test`は全件PASS。これにより、債務支払API取込(Plan D取込)の実装が完了した。
