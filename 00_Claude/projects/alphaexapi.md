@@ -649,3 +649,67 @@ alphadb-e5から`alphadb@0.2.5`としてpublish済み(CodeArtifact上でlatest�
 - ②給与API連携: MF サポート回答待ちで保留。取込ロジック（`PayrollCostAggregator`）は CSV 経路と API 経路で共用できる前提で作ること。
 
 **恒常ルール（ユーザー指示, 2026-10-20）**: 今後もリポジトリ直下に `INBOX_FROM_ALPHASYSTEM.md` があれば、同様に本記録（`docs/conversations.md`）へ取り込んだうえで削除する。
+
+## 2026-10-20 MF給与CSV人件費取込: PR ＃147（実装計画）マージ・実装計画承認、実装ブランチ作成
+
+ユーザーが PR #147（実装計画 `docs/superpowers/plans/2026-10-19-mf-payroll-csv-import.md`）を確認・マージし、「実装計画OK」と承認した。PR #147 がマージ済みのため、実装は新ブランチ `feature/mf-payroll-csv-import-impl`（base: `staging`）で行い、Draft PR を作成する。実装順序は計画どおり Task 1→4（`alphadb@0.2.4` のまま）を先行し、Task 5 は CodeArtifact 認証トークン再取得（ユーザー承認後）→ `npm install alphadb@0.2.5` の後に着手する。
+
+**CodeArtifact 認証トークン再取得の承認（2026-10-20）**: このリポジトリに `node_modules` が無く、Task 1〜4 のテスト実行にも CodeArtifact からの `npm ci` が必要だったため、`aws codeartifact get-authorization-token`（domain alphacmc / ap-northeast-1）での再取得をユーザーに確認し承認を得た。取得したトークンで `npm ci` を実行済み（`alphadb@0.2.4`、既存 money-forward-payable のテストは PASS）。Task 5 着手時の `npm install alphadb@0.2.5` も同じトークン（有効期間内）で実行する。
+
+**実装計画からの逸脱（コントローラ判断）**: Task 3 の計画テストが `prisma.usercost.deleteMany(...)` を事前に自前で呼んでおり、リポジトリが削除を呼ばなくてもテストが通ってしまう（検証になっていない）ため、その事前呼び出しを除いて実装する。また Task 1/2 の期待テスト件数（計画上 9件/12件）は実際の件数（10件/11件）を正とする。
+
+**Task 1 実装時の計画逸脱（コントローラ判断, 2026-10-20）**: 計画の見出し正規化（`trim()` → 二重引用符除去）では、計画自身のテスト `" 従業員番号 "` が通らない（引用符の内側の空白が残る）ため、「二重引用符除去 → `trim()`」の順に変更した実装を採用した。仕様「前後の空白と二重引用符を除去」に沿う変更。
+
+**Task 1 レビュー完了（2026-10-20）**: タスクレビューは Critical/Important なしで承認。Minor 4件（①`extractHeaders` が引用符内のカンマを考慮しない、②合計行の列数が見出しと異なると csv-parse が例外、③途中の空行・LFのみ・途中の合計行のテスト不足、④従業員番号が空の行の未検査）は、最終レビューでまとめて要否を判定し、その場で直さないものは先送りしてよいかユーザーに確認する。
+
+**Task 2 レビュー完了（2026-10-20）**: 集計ロジックは計画と完全一致（`賞与(月次分割分）(支給)` の半角開き・全角閉じ括弧、テレワーク手当の二重計上を含む）で承認。Minor 2件（①数値判定の正規表現が `+`・小数・桁区切りを弾く＝Java `parseInt` 準拠の計画どおり、②従業員番号エラー・一部列のエラー経路・負の bonusDraw のテスト不足）は Task 1 の Minor と同様、最終レビューで要否を判定し、直さないものは先送り可否をユーザーに確認する。
+
+**Task 3 レビュー完了（2026-10-20）**: 削除→挿入を1トランザクション（配列形式 `$transaction`）で行うリポジトリを承認。Minor として、①`$transaction` がモックのためロールバック・順序は未検証（計画どおりのテスト形）、②CSV内に同一従業員番号が複数行あると複合主キー違反で取込全体が FAILED になる（集計は従業員番号単位で合算しない）点が挙がった。②は現行システム（legacy）の挙動を確認したうえで最終レビューで要否を判定し、直さない場合は先送り可否をユーザーに確認する。明細0件のCSVは対象月・種別の既存行を削除して0件挿入となる（計画 Task 4 のテストで明示的に許容）。
+
+**Task 4 レビュー完了・Task 5 着手（2026-10-20）**: 取込サービス（全行集計後に削除→挿入、数値変換エラー時は「N行目 列『○○』の値を数値に変換できません」で削除せず中断）を承認。Minor（targetMonth の形式検証はサービスでは行わず DTO 任せ、成功テストの検証が1行目のみ）は最終レビューで判定。Task 5 の前提として、承認済みトークンで `npm install alphadb@0.2.5` を実行し、生成クライアントに `PAYROLL_SALARY_IMPORT`/`PAYROLL_BONUS_IMPORT` が含まれることを確認した（`package.json`/`package-lock.json` の変更は Task 5 のコミットに含める。lock には npm 11 による `@swc/core` の dev→devOptional の正規化差分が混ざる）。
+
+**同一従業員番号の重複行は対応しない（コントローラ判断, 2026-10-20）**: 現行（legacy `MemberCostRepository.xml` の `addMemberCost`）は単純な INSERT で合算・upsert をしておらず、重複時は主キー違反で失敗する。新実装も重複時は失敗するが、1トランザクションのため1件も書き込まずに中断する点で現行と同等以上に安全なため、合算ロジックは追加しない。
+
+**Task 5 実装完了・メモリ不足クラッシュからの復旧（2026-10-20）**: Task 5 の Step 1〜7 をファイルに書き込んだ後、テスト実行中にセッションがメモリ不足でクラッシュした。復旧時に未コミットの差分が計画どおりであることを確認し、メモリを抑えるため jest を `--runInBand`（直列）で再実行した（全体 65 スイート / 396 件 PASS、`tsc --noEmit` エラーなし）。計画からの逸脱として、コントローラの `let parseResult;` が暗黙の any になり lint（no-unsafe-*）に掛かるため `PayrollCsvParseResult` 型を付けた（挙動は同じ）。また Task 1/2 の spec の prettier 整形漏れを別コミットで直した。`money-forward-job.controller.int.spec.ts` 423〜433 行の no-unsafe-member-access は既存コード（2026-10-14〜）の指摘で、今回は触れていない。次は全タスクを通した最終レビュー（Task 1〜4 の Minor 指摘の要否判定を含む）。
+
+**最終レビュー着手の承認（2026-10-20）**: ユーザーが Task 1〜5 完了後の全体最終レビューへの着手を承認した（「OKです」）。レビュー範囲は `7928de5..HEAD`。Task 1〜4 で保留している Minor 指摘の要否もここで判定し、その場で直さないものは先送りしてよいかを一件ずつユーザーに確認する。
+
+**最終レビュー結果（2026-10-20、範囲 `7928de5..6db3006`）**: 判定は「With fixes」（修正後マージ可）。Critical なし。Important 3件は実コード・ドキュメントで事実確認済み。
+- I-1: `dataType`/`targetMonth` のクエリ検証が失敗（400）すると、`FileInterceptor` がハンドラより先にディスク保存しているため、ハンドラの `finally` が動かず給与CSVが一時ディレクトリに残る。設計書7章「処理後に即削除」に反する。既存の請求書/債務支払CSVエンドポイントにも同じ漏れがある（`C:	mp` にテストの残骸CSV 11件を確認）。
+- I-2: 設計書（alphasystem `2026-10-19-MF給与CSV人件費取込-仕様.md` 59行目）と alphasystem の 2026-10-19 承認では MfJob に `uploadMode=NEW` を記録するとあるが、実装は null のまま。計画の「uploadModeは渡さない」が仕様と食い違っていたのが原因。
+- I-3: 列数が見出しと異なる行（末尾の空欄を省いた合計行など）があると csv-parse が例外を投げ、取込全体が400になる。現行 `DelimitedLineTokenizerEx` は短い行を許容（不足分は空文字扱い）しており挙動が違う。`relax_column_count: true` で直せる。
+- Minor: M-1 金額の int32 上限チェックなし、M-2 見出し名が重複すると現行と逆の列を使う、M-3 行番号が空行を詰めた番号になる、M-4 一時ファイル削除の例外が結果を上書きする、M-5 受付時400・非同期失敗がアプリログに出ない（現行とのログ出力の差）、M-6 rerun スタブの文言が給与に合わない、M-7 lock の `@swc/core` が dev→devOptional になり、本番イメージ（Dockerfile:57 `npm ci --only=production`）に swc のネイティブバイナリが入る可能性。
+- 保留 Minor の再判定: T1-② は I-3 に格上げ（今直す）。T1-①・T2-①・T4-① は対応不要。T1-③・T1-④・T2-②・T3-①・T4-② は先送り可（T1-③ のテストは I-3 と同時追加を推奨）。
+各項目の直し方・先送り可否はユーザーに確認する。
+
+**最終レビュー指摘の対応方針を決定（2026-10-20、ユーザー承認）**:
+- I-1: 例外時に `req.file` を削除する共通 Interceptor を追加し、給与・請求書・債務支払の3つのCSVアップロードエンドポイントに適用する（既存の請求書/債務支払の漏れも同時に塞ぐ）。「400のあと一時ファイルが消えている」ことを確かめるテストを足す。
+- I-2: 仕様どおり MfJob に `uploadMode=NEW` を記録する（`{ source: CSV, uploadMode: NEW }`）。
+- I-3: `relax_column_count: true` を足す。短い合計行・短い明細行・途中の空行（T1-③）のテストを追加する。
+- 今直す Minor: M-1＋T1-④（int32 範囲外の金額と、従業員番号が空の行を「N行目 列『○○』」形式のエラーにする）、M-4＋M-5（一時ファイル削除失敗は warn に留める。受付時400・非同期 FAILED を行番号・列名のみの logger.warn で出す）、M-7（npm 10 で package-lock を作り直し、差分を alphadb の更新だけにする）、M-6（給与ジョブの rerun スタブの文言を「CSVを再アップロードしてください」にする。PAYABLE_SEND と共用の NotImplementedMfJobRunner とは別の文言を用意する）。
+- 先送り（ユーザー承認）: M-2（見出し名の重複）、M-3（行番号が空行を詰めた番号になる）、T2-②（エラー経路のテスト不足）、T3-①（`$transaction` がモックでロールバック未検証）、T4-②（成功テストが1行目のみ確認）。
+- 対応不要: T1-①（引用符内のカンマ。MFの見出しにカンマは無い）、T2-①（`+`・小数・桁区切り。MFは出さず、現行と同等）、T4-①（targetMonth はコントローラの DTO で検証済み）。
+
+**最終レビュー指摘の対応完了（2026-10-20）**: 承認した方針どおり I-1〜I-3・M-1・M-4〜M-7・T1-③・T1-④ を修正した（コミット 7e87b78・6b9f75a・5452d6c・lock 修正）。全体 67 スイート / 407 件 PASS、`tsc --noEmit` エラーなし。
+- 方針からの補足判断: T1-④（従業員番号が空の行をエラーにする）にあわせ、全項目が空の行（`,,,`。Excel 保存の CSV で末尾に出やすい）は csv-parse の `skip_records_with_empty_values` で空行と同じく読み飛ばすことにした（エラーにすると取込全体が止まるため）。
+- I-1 は一時ファイル削除を `UploadedFileCleanupInterceptor` に集約し、3エンドポイントのハンドラ内 `finally { unlinkSync }` は削除した。int spec の afterEach で「テスト前後で /tmp に新しいファイルが増えていない」ことを全CSVテストで検証する（インターセプタを外すと7件失敗することを確認済み）。
+- M-7 は CodeArtifact トークンが失効しており npm 10 で再生成できなかった（E401）。alphadb 0.2.4 と 0.2.5 の lock エントリは version/resolved/integrity 以外同一だったため、base の lock にその3項目とルートの依存指定だけを反映して作り直した（`npm ls --package-lock-only` で整合を確認、integrity はインストール済み 0.2.5 と一致）。トークンの再取得はしていない。
+- ローカルの `C:\tmp` にテストが残したダミーCSV（UUID名、`csv-content` 等）が 18 件ある。削除は権限確認で止められたため未削除（ユーザー判断待ち）。
+
+**最終レビュー対応の補足判断をユーザーが承認（2026-10-20）**:
+- 全項目が空の行（`,,,`）を空行と同じく読み飛ばす扱いを承認（「OK」）。
+- package-lock を、npm 10 で再生成する代わりに base の lock へ alphadb の version/resolved/integrity とルートの依存指定だけを反映して作り直した方法を承認（「OK」）。CodeArtifact トークンの再取得は不要とした。
+- `C:\tmp` に残っていたテストのダミーCSV 18 件は、ユーザー自身が削除した。
+- 先送り（M-2・M-3・T2-②・T3-①・T4-②）と対応不要（T1-①・T2-①・T4-①）の扱いを了承（「了解です」）。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え
+
+alphasystem（alphasystem-da セッション）から、ユーザー承認済み（2026-10-20）の方針として、会話記録を日付別ファイル `docs/conversations/YYYY-MM-DD.md` に切り替えるよう依頼を受けた。
+
+- `docs/conversations/` を作成し、alphasystem の `docs/conversations/README.md` を雛形に README を置いた（README は Obsidian 同期の対象外）。
+- 以後の記録は `docs/conversations/<その日の日付>.md` に書く。見出しは従来どおり `## YYYY-MM-DD タイトル`。同日の複数セクションは同じファイルに書く。
+- 既存の `docs/conversations.md` は過去分のアーカイブとして残し、追記しない。分割・移動はしない。同日 10/20 の前半（MF給与CSV人件費取込の実装・最終レビュー）はそちらに記録済み。
+- Obsidian 同期と Stop フックは alphasystem 側で新旧両対応に修正済み（`conversations/` ディレクトリの有無でフックが書き先を切り替える）。
+- 作業ブランチは `feature/conversations-daily-files`（base: `staging`）。直前の `feature/mf-payroll-csv-import-impl` は PR #148 として staging にマージ済みのため、ローカルブランチを削除した。
+- Stop フックの書き先が `docs/conversations/2026-10-20.md` に切り替わることを、フックの書き先解決を実行して確認した。INBOX 申し送りの取込先（メモリ）も日付別ファイルに更新した。
+- Draft PR #150（base: staging）を作成し、alphasystem-da セッションへ完了を返信した（依頼文の「PR #147 を優先」は、実装 PR #148 がマージ済みのため待たずに着手した旨を補足）。Draft 解除・マージはユーザーが行う。

@@ -55,6 +55,71 @@ class PathRuleTest(unittest.TestCase):
             "alphasystem/alphabsmail",
         )
 
+    def test_daily_files_are_accepted(self):
+        self.assertTrue(sources.is_conversations_path("docs/conversations/2026-10-20.md"))
+        self.assertTrue(sources.is_conversations_path("conversations/2026-10-20.md"))
+        self.assertTrue(sources.is_conversations_path("alphabsmail/docs/conversations/2026-10-20.md"))
+
+    def test_non_daily_files_in_conversations_dir_are_rejected(self):
+        self.assertFalse(sources.is_conversations_path("docs/conversations/README.md"))
+        self.assertFalse(sources.is_conversations_path("docs/conversations/2026-10-20.txt"))
+        self.assertFalse(sources.is_conversations_path("docs/conversations/2026-10-20-memo.md"))
+        self.assertFalse(sources.is_conversations_path("docs/other/2026-10-20.md"))
+        self.assertFalse(sources.is_conversations_path("node_modules/x/conversations/2026-10-20.md"))
+
+    def test_source_id_for_daily_files_drops_conversations_dir(self):
+        self.assertEqual(
+            sources.source_id_from("alphasystem", "docs/conversations/2026-10-20.md"), "alphasystem"
+        )
+        self.assertEqual(
+            sources.source_id_from("alphadb", "conversations/2026-10-20.md"), "alphadb"
+        )
+        self.assertEqual(
+            sources.source_id_from("alphasystem", "alphabsmail/docs/conversations/2026-10-20.md"),
+            "alphasystem/alphabsmail",
+        )
+
+
+class DailyFilesCollectTest(unittest.TestCase):
+    """日付別ファイルと旧 conversations.md の併存を収集できる。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        origin = helpers.init_repo(
+            os.path.join(self.tmp.name, "origin"),
+            {
+                "docs/conversations.md": "# 履歴\n\n## 2026-10-19 旧方式のまとめ\n\n旧の本文。\n",
+                "docs/conversations/2026-10-20.md": (
+                    "## 2026-10-20 新方式の1件目\n\n本文1。\n\n## 2026-10-20 新方式の2件目\n\n本文2。\n"
+                ),
+                "docs/conversations/2026-10-21.md": "## 2026-10-21 翌日のまとめ\n\n本文3。\n",
+                "alphabsmail/docs/conversations/2026-10-20.md": "## 2026-10-20 サブのまとめ\n\nサブ本文。\n",
+            },
+        )
+        self.repo = helpers.clone_repo(origin, os.path.join(self.tmp.name, "work"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_collects_old_and_daily_files_together(self):
+        entries, _ = sources.collect_entries(self.repo, "alphasystem")
+        found = sorted((e.source_id, e.date, e.title) for e in sources.dedupe(entries))
+        self.assertEqual(
+            found,
+            [
+                ("alphasystem", "2026-10-19", "旧方式のまとめ"),
+                ("alphasystem", "2026-10-20", "新方式の1件目"),
+                ("alphasystem", "2026-10-20", "新方式の2件目"),
+                ("alphasystem", "2026-10-21", "翌日のまとめ"),
+                ("alphasystem/alphabsmail", "2026-10-20", "サブのまとめ"),
+            ],
+        )
+
+    def test_target_date_selects_that_days_file(self):
+        entries, _ = sources.collect_entries(self.repo, "alphasystem", "2026-10-20")
+        titles = sorted(e.title for e in sources.dedupe(entries))
+        self.assertEqual(titles, ["サブのまとめ", "新方式の1件目", "新方式の2件目"])
+
 
 class CollectEntriesTest(unittest.TestCase):
     def setUp(self):

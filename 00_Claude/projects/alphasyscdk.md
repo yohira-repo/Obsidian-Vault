@@ -54,3 +54,14 @@
   - StagingStack は ECS サービス（`ECSUnifiedServiceA2C1AAA2`）が UPDATE_COMPLETE になった。
   - デプロイ後の `staging-alphasys-cluster` は desired=1 / running=1 / pending=0 で、デプロイのロールアウトは COMPLETED。
 - これで PR #99 の申し送り（デプロイ前の `AUTH_URL` 差分確認と、デプロイ）は完了した。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え
+
+- **経緯**: alphasystem からの申し送り（`INBOX_FROM_ALPHASYSTEM.md`）で依頼を受けた。全リポジトリ共通の方針として、ユーザーが 2026-10-20 に承認済み。申し送りはこのファイルに取り込んでから削除した。
+- **結論**:
+  - 以後の会話記録は `docs/conversations/YYYY-MM-DD.md`（日付別）に書く。見出しは従来どおり `## YYYY-MM-DD タイトル`。
+  - `docs/conversations/README.md` を置いた（雛形は alphasystem の同名ファイル）。README は Obsidian 同期の対象外。
+  - 既存の `docs/conversations.md` は過去分のアーカイブとして残し、追記しない。分割や移動はしない（リンク切れ防止）。10/20 の前半（PR #99 のデプロイ等）の記録はそちらにある。
+  - Obsidian 同期と Stop フックは、alphasystem 側で新旧両方の形式に対応済み。`docs/conversations/` ディレクトリがあるかどうかで、フックが書き先を切り替える。
+  - `INBOX_FROM_ALPHASYSTEM.md` の取り込み先も、旧 `docs/conversations.md` から当日付の日付別ファイルに変える。
+- **確認結果**: 切替後の Stop フックの書き先が `docs/conversations/2026-10-20.md` になることを確認した（`find_conversation_targets` の出力で確認）。変更は Draft PR #103（base: staging）で出した。

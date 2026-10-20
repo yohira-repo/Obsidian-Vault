@@ -2830,3 +2830,68 @@ alphaofficesystemの現行CSV連携は、仕様書4.3章（請求書、38列）�
 
 - **内容**: alphadb [PR #88](https://github.com/alphacmc/alphadb/pull/88)（Draft、base: staging）。移行対象14テーブルを「✅夜間自動移行中」に、D3 を「移行対象外」確定に、D5 を「保留（技術者別採算管理サブシステム構築時に判断）」に更新。残タスクは「本番での実施（本番環境構築後）」の1件のみ。一気通貫の再実施は夜間自動移行で代替と明記。
 - **段取り**: Draft の解除とマージはユーザー。これで 10/19 の棚卸しで挙げた「(3) 文書整合」は PR 作成まで完了。
+
+## 2026-10-20 MFクラウド給与API連携（②）は MF 側がサポートするまで見送り、CSV連携を継続（決定）
+
+- **決定（ユーザー）**: MF クラウド給与 API 連携は、公式に明確な方法が示されておらず、MF へのチャット問い合わせでも「**IN（データを入れる）はできるが OUT（データを取り出す）は未サポート**」との回答だったため、**MF 側がサポートするまで CSV 連携を継続する**。②は着手しない（不作為の決定）。
+- **意味**: 給与データは MF から取り出す方向（OUT）のため、現時点では API で取得できない。10/19 に「MF サポート回答まで保留」としていた件の結論。取込は設計済みの ① CSV アップロード（alphasystem 設計書・alphaexapi PR #147・alphasys PR #229）のみで運用する。
+- **影響**: 設計書の「②保留」の記述は、見送り理由（OUT 未サポート）に更新するのが望ましい（未実施。必要になった時点で更新）。`MfProduct.PAYROLL` の追加、給与用 SSM シークレットの登録も行わない。MF が OUT をサポートした場合に再検討する。
+
+## 2026-10-20 運用方法の振り返り: 改善方針の合意（結合試験は設計者、記録は決定の所有者に置く）
+
+- **振り返りの対象**: alphasystem（設計・統括）/ alphasyscdk（インフラ）/ alphadb（DB）/ alphasys（フロント）/ alphaexapi（バックエンド）で役割分担し、セッションを個別に保持して、リアルタイム（SendMessage）と md ファイルで連携する現行の進め方。
+- **合意（ユーザーの見解）**:
+  1. **結合試験は設計者（alphasystem）が担当する**。人間の開発の原則を踏襲する。設計時点で結合試験項目を作る案を、エージェンティックAIでも有効とみなして進める（Claude の見解も有効）。
+  2. **記録先**: 設計の決定は alphasystem に置く。**実装計画以降のやり取りは各プロジェクトのセッションと行うため、その内容まで alphasystem に集約しない**（一本化は設計決定に限る）。
+  3. **承認待ち一覧**を 1 ファイルにまとめ、棚卸しと状況表から参照する（大賛成）。
+  4. **conversations.md を日付ごとのファイルに分割**する（Obsidian のデイリーノート形式、競合の回避）（大賛成）。
+  5. **Stop フックを絞る**（記録済み・決定なしのターンは確認を省く）（賛成）。
+- **未実施**: 上記の具体化（結合試験項目の設計書テンプレート、承認待ち一覧の置き場、日付別分割と Obsidian 同期・フック・各 CLAUDE.md リンクへの影響調査、フックの絞り込み方）は、方式案を示して了解を得てから着手する。
+
+## 2026-10-20 conversations.md の日付別分割: 影響調査の結果と方式案（承認待ち）
+
+- **go（ユーザー）**: 改善方針のうち、まず日付別分割の影響調査から進める（「OK」）。
+- **調査結果**:
+  - Obsidian 同期（`Obsidian-Vault/00_Claude/scripts/claude_daily_log/sources.py`）は、ファイル名が `conversations.md` のものだけを収集する（`is_conversations_path` / `source_id_from`）。中身は `## 日付 タイトル` の見出しで解析するため、見出し解析は流用できる。
+  - Stop フック（`~/.claude/hooks/record/lib.sh` の `find_records`）も `conversations.md` という名前で書き先を探すため、分割後は書き先が提示されなくなる。
+  - resume-session / save-session / project-status / CLAUDE.md、設計書・計画書約12件が `docs/conversations.md` を直接リンクしている。履歴ファイルを残せば影響なし。
+  - 同期スクリプトとフックはリポジトリ外（`~/.claude`、Obsidian Vault）にあるため、変更前にユーザーの了解が要る。
+- **方式案（承認待ち）**: `docs/conversations/YYYY-MM-DD.md`（見出しは現行形式のまま）。既存の `conversations.md` は分割せずアーカイブとして残し、切替日以降のみ新方式。切替日は同期とフックの修正が終わった日。同日に複数 PR が同じファイルへ追記する場合の競合は残る。
+- **進め方（案）**: (1) 同期スクリプトを新旧両対応にしてテスト追加 → (2) フックの書き先解決を修正 → (3) alphasystem と alphabsmail で先行 → 問題なければ子リポジトリへ展開（申し送りは受信ファイル方式）。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え（alphasystem・alphabsmail で先行）
+
+- **承認（ユーザー）**: 影響調査の結果と方式案に対し「お願いします」。切替日は同期とフックの修正が終わった **2026-10-20**。以後の記録は `docs/conversations/YYYY-MM-DD.md`（alphabsmail は `alphabsmail/docs/conversations/YYYY-MM-DD.md`）。旧 `conversations.md` は過去分のアーカイブとして残し、追記しない。
+- **実施済み**:
+  1. Obsidian 同期（`Obsidian-Vault/00_Claude/scripts/claude_daily_log/sources.py`）を新旧両対応に修正し、テストを追加（`is_conversations_path` / `source_id_from`、旧新併存の収集）。既存を含む 147 件中、失敗は 1 件。この 1 件（`test_cli_sync` のロックパス）は修正前から失敗しており今回の変更とは無関係。
+  2. Stop フック（`~/.claude/hooks/record/lib.sh` に `find_conversation_targets` を追加、`stop-record-decisions.sh` で使用）。`conversations/` ディレクトリがあるリポジトリでは今日付のファイルを書き先に出し、旧 `conversations.md` は書き先から外す。
+  3. alphasystem と alphabsmail に `conversations/` を作成（README 付き）。
+- **未実施（次）**: 子リポジトリ（alphadb・alphaexapi・alphasys・alphasyscdk）への展開。各セッションの記録の置き場が変わるため、受信ファイル方式で申し送り、各セッションが自リポジトリで `conversations/` を作って切り替える。resume-session の「conversations.md の末尾を読む」の文面は、日付別ファイルの最新を読む形に直す。
+- **留意**: 同期スクリプトとフックはリポジトリ外のため PR に含まれない（Vault は未コミット）。`daily-sync` コマンドは `/usr/bin/python3` を直接呼ぶが、この Windows 環境には存在しない（`run.sh` 経由なら動く）。要確認。
+
+## 2026-10-20 日付別ファイルの展開範囲: alphaaimail は除外、coop は coopcdeinput・coopcdebatch を除いて同様に実施
+
+- **指示（ユーザー）**: (1) **alphaaimail は対象から外す**（アーカイブ済み・参照のみ。改修しない）。(2) **coop プロジェクト配下も同様に日付別へ切り替える。ただし coopcdeinput と coopcdebatch は除外**する。
+- **対象の整理**:
+  - alphasystem 系: alphasystem・alphabsmail（切替済み）、alphadb・alphaexapi・alphasys・alphasyscdk（展開）。alphacdk・alphabatch は会話記録ファイルが無く対象外。alphaaimail は除外。
+  - coop 系: 既存の会話記録がある **coopbatch・coopinf** が対象。coop・coopcdealert・coopcdeweb・coops3view は会話記録ファイルが無いため変更なし（フックは何も出さない）。coopcdebatch（廃止予定、会話記録あり）・coopcdeinput（廃止）は除外。
+- **申し送り（2026-10-20 実施）**: 起動中の alphaexapi-1b・alphasys-0e には `SendMessage`。未起動の alphadb・alphasyscdk・coopbatch・coopinf には各リポジトリ直下に `INBOX_FROM_ALPHASYSTEM.md`（未追跡）を置いた。内容: `conversations/` ディレクトリ（alphaexapi・alphasyscdk は `docs/conversations/`、他はリポジトリ直下）と README を作り、以後は `YYYY-MM-DD.md` に追記、旧 `conversations.md` はアーカイブとして追記しない。各セッションが自リポジトリの規約に従ってブランチ・PR を作って切り替える。
+- **未確認**: coop 系のセッションがこの方式を知らない可能性があるため、coopbatch・coopinf のセッション起動時に受信ファイルを読んでもらう必要がある。
+
+## 2026-10-20 alphaexapi の日付別ファイル切替が完了（Draft PR ＃150）、MF給与CSV取込の実装は PR ＃148 でマージ済みと判明
+
+- **完了（alphaexapi-1b から連絡）**: alphaexapi の会話記録を `docs/conversations/YYYY-MM-DD.md` に切り替え済み（Draft PR #150、base: staging）。README と `docs/conversations/2026-10-20.md` を作成。旧 `docs/conversations.md` はアーカイブとして残し追記しない。Stop フックの書き先が新ファイルに変わることを確認済み。Draft の解除とマージはユーザー。
+- **訂正**: 本日の次作業まとめで「alphaexapi が PR #147 の計画 Task 1〜5 を実装」としていたが、#147 は計画のみの PR で、**実装は PR #148 で行われ staging にマージ済み**（status 表の最終コミットでも確認できる）。したがって MF給与CSV取込は alphadb・alphaexapi が完了、残りは alphasys PR #229（画面）の仕上げと結合確認。
+- **残り（日付別切替）**: alphasys-0e の返信、alphadb・alphasyscdk・coopbatch・coopinf（受信ファイル）の対応待ち。
+
+## 2026-10-20 alphasys の日付別ファイル切替が完了（Draft PR ＃236）、PR ＃229 はマージ済み
+
+- **完了（alphasys-0e から連絡）**: alphasys の会話記録を `conversations/YYYY-MM-DD.md`（リポジトリ直下）に切り替え済み（Draft PR #236、base: staging）。README と `conversations/2026-10-20.md` を追加。旧 `conversations.md` はアーカイブとして残置。Stop フックの書き先が新ファイルに変わることを確認済み。Draft の解除とマージはユーザー。
+- **MF給与CSV取込**: alphasys PR #229（給与タブ）は本日マージ済み。これで alphadb・alphaexapi（#148）・alphasys の実装がすべてマージ済みとなり、残りは staging での結合確認（結合試験は設計者＝alphasystem が担当する方針）。
+- **残り（日付別切替）**: alphadb・alphasyscdk・coopbatch・coopinf（受信ファイル、各セッション起動待ち）。
+
+## 2026-10-20 coop 系への日付別切替の依頼は撤回（coop は coop 側のセッションで判断する）
+
+- **方針変更（ユーザー）**: coop プロジェクト配下への展開を alphasystem から依頼したのは**誤り**だった。daily-sync の話題が出たためつい含めたもので、coop 系の運用は coop 側のセッションで決める。先の「coop は coopcdeinput・coopcdebatch を除いて同様に実施」は取り消す。
+- **対応**: coopbatch・coopinf に置いた `INBOX_FROM_ALPHASYSTEM.md`（未追跡）を削除した（各リポジトリの変更なしを確認）。
+- **影響**: 同期スクリプトとフックは全リポジトリ共通のため、coop 側が日付別方式を採るかどうかは coop 側で判断できる（`conversations/` を作れば切り替わる）。alphasystem 系の残り（alphadb・alphasyscdk）は引き続き受信ファイル待ち。alphaaimail は引き続き除外。

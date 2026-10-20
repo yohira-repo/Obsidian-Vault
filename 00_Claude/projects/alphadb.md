@@ -240,3 +240,19 @@
   （ステータス一覧14テーブル→「✅夜間自動移行中」、#7 D3→対象外確定、#11 D5→保留、
   6章の残タスクを「本番での実施（本番環境構築後）」のみに整理、一気通貫は夜間自動移行で代替）。
   文書のみの変更。Draft PR #88（base: staging）を作成し、alphasystem-37へ連絡済み。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え（alphasystemからの申し送り）
+
+- 発端: `INBOX_FROM_ALPHASYSTEM.md`（2026-10-20）で依頼。決定はalphasystem側でユーザー承認済み。
+  Obsidian同期とStopフックは新旧両対応に修正済み。
+- 承認: alphadbセッションで手順を提示し、ユーザーが「この手順で進めてください」と承認。
+- 対応: `conversations/`ディレクトリと`README.md`（alphasystemの`docs/conversations/README.md`を雛形）を作成。
+  以後の記録は`conversations/<日付>.md`に書く。見出しは`## YYYY-MM-DD タイトル`（日付を先頭）。
+- やらないと決めたこと: 既存の`conversations.md`は過去分のアーカイブとして残し、**追記しない・分割/移動しない**
+  （リンク切れ防止）。同日10/20の前半の記録（申し送り取り込み、D5保留、PR #88）はそちらにある。
+- Stopフックは`conversations/`ディレクトリの有無で書き先を切り替える。切替後の書き先が今日付ファイルになることを確認する。
+- INBOXは本ファイルへ取り込んで削除。今後のINBOX取り込み先も`conversations/<日付>.md`とする。
+- 前提確認: PR #88（overview.md文書整合）は2026-10-20にマージ済み。マージ済みローカルブランチ
+  `feature/docs-migration-overview-status`を削除し、`feature/conversations-by-date`ブランチで作業。
+- 結果: Draft PR #90（base: staging）を作成。切替後のStopフックの書き先が`conversations/2026-10-20.md`
+  になったことを実機で確認済み（旧`conversations.md`は書き先から外れた）。

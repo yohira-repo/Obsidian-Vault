@@ -1,5 +1,6 @@
 """git リポジトリから conversations.md を収集する。"""
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -7,6 +8,9 @@ from typing import Dict, List, Optional, Tuple
 import sections as sections_module
 
 CONV_BASENAME = "conversations.md"
+# 日付別方式: <...>/conversations/YYYY-MM-DD.md（旧方式の conversations.md と併存できる）
+DAILY_DIRNAME = "conversations"
+DAILY_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\.md")
 EXCLUDE_SEGMENTS = {"node_modules", "dist", "build", ".next", "vendor"}
 GIT_TIMEOUT = 30
 
@@ -36,15 +40,29 @@ def run_git(repo: str, args: List[str]) -> str:
     return proc.stdout.decode("utf-8", "replace")
 
 
+def _is_daily_file(parts: List[str]) -> bool:
+    """日付別ファイル（<...>/conversations/YYYY-MM-DD.md）かどうか。"""
+    return (
+        len(parts) >= 2
+        and parts[-2] == DAILY_DIRNAME
+        and DAILY_FILE_RE.fullmatch(parts[-1]) is not None
+    )
+
+
 def is_conversations_path(path: str) -> bool:
     parts = path.split("/")
-    if parts[-1] != CONV_BASENAME:
+    if any(part in EXCLUDE_SEGMENTS for part in parts[:-1]):
         return False
-    return not any(part in EXCLUDE_SEGMENTS for part in parts[:-1])
+    return parts[-1] == CONV_BASENAME or _is_daily_file(parts)
 
 
 def source_id_from(repo_name: str, rel_path: str) -> str:
-    directories = [part for part in rel_path.split("/")[:-1] if part != "docs"]
+    parts = rel_path.split("/")
+    directories = parts[:-1]
+    if _is_daily_file(parts):
+        # 日付別ファイルは conversations/ ディレクトリ自体をソース識別子に含めない
+        directories = directories[:-1]
+    directories = [part for part in directories if part != "docs"]
     return "/".join([repo_name] + directories)
 
 
