@@ -618,3 +618,11 @@ alphasys固有の実装判断（設計書に明記が無かった2点）をユ�
 alphadb-e5からMfJobType（PAYROLL_SALARY_IMPORT/PAYROLL_BONUS_IMPORT）のpublish完了（0.2.5）の連絡を受け、alphasysの`package.json`を更新（コミット`0918cf4`）。確認の結果、alphasysはこのenumをPrisma経由で直接消費しておらず（MF連動は全てalphaexapi経由のREST）、機能的な影響は無いバージョン追従のみと判明。
 
 alphasys実装方針書（`docs/superpowers/specs/2026-10-19-mf給与csv人件費取込-alphasys実装方針.md`）と実装計画（`docs/superpowers/plans/2026-10-19-mf給与csv人件費取込-ui.md`、5タスク構成）を作成・コミット・push済み。実行方式の選択待ち。
+
+## 2026-10-20 alphasystem（全体調整）からの申し送りを取り込み
+
+`INBOX_FROM_ALPHASYSTEM.md`（alphasystemからの申し送り、未追跡ファイル）の内容を以下のとおり取り込み、ファイルは削除。今後も同ファイルが置かれていたら、同様に本ファイルへ取り込んでから削除する運用とする（ユーザー指示）。
+
+- **MF給与CSV取込（PR #229、Draft）の続き**: alphadb@0.2.5に更新済み。alphaexapi側エンドポイント（alphaexapi PR #147の計画 Task 1〜5）の完成待ち。API形状は設計書どおり固定（`POST /money-forward/jobs/csv/payroll-import?targetMonth&dataType`、202＋ジョブ概要）。実行状況画面は「給与・賞与取込」チェーンを表示名のみとし、再実行ボタンは出さない（alphaexapiと合意済み）。結合確認はalphaexapiの実装後。
+- **承認待ち・着手しない: staging画面からのMF認可の中継実装**: stagingではAPI_URLがlocalhostのため認可画面の直リンクが成立せず、コールバック`https://alphasys.alphacmc-test.com/money-forward/oauth/callback`はNext.jsが404を返すという設計ギャップあり。提案（未承認）はRoute Handlerで認可開始（IDトークン付きでalphaexapi `/authorize`を呼び、nonce Cookieを載せ替えてMFへリダイレクト）とコールバック中継（`src/app/money-forward/oauth/callback/route.ts`）を行うもの。csv-exportのプロキシと同じ型で、ALB・alphaexapiの変更は不要。**ユーザーの承認が出るまで実装しない**（承認はユーザーが直接伝える）。
+- **待機**: 課題表の大幅追加（2026-10-07方針の本筋）は、ユーザーから課題表が届くまで着手しない。

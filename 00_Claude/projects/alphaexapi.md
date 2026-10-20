@@ -628,3 +628,24 @@ legacy(`alphaofficesystem`)の`SalaryCostItemProcessor.java`・`salarycost.prope
 `feature/mf-payroll-csv-import`ブランチを作成し、5タスク構成の実装計画(`docs/superpowers/plans/2026-10-19-mf-payroll-csv-import.md`)をコミット、Draft PR #147を作成した。Task 1(CSV解析・見出し/種別検証)、Task 2(集計ロジック)、Task 3(削除→挿入リポジトリ)、Task 4(取込サービス)は現行の`alphadb@0.2.4`だけで実装・テスト可能。Task 5(エンドポイント・オーケストレータ配線・`MfJobType`登録)のみ、`PAYROLL_SALARY_IMPORT`/`PAYROLL_BONUS_IMPORT`の追加が必須。
 
 alphadb-e5から`alphadb@0.2.5`としてpublish済み(CodeArtifact上でlatest確認済み)との連絡を受けた。`npm install alphadb@0.2.5`を試みたが、ローカルの`CODEARTIFACT_AUTH_TOKEN`が失効しており(`.npmrc`記載の`aws codeartifact get-authorization-token`での再取得が必要)、かつそのAWS CLI実行がサンドボックスの自動承認対象外だったため、依存更新は未実施。Task 5着手時に利用者の承認を得て認証トークンを再取得し、`npm install alphadb@0.2.5`を実行してから着手する。
+
+## 2026-10-20 alphasystem（全体調整）からの申し送り: MF給与CSV人件費取込の実装依頼（PR ＃147 の計画に沿って Task 1→5）
+
+`INBOX_FROM_ALPHASYSTEM.md`（未追跡ファイル）経由で以下の申し送りを受領し、本記録へ取り込んだうえで同ファイルを削除した。
+
+**依頼内容**:
+- 設計書 [alphasystem/docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md](../../alphasystem/docs/design/2026-10-19-MF給与CSV人件費取込-仕様.md)（全セクション承認済み・確定）に基づき、PR #147 の実装計画（`docs/superpowers/plans/2026-10-19-mf-payroll-csv-import.md`）どおり Task 1→5 を実装する。
+- Task 1〜4（CSV解析・集計・削除→挿入・取込サービス）は `alphadb@0.2.4` のままでも実装可能なため、先に着手してよい。
+- Task 5 の前提: `alphadb@0.2.5` は publish 済み。ローカルの `CODEARTIFACT_AUTH_TOKEN` が失効しているため、`.npmrc` 記載の `aws codeartifact get-authorization-token` による再取得（**ユーザー承認が必要**）→ `npm install alphadb@0.2.5` を行ってから着手する。
+
+**確定済み方針（再確認）**:
+- rerun は `NotImplementedMfJobRunner` 型のスタブを `PAYROLL_SALARY_IMPORT` / `PAYROLL_BONUS_IMPORT` に登録する（alphasys と合意済み）。
+- ログ・エラーメッセージに氏名・金額を出さない。
+- alphasys PR #229（画面側）がこの API の完成待ち。エンドポイント形状 `POST /money-forward/jobs/csv/payroll-import?targetMonth&dataType` は設計書どおりとし変更しない。
+- 進め方は従来どおり: 既存 feature ブランチ（`feature/mf-payroll-csv-import`）で作業し、PR #147 は Draft のまま。コード修正前に方式を提示して確認を取る。
+
+**将来（着手指示が出るまで待機）**:
+- 段階2: ユーザー単位 OAuth（2026-10-16 設計承認済み。alphadb のスキーマ変更が先）。
+- ②給与API連携: MF サポート回答待ちで保留。取込ロジック（`PayrollCostAggregator`）は CSV 経路と API 経路で共用できる前提で作ること。
+
+**恒常ルール（ユーザー指示, 2026-10-20）**: 今後もリポジトリ直下に `INBOX_FROM_ALPHASYSTEM.md` があれば、同様に本記録（`docs/conversations.md`）へ取り込んだうえで削除する。
