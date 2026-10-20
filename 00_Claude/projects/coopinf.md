@@ -420,6 +420,8 @@ PASS基準(温存対象すべて残存・`restore-stg-db.sh`のcronのみ停止)
 「本日実施予定」)。Claude側の追加対応は不要。Task 10(`cf/`配下のCloudFormation
 テンプレート整理)はTask 9と作業が重複しないため、ユーザーの指示により着手する(2026-09-09)。
 
+---
+
 ## 2026-09-24 Task 9: 正式な手順書を`coop`リポジトリに作成済みと確認・Task 10完了を再確認
 
 ユーザーより、[`migration/cutover-plan.md`](./migration/cutover-plan.md) Task 9(旧バッチを
@@ -431,3 +433,20 @@ CloudWatch Logs Insightsでのログ確認までを網羅した内容で、cutov
 
 Task 10(`cf/`配下のCloudFormationテンプレート整理)は完了済み(PR #40、2026-09-09マージ済み)
 であることをユーザーへ再確認。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え（coop からの申し送り）
+
+coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領し、内容を取り込んだうえで同ファイルを削除した。
+出典: coop の `conversations/2026-10-20.md`「alphasystem の運用規則を coop 系に適用」、`coop/CLAUDE.md`。
+
+**決定（coopinf での対応）**:
+
+- 会話記録は今後 [`conversations/YYYY-MM-DD.md`](./README.md) に書く（見出しは `## YYYY-MM-DD タイトル`）。
+- 既存の [`conversations.md`](../conversations.md) は 2026-10-20 より前のアーカイブとして残し、**追記しない**。
+- Stop フックは全リポジトリ共通で、`conversations/` があれば書き先が自動で今日付ファイルに切り替わる。
+
+**あわせて coop で決まったこと（参考）**:
+
+- 設計の決定は coop に、実装計画以降のやり取りは各プロジェクト（coopinf 等）に記録する。結合試験は coop（設計者）が担当する。
+- セッション間の連携は SendMessage を使う。相手が未起動なら、相手リポジトリ直下に未追跡の `INBOX_FROM_<送り元>.md` を置く。受け取った側は取り込み後に削除する。
+- ブランチ運用（main/staging の 2 本立て）は coop 系では採用しない。coopinf は従来どおり `main` をベースにする（staging ブランチは無い）。
