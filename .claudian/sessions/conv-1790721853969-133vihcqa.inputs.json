@@ -274,6 +274,98 @@
       "contentDigest": "42ac4f8f01816dcee0ace97c7deef8b16c754c18c2dfab34541384f0284ecc18",
       "providerUserMessageId": "acf988d1-dd3c-46d4-b9d6-44ef0fc1fa58",
       "providerAssistantMessageId": "a5e9b35f-9590-4b4a-b380-b371a30f6219"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792538588686-5f3c4mq",
+      "userTurnOrdinal": 17,
+      "state": "accepted",
+      "localMessageId": "msg-1792538588664-5ph9od7",
+      "timestamp": 1792538588664,
+      "rawDisplayText": "github との同期でconfilictが出ています。",
+      "canonicalText": "github との同期でconfilictが出ています。",
+      "images": [],
+      "contentDigest": "d4cda399d96ee903997d827d9757ef22732160f9717c3f43980385d513a7bf74",
+      "providerUserMessageId": "4826a97f-92ae-4056-927b-81d211d365e3"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792538623707-smsjhmt",
+      "userTurnOrdinal": 18,
+      "state": "accepted",
+      "localMessageId": "msg-1792538623702-ghza996",
+      "timestamp": 1792538623702,
+      "rawDisplayText": "続けてください",
+      "canonicalText": "続けてください",
+      "images": [],
+      "contentDigest": "140e7a7d07384696b7102943c1f1f5540e242e12fee72eb197027aafa62bb3cd",
+      "providerUserMessageId": "71583308-185f-41d4-8fd5-7117a03b4042",
+      "providerAssistantMessageId": "88e89158-ff82-4678-af95-428fed050ede"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792538727598-arn8w7b",
+      "userTurnOrdinal": 19,
+      "state": "accepted",
+      "localMessageId": "msg-1792538727590-p35vvsk",
+      "timestamp": 1792538727590,
+      "rawDisplayText": "たまにconflict-files-obsidian-git　ができているんですが、削除してもかまいませんか？",
+      "canonicalText": "たまにconflict-files-obsidian-git　ができているんですが、削除してもかまいませんか？",
+      "images": [],
+      "contentDigest": "c7b26e422b42eea6c189f157bcacac48d14b2509077f9d39c8fc2c88d705c93e",
+      "providerUserMessageId": "5c964f55-f64f-4d85-8188-82ae3bd6ff5a",
+      "providerAssistantMessageId": "43a3f4bb-5dcf-42f3-961a-f973693b79c6"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792538776364-bavgk3f",
+      "userTurnOrdinal": 20,
+      "state": "accepted",
+      "localMessageId": "msg-1792538776351-rb4bl8y",
+      "timestamp": 1792538776351,
+      "rawDisplayText": "やってください。",
+      "canonicalText": "やってください。",
+      "images": [],
+      "contentDigest": "8a09917e0b050584283fda0625c643b0cb0eafa8ba09b6eb1bb30404d526543c",
+      "providerUserMessageId": "4c4d5c11-6d36-44df-9962-8e5850c2eb7c",
+      "providerAssistantMessageId": "b5582219-5157-4494-8955-8f9d39a4ce40"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792538909956-zrcqunx",
+      "userTurnOrdinal": 21,
+      "state": "accepted",
+      "localMessageId": "msg-1792538909953-ebex1iw",
+      "timestamp": 1792538909953,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "9b5da62d-6ff2-407c-92c4-4731d3f7fd98",
+      "providerAssistantMessageId": "87d87c85-5fd4-4672-8582-c86dd5dfe25d"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792540065519-r95tb8z",
+      "userTurnOrdinal": 22,
+      "state": "accepted",
+      "localMessageId": "msg-1792540065508-fcg60fl",
+      "timestamp": 1792540065508,
+      "rawDisplayText": "/project-status",
+      "canonicalText": "/project-status",
+      "context": {
+        "editorSelection": {
+          "notePath": "01_Daily/2026-10-21.md",
+          "mode": "selection",
+          "selectedText": "## Claude作業ログ",
+          "lineCount": 1,
+          "startLine": 63
+        }
+      },
+      "images": [],
+      "contentDigest": "27d682173ff6c34734f6a00e43456e5e7fa19bb014b2a05af419fcf73b498ae9",
+      "providerUserMessageId": "7f858618-9699-4259-9e3b-7620180be889",
+      "providerAssistantMessageId": "361af6e7-dc38-4cb2-8bad-f2c4fe8ac989"
     }
   ]
 }

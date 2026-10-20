@@ -1136,7 +1136,10 @@ Claude から「`/record` の最後に Daily 同期も走らせては」と提�
 - ローカル側に失われる変更が無いため、**`origin/main` 側の追記をそのまま採用**。解消後のファイルが `origin/main` 版と完全一致（差分ゼロ）・競合マーカー 0 件であることを確認。
 - バックアップ `/tmp/alphasys.md.conflict.bak`、マージコミット `986b246`。
 
-### 残（未決・ユーザー判断待ち）
-- **push するか未定**。未 push コミットが 2 件（`1b2a191` vault backup、`986b246` マージ）。
-- **`__pycache__` / `.pyc` が git 管理下**（追跡済み 42 ファイル、今回のマージでも 14 件がステージ）。`.gitignore` に記載なし。今後も競合の発生源になるため、`.gitignore` 追加と `git rm --cached` での追跡解除を提案したが未承認。
-- **`conflict-files-obsidian-git.md`**（Obsidian Git プラグインが競合時に生成するファイル）の削除可否をユーザーから質問され、調査の結果**削除して安全**と回答（承認はまだ）。根拠: ①中身は競合ファイル名の一覧と競合マーカーの解消手順の案内文のみで固有データを含まない ②git **未追跡**のため削除しても履歴に影響しない ③現在の競合は 0 件で役目が終わっている ④ファイル自身に「This file will automatically be deleted before commit」と記載があり本来プラグインが自動削除する想定のもの。あわせて今後生成される都度気にせず済むよう `.gitignore` への追加も提案（未承認）。
+### ユーザー承認と実施結果（2026-10-21「やってください」で 3 件まとめて承認）
+- **push 実施**: 未 push だった 3 コミット（`1b2a191` vault backup / `986b246` マージ / `f2a79da` chore）を `origin/main` へ push 完了（`71719a8..f2a79da`）。`main...origin/main` のずれ無しを確認。
+- **`__pycache__` / `.pyc` の追跡解除**: `.gitignore` に `__pycache__/` と `*.pyc` を追加し、追跡済み 42 ファイルを `git rm --cached` で解除。**ワークツリーの実ファイルは保持**（Python の動作に影響なし）。コミット `f2a79da`。これが今回の競合の主因だったため、同種の競合は起きにくくなる見込み。
+- **`conflict-files-obsidian-git.md` の削除**: Obsidian のゴミ箱経由（`obsidian delete`）で削除し、`.gitignore` にも追加して今後 git の差分に出ないようにした。
+
+### 学び（再調査しないためのメモ）
+- `conflict-files-obsidian-git.md` は Obsidian Git プラグインが競合時に生成する**案内メモ**。競合ファイル名の一覧と競合マーカーの解消手順のみで固有データを含まず、git 未追跡。ファイル自身に「This file will automatically be deleted before commit」とあり、本来は自動削除される想定。**見かけたら削除して差し支えない**。
