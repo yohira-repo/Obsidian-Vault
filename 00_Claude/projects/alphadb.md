@@ -191,3 +191,68 @@
   `latest`になっていること、`staging`/`main`の同期・`prisma validate`/`npm test`正常・
   コンフリクト破損無しを確認。alphaexapi-4c・alphasys-f1へ「0.2.5がpublish済み」を連絡。
   **alphadb側の対応完了**（実装順の次はalphaexapi→alphasys）。
+
+## 2026-10-20 alphasystemからの申し送り（INBOX_FROM_ALPHASYSTEM.md 取り込み）
+
+- 運用ルール（ユーザー指示）: リポジトリ直下に`INBOX_FROM_ALPHASYSTEM.md`があれば、内容を
+  本conversations.mdへ取り込んでから削除する。今後も同様に扱う。
+- 依頼: `prisma/doc/migration/overview.md`の「6. 残タスク」「2. 移行ステータス一覧」の文書整合。
+  - 実態は**夜間自動移行**（Bastionのsystemd timer、毎日JST 1:00、`nightly_automation.md`、
+    PR #56/#58、alphasyscdk #89）。CloudWatch `/alphasys/staging/nightly-migration`で
+    10/12〜10/19毎晩`RESULT: SUCCESS`を確認済み。「一気通貫の再実施」という作業は存在しない。
+  - D3は2026-09-30に「移行対象外（システムの中で作成するもの）」で確定済み。「要判断」を確定表記に直す。
+  - 画面での実データ確認は2026-09-30に「可能なものは確認済み」としてクローズ済み
+    （alphasystem/docs/conversations.md「2026-09-30 データ移行の残タスクを確定し…」）。
+  - 進め方: 修正は文書のみ。方式案を示して承認後に着手（featureブランチ→Draft PR、base=staging）。
+- 状況共有:
+  - MF給与CSV取込: alphadb側は0.2.5 publish済みで完了。追加作業なし。
+  - 将来（②給与API連携着手時）: `MfProduct.PAYROLL`追加が必要（今は保留）。
+  - 将来（段階2 ユーザー単位OAuth）: `MfOauthToken`を製品×ユーザー単位へ変更（v0.2.6想定、
+    alphaexapi設計2026-10-16承認済み）。**着手指示が出るまで待機**。
+
+## 2026-10-20 D5（alp_laborcost_history）の確定状況をalphasystemへ問い合わせ
+
+- overview.md文書整合の修正案（ステータス一覧・D3・残タスク）を提示。**承認待ち（未着手）**。
+- 表#11 `alp_laborcost_history`が「要判断」のまま（本文D5は「原則 新規入力（移行不要）」）。
+  ユーザーは判断がつかないため、alphasystemセッション（alphasystem-37）へ確定状況を問い合わせた。
+  回答があるまで#11の表記は変えない。
+
+## 2026-10-20 D5（alp_laborcost_history）はalphasystem側でも未確定と回答
+
+- alphasystem-37の回答: D5の確定記録は無く未確定。過去単価を別ソースから起こす案の生死も未決。
+  MF給与CSV取込は`alp_usercost`のみ対象で、D5の判断材料にはならない。
+- 表記方針: ステータス一覧#11は**「要判断」のまま**。備考に「原則は新規入力（移行元なし）。
+  過去単価を移すかは未決」と事実だけ追記するのは可。**「確定」とは書かない**。
+- 確定にはユーザー判断が必要。alphasystemからユーザーへ確認し、決まったら改めて連絡が来る。
+
+## 2026-10-20 D5（alp_laborcost_history）は「保留」とユーザーが回答
+
+- ユーザー回答: `alp_laborcost_history`は**技術者別採算管理サブシステムを構築する際に使用するもの**で、
+  **現在は保留**。移行要否（過去単価を起こすか）も、同サブシステム構築時に判断する。
+- overview.md表記案: ステータス一覧#11の状態を「要判断」→「保留（技術者別採算管理サブシステム
+  構築時に判断）」へ。D5節にも同趣旨を追記。「確定（移行対象外）」とは書かない。（文書修正全体は承認待ち）
+- alphasystem-37へ本回答を連絡。
+
+## 2026-10-20 overview.md文書整合 — ユーザー承認・Draft PR作成
+
+- ユーザーが「PRを出してください」と指示（修正案の承認）。
+- `feature/docs-migration-overview-status`ブランチで`prisma/doc/migration/overview.md`を修正
+  （ステータス一覧14テーブル→「✅夜間自動移行中」、#7 D3→対象外確定、#11 D5→保留、
+  6章の残タスクを「本番での実施（本番環境構築後）」のみに整理、一気通貫は夜間自動移行で代替）。
+  文書のみの変更。Draft PR #88（base: staging）を作成し、alphasystem-37へ連絡済み。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え（alphasystemからの申し送り）
+
+- 発端: `INBOX_FROM_ALPHASYSTEM.md`（2026-10-20）で依頼。決定はalphasystem側でユーザー承認済み。
+  Obsidian同期とStopフックは新旧両対応に修正済み。
+- 承認: alphadbセッションで手順を提示し、ユーザーが「この手順で進めてください」と承認。
+- 対応: `conversations/`ディレクトリと`README.md`（alphasystemの`docs/conversations/README.md`を雛形）を作成。
+  以後の記録は`conversations/<日付>.md`に書く。見出しは`## YYYY-MM-DD タイトル`（日付を先頭）。
+- やらないと決めたこと: 既存の`conversations.md`は過去分のアーカイブとして残し、**追記しない・分割/移動しない**
+  （リンク切れ防止）。同日10/20の前半の記録（申し送り取り込み、D5保留、PR #88）はそちらにある。
+- Stopフックは`conversations/`ディレクトリの有無で書き先を切り替える。切替後の書き先が今日付ファイルになることを確認する。
+- INBOXは本ファイルへ取り込んで削除。今後のINBOX取り込み先も`conversations/<日付>.md`とする。
+- 前提確認: PR #88（overview.md文書整合）は2026-10-20にマージ済み。マージ済みローカルブランチ
+  `feature/docs-migration-overview-status`を削除し、`feature/conversations-by-date`ブランチで作業。
+- 結果: Draft PR #90（base: staging）を作成。切替後のStopフックの書き先が`conversations/2026-10-20.md`
+  になったことを実機で確認済み（旧`conversations.md`は書き先から外れた）。

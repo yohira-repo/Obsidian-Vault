@@ -407,3 +407,23 @@ PR #27は2026-10-05にマージ済み（ユーザー報告・`gh pr view`で確�
 - **本番環境へのリリース完了**（ユーザー報告）
 
 これにより、2026-10-05に起票したStep4追加に伴う`errors/`・`temporary`振り分けの対応は一連完了とする。
+
+## 2026-10-20 coop からの申し送り: 会話記録を日付別ファイルへ切り替え
+
+### 申し送り内容（INBOX_FROM_COOP.md より取り込み）
+coop で、alphasystem 配下で決まった運用規則を coop 系にも適用することが決定（詳細: coop の `conversations/2026-10-20.md`「alphasystem の運用規則を coop 系に適用」、`coop/CLAUDE.md`）。coopbatch への依頼は以下。
+
+1. リポジトリ直下に `conversations/` ディレクトリと `README.md` を作る（ひな形: `coop/conversations/README.md`）。
+2. 今後の記録は `conversations/YYYY-MM-DD.md` に書く（見出しは `## YYYY-MM-DD タイトル` のまま）。
+3. 既存の `conversations.md` は過去分のアーカイブとして残し、**追記しない**。
+4. 通常の規約でブランチを作り Draft PR にする（base は main。staging は無い）。Stop フックは全リポジトリ共通なので、`conversations/` を作れば書き先が自動で切り替わる。
+
+あわせて決まったこと（参考）:
+- 設計の決定は coop に、実装計画以降のやり取りは各プロジェクトに記録する。結合試験は coop（設計者）が担当する。
+- セッション間の連携は SendMessage を使う。相手が未起動なら、相手リポジトリ直下に未追跡の `INBOX_FROM_<送り元>.md` を置く。
+- ブランチ運用（main/staging の 2 本立て）は coop 系では採用しない（従来どおり main をベースにする）。
+
+### 対応
+- `conversations/README.md`（coop のひな形に準拠）と本ファイルを作成。
+- 既存の `conversations.md` は coop と同様に無変更のままアーカイブとして残す（以降は追記しない。README に明記）。
+- 取り込み後、`INBOX_FROM_COOP.md` を削除。

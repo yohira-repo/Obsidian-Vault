@@ -618,3 +618,87 @@ alphasys固有の実装判断（設計書に明記が無かった2点）をユ�
 alphadb-e5からMfJobType（PAYROLL_SALARY_IMPORT/PAYROLL_BONUS_IMPORT）のpublish完了（0.2.5）の連絡を受け、alphasysの`package.json`を更新（コミット`0918cf4`）。確認の結果、alphasysはこのenumをPrisma経由で直接消費しておらず（MF連動は全てalphaexapi経由のREST）、機能的な影響は無いバージョン追従のみと判明。
 
 alphasys実装方針書（`docs/superpowers/specs/2026-10-19-mf給与csv人件費取込-alphasys実装方針.md`）と実装計画（`docs/superpowers/plans/2026-10-19-mf給与csv人件費取込-ui.md`、5タスク構成）を作成・コミット・push済み。実行方式の選択待ち。
+
+## 2026-10-20 alphasystem（全体調整）からの申し送りを取り込み
+
+`INBOX_FROM_ALPHASYSTEM.md`（alphasystemからの申し送り、未追跡ファイル）の内容を以下のとおり取り込み、ファイルは削除。今後も同ファイルが置かれていたら、同様に本ファイルへ取り込んでから削除する運用とする（ユーザー指示）。
+
+- **MF給与CSV取込（PR #229、Draft）の続き**: alphadb@0.2.5に更新済み。alphaexapi側エンドポイント（alphaexapi PR #147の計画 Task 1〜5）の完成待ち。API形状は設計書どおり固定（`POST /money-forward/jobs/csv/payroll-import?targetMonth&dataType`、202＋ジョブ概要）。実行状況画面は「給与・賞与取込」チェーンを表示名のみとし、再実行ボタンは出さない（alphaexapiと合意済み）。結合確認はalphaexapiの実装後。
+- **承認待ち・着手しない: staging画面からのMF認可の中継実装**: stagingではAPI_URLがlocalhostのため認可画面の直リンクが成立せず、コールバック`https://alphasys.alphacmc-test.com/money-forward/oauth/callback`はNext.jsが404を返すという設計ギャップあり。提案（未承認）はRoute Handlerで認可開始（IDトークン付きでalphaexapi `/authorize`を呼び、nonce Cookieを載せ替えてMFへリダイレクト）とコールバック中継（`src/app/money-forward/oauth/callback/route.ts`）を行うもの。csv-exportのプロキシと同じ型で、ALB・alphaexapiの変更は不要。**ユーザーの承認が出るまで実装しない**（承認はユーザーが直接伝える）。
+- **待機**: 課題表の大幅追加（2026-10-07方針の本筋）は、ユーザーから課題表が届くまで着手しない。
+
+## 2026-10-20 alphaexapi側の給与CSV取込API完成を確認、Subagent-Driven Developmentで実装に着手
+
+ユーザーより「alphaexapiの状況を確認して、先に進めてください」との指示。alphaexapi PR #147（実装計画）・#148（実装）がstagingにマージ済み（2026-10-20、mainへも#149で反映）であることを確認。実コード（`money-forward-job.controller.ts`の`importPayrollCsv`、`mf-job-orchestrator.service.ts`の`triggerCsvPayrollImport`）を読み、実装計画のGlobal Constraintsと契約が一致することを確認した（`POST /money-forward/jobs/csv/payroll-import?targetMonth&dataType=SALARY|BONUS`、multipartの`file`、`@Roles('ADMIN')`、202＋`{targetMonth, jobType, jobId, status}`、`mode`パラメータなし、ロック競合は409、CSV見出し・種別不一致は400）。
+
+PR #229は実装計画まで作成済みで実行方式の選択待ちだったため、前回のCSV連携（PR #227）と同じSubagent-Driven Developmentで実装計画（5タスク）を実行する。既存画面（`/common/mf-csv`）へのタブ追加で新規`page.tsx`は作らないため、page-mock.htmlの事前確認ルールの対象外と判断。
+
+実行順序: 計画の5タスクを「Task 1＋2（型・APIクライアント・Server Action）」「Task 3＋4（MF実行状況画面のチェーン追加・再実行ボタン制御）」「Task 5（給与タブUI）」の3単位にまとめ、この順で実装→タスクレビューを行い、最後に全体レビューを実施する（各組は小さく、計画に完全なコードがあり、インターフェースを共有しているため）。
+
+Task 1＋2（型・APIクライアント・Server Action）のタスクレビュー通過。指摘のうち「`postMfPayrollCsvImport`が既存`postMfCsvImport`の通信・エラー処理（約50行）とほぼ同一の複製」（計画で指定された実装）は、**本PRでは共通化しない**と判断。共通化すると既存`postMfCsvImport`の書き換えになり計画範囲外で、既に合意済みの「共通化は別チケット」方針（ドラッグ&ドロップ部品と同様）に揃えるため。Minor 3件（Server Actionでの引数の実行時検証なし／無効JSON分岐のテストなし／テストファイルの空行）は最終全体レビューで要否を判断する。
+
+ユーザーより「PRお願いします」との指示を受け、途中経過（Task 1〜3のコミット）を`feature/mf-payroll-csv-import`へpushし、PR [#229](https://github.com/alphacmc/alphasys/pull/229)（base: staging）の本文にalphaexapi #148マージ済みの旨・タスク別進捗・判断事項を反映。PR #229はDraft解除済みの状態だが作業途中のため、本文に「全タスク完了まではマージしない」旨を明記した（Draftへの戻しはユーザー判断）。残るTask 4・5と最終全体レビュー、ローカルalphaexapiでの通し確認を終えたら同PRへ追加pushする。
+
+Task 3＋4（MF実行状況画面の給与・賞与取込チェーン追加・再実行ボタン非表示）のタスクレビュー通過（Critical/Important指摘なし）。コード中の「alphaexapi側はこの2種別の再実行で常にFAILED」との記述は、alphaexapi `money-forward-job.module.ts`で両種別が`csvReuploadRequired`ランナーに割り当てられていることを実コードで確認済み。既存テストの「未実行」件数を5→7に更新（チェーン追加に伴う必然の変更）。Minor 2件（賞与側の画面レベル再実行テストなし／表示名「給与取込」「賞与取込」の描画アサートなし）は最終全体レビューで要否を判断する。続けてTask 5（給与タブUI）に着手。
+
+Task 5（CSV連携画面の給与タブ）のタスクレビュー通過。ドラッグ&ドロップのハンドラ5点と`isCsvFile`は既存`MfCsvImportSection.tsx`と完全一致することを確認し、計画どおり**本PRでは共通化しない**（「共通化は別チケット」方針）。Minor 3件（種別・CSVファイルのラベルが入力に関連付いていない／対象月を空にしてもアップロード可能＝既存タブと同挙動でバックエンドが検証／BONUS送信・画面遷移・例外経路のテスト不足）は最終全体レビューで要否を判断する。全5タスクの実装とPR #229へのpushを完了し、最終全体レビュー（opusモデル）を実施中。
+
+最終全体レビュー（opusモデル）の結果は「With fixes」。Critical指摘なし、alphaexapiの実装済みAPIとの契約一致・既存チェーンへの回帰なしを確認。Important 1件（I-1）: 給与CSV取込で非同期フェーズ（数値変換エラー・DBエラー等）に失敗した場合、alphaexapiは`lastError`に行番号・列名入りの理由を記録するが、alphasysの`MfJobSummary`に`lastError`が無く画面に出ない。かつ`failedCount`が0のため「明細」ボタンも出ず、再実行ボタンも非表示にしたため、利用者は失敗理由が分からず取るべき操作も無い（理由はCloudWatchのアプリログにのみ出る）。修正方式案（`MfJobSummary`に`lastError`を追加し、FAILED行のステータス下に表示）を提示し、本PRで直すか別チケットに先送りするかをユーザーに確認中。Minor（対象月が空でもアップロード可能、再実行APIが給与種別を受け付けてしまう点）も同時に確認。それ以外の先送り項目はすべて先送り継続で問題なしと判定された。
+
+ユーザー判断: I-1は**本PRで修正する**（全チェーン対象: `MfJobSummary`に`lastError: string | null`を追加し、MF実行状況画面のFAILED行でステータスの下に失敗理由を表示。alphaexapi側は既に一覧APIで`lastError`を返しているため変更不要）。Minorのうち**M-1（給与タブで対象月が空ならアップロードボタンを無効化）とM-2（`postMfJobRerun`で給与・賞与の種別を拒否し、`job-rows`と同じ再実行可否の定義を共有）も本PRで修正**。M-1を既存の請求書/債務支払タブにも適用するかは未決（本PRでは給与タブのみ）。その他の先送り項目は最終レビューの判定どおり別チケットへ。
+
+最終レビュー修正（I-1・M-1・M-2）を実施し、修正範囲の再レビューで3件とも解消・新たな不具合なしを確認。全テスト（`npx jest` 39スイート/247件パス）と`tsc --noEmit`（テスト以外のエラー0）を実行して確認。PR #229へpush済み。残りはローカルalphaexapiに対する通し確認（給与タブからアップロード→MF実行状況画面での表示、行単位の失敗CSVで失敗理由が表示されることを含む）。M-1を既存の請求書/債務支払タブにも適用するかは未決。
+
+## 2026-10-20 課題2_2_3「契約一覧からのリンクがエラー」の調査に着手
+
+ユーザーより、alphasys課題表（Googleスプレッドシート）の2_2_3（プロジェクト情報画面の契約一覧からのリンクで「An error occurred in the Server Components render」）の調査対応の依頼。systematic-debuggingで調査中（原因特定・方式案提示までで、修正はユーザー了承後）。
+
+調査途中の事実: リンク先は契約情報画面`/sales/contract/edit/[contractNo]`（請求一覧からと同じURL）。staging のCloudWatch `staging-alphasys-frontend`に同画面で`Error: ファイル情報が取得できませんでした`（10/8・10/19・10/20）が出ており、直前に`[ApiError] 401`。`staging-alphasys-backend`側は`GET /google-drive/download?fileId=…`に対し`Token verification failed`（401）。契約書ファイル（`contDocId`）がある契約で、alphaexapi経由のGoogle Drive取得が認証エラーとなり、page.tsxが例外を投げて画面全体がエラーになっている。仮説: alphasysはログイン時のGoogle IDトークンを更新せずセッションに保持しており（`src/lib/auth.ts`）、約1時間の有効期限切れ後はalphaexapi呼び出しが全て401になる（検証中）。
+
+原因の裏づけ（CloudWatch Logs Insights、staging-alphasys-backend、30日分）: alphasys→alphaexapiのリクエスト47件中、401（Token verification failed）34件・403 2件・成功11件。同一API（`/admin/aws-instance/allInstanceInfo`等）で成功と401が混在するため、audience等の設定誤りではなく時間依存＝**Google IDトークン（有効期限約1時間）の期限切れ**と判断。alphasysはログイン時の`id_token`を`jwt`コールバックで保持するのみで更新しない一方、NextAuthのセッションは既定30日のため、ログイン後1時間を過ぎるとalphaexapi経由の機能（Drive・MF連動・AWSインスタンス・シート作成）が全て401になる。契約情報画面は契約書ファイル（`contDocId`）がある契約でDrive取得に失敗すると`throw`しているため画面全体がエラーになる（請求一覧などDB直読みの画面は影響を受けないため、課題では「契約一覧からのリンク」として顕在化）。修正方式案をユーザーに提示し、了承待ち。
+
+提示した修正方式案（ユーザー回答待ち・未着手）: **A（根本対策）** NextAuthのGoogleプロバイダでリフレッシュトークンを取得（`access_type=offline`/`prompt=consent`）し、`jwt`コールバックで期限前に`id_token`を再取得、更新失敗時は再ログインへ誘導（主に`src/lib/auth.ts`＋型定義、各ユーザー初回のみ再ログイン・同意画面あり）。**B（防御）** 契約情報画面`page.tsx`でDrive取得失敗時に例外を投げず、画面を表示して「契約書ファイルを取得できませんでした」と案内。C（セッションを1時間で切る）は非推奨。推奨はA＋B。了承後の段取り: マージ済みブランチ整理→stagingから新規ブランチ＋Draft PR→TDDで実装→stagingでログイン後1時間超でも契約情報・MF実行状況が開けることを確認。
+
+ユーザーより「A+Bでお願いします」と了承。マージ済みの`feature/mf-payroll-csv-import`ローカルブランチを削除し、stagingから`feature/fix-id-token-refresh`を作成してDraft PRで進める。
+
+B着手前に、契約保存処理（`edit-contract.action.ts`）が「`contDocId`あり＋フォームにファイルなし」をファイル削除とみなし、Drive上の契約書削除と`contDocId`のクリアを行うことを確認。Drive取得失敗時に画面をそのまま表示すると更新操作で契約書が消えるおそれがあるため、ユーザーに確認し、Bは**「画面（契約情報・請求一覧・契約明細）は表示するが、更新・削除ボタンを無効化し、契約書ファイルを取得できなかった旨と再読み込み／再ログインを案内する」**形に変更して実装することで決定。
+
+A・Bの実装をPR [#231](https://github.com/alphacmc/alphasys/pull/231)（Draft、base: staging）にpush。A実装時の追加判断: (1) middlewareの素の`await auth()`ではjwtコールバックで更新したトークンがCookieに書き戻されないため、`auth((request) => …)`のラッパー形式に変更（判定ロジックは不変）。(2) 更新不能時はjwtコールバックで`null`を返してセッションCookieを破棄し、既存の「未ログイン→/login」の流れに乗せる（セッションにエラーを残す方式はLoginClientの「認証済みなら元画面へ戻す」処理と行き来ループになるため不採用）。(3) B実装時、PDF/Excel以外でDrive取得結果が`undefined`になる場合も取得失敗として扱う（従来は空欄のまま保存すると契約書が削除される潜在バグ）。全テスト256件・`next build`成功。認証まわりのためopusでレビュー中。マージ後、staging でログイン後1時間超でも契約情報・MF実行状況が開けることを確認する。
+
+PR #231のレビュー（opus）結果は「With fixes」。next-auth v5での`null`返却によるログアウト・middlewareラッパーでのCookie書き戻し・ログイン画面との行き来ループなしを、ライブラリ実装で確認済み。指摘を受けて本PR内で修正: 一時障害（Google 5xx・通信エラー）ではログアウトさせず現在のトークンで続行し次回再試行（400/401のみセッション破棄）／`expires_in`欠落時は1時間とみなす／ログイン応答にリフレッシュトークンが無い場合のログ出力／保存処理が呼ばれないことのテスト追加／案内文言の調整。
+**既存不具合の発見（本PR範囲外、ユーザー判断待ち）**: 契約情報画面では取得済みの契約書ファイルがReactの状態にしか無く、フォーム送信内容（`fileData`入力）には入らない。そのためファイルを選び直さずに「保存」すると、空のファイルが送られ、Drive上の契約書が削除または空ファイルで上書きされる可能性が高い（ドラッグ&ドロップで差し替えたファイルも送られない）。
+
+PR #231はレビュー指摘対応のpush前（2026-10-20 07:53 UTC、e5eb816まで）にユーザーがマージ済みだった。push前のマージ確認を怠りpushしてしまったため、ブランチを`feature/fix-id-token-refresh-followup`に改名して、指摘対応（36b72cf）をDraft PR [#233](https://github.com/alphacmc/alphasys/pull/233)（base: staging）として出し直した。
+
+ユーザーへの確認事項（回答待ち）: (1) 契約書が保存で消える既存不具合を、staging/ローカルで再現確認のうえ別課題として修正するか先送りするか。(2) #231のstaging反映で全ユーザーが一度ログアウトされ再ログイン時にGoogle同意画面が出るため、利用者への事前周知。あわせてGCPのOAuth同意画面が「内部」または「本番」か確認（「外部・テスト中」だとリフレッシュトークンが7日で失効）。(3) #231反映後のstaging確認: ログイン後1時間超で契約書ありの契約情報画面とMF実行状況画面が開けること、backendログに`Token verification failed`が出ないこと。
+
+ユーザー回答: (1) 契約書が保存で消える既存不具合は「staging/ローカルで再現確認のうえ別課題として修正」で了承。(2) 再ログイン周知・OAuth同意画面設定確認は了解（ユーザー対応）。(3) staging確認はユーザーが実施。
+
+## 2026-10-20 契約情報画面の保存で契約書が失われる既存不具合の再現準備
+
+PR #231のレビューで判明した既存不具合（保存時に契約書ファイルが送信されない）について、staging-alphasys-backendのログ（60日分）を調査したが、Drive書き込み・削除リクエストは0件で、staging上での発生実績はログからは確認できなかった。コード・HTML仕様上の筋道: 未選択のファイル入力は名前空・サイズ0のFileとして送られ、`fileData?.name !== "undefined"`を通過して差し替え処理に入り、Drive上の契約書が空ファイルで上書きされる（名前が"undefined"なら削除）。
+
+段取り: (1) ユーザーが#231反映後のstagingで試験用契約を使い再現確認（契約名のみ変更して保存→Drive上の契約書の有無・中身と`contDocId`を確認、ドラッグ&ドロップ差し替えの保存も確認）。(2) 再現確認後、提示した修正案（画面から契約書の扱い＝維持/差し替え/削除を明示送信し、差し替えファイルを確実に送信内容に入れる。保存処理は「削除」明示時のみDrive削除、「差し替え」はサイズのあるファイルのみ、「維持」はDriveに触れず`contDocId`を保持。契約追加画面の同種処理も着手時に確認）について了承を得てから、別ブランチ・Draft PRで着手する。
+
+ユーザーより「進めてください」と了承。staging(origin)から`feature/fix-contract-file-save`を作成し、提示した修正案（契約書の扱い＝維持/差し替え/削除を明示送信、「削除」明示時のみDrive削除、「差し替え」はサイズのあるファイルのみ、「維持」はDriveに触れず`contDocId`保持）で契約情報画面の保存処理を修正する。同じ`fileData.name !== "undefined"`判定は請求追加・請求編集・契約追加（確認）にもあるが、ファイルの保持・送信方式が異なるため本件では対象外とし、別途報告する。
+
+修正内容（PR #234）: 保存処理のテストで「ファイル未選択（名前空・サイズ0）のまま保存すると差し替え処理（moveWithFolderName→update）に入り契約書を空ファイルで上書きする」ことをコード上で再現（Red）。画面から`fileAction`（keep/replace/remove）を送信し、差し替えファイル（選択・ドロップとも）を送信内容に入れるよう修正。保存処理は「remove」明示時のみDrive削除（失敗時はエラーを返し`contDocId`を保持）、「replace」はサイズのあるファイルのみ、「keep」（未指定含む）はDriveに触れず`contDocId`を保持。新規アップロード失敗時もエラーを返すようにした。保存失敗時は次の保存で契約書に触れないよう`keep`に戻す。全テスト268件・`next build`成功（ビルド時の「Dynamic server usage」2件は変更前から出ているもの）。
+注意: 「keep」で取引先・プロジェクト・期間を変更した場合、Drive上の契約書のフォルダ移動・リネームは行わない（従来は差し替え時のみ実施）。#233（未マージ）とEditContractInfoのテスト・文言で競合の可能性あり。
+
+ユーザーへの確認事項（回答待ち）: (1) 契約書「維持」のまま取引先・プロジェクト・期間を変えた場合にDrive上のフォルダ移動・リネームも行うべきか。(2) stagingでの確認（契約名のみ変更して保存→契約書が残る／ドロップ差し替え→差し替わる／外して保存→削除される）。(3) 請求追加・請求編集・契約追加（確認）の同種判定を別課題として確認するか。段取り: #233を先にマージしてもらい、#234側で競合を解消する。
+
+ユーザーより「PR#234のconflictを解決してください」との指示。#233がマージ済み（2026-10-20 09:01 UTC）のため、origin/stagingを`feature/fix-contract-file-save`にマージし、競合2件を両方の内容を残して解決（`EditContractInfo.test.tsx`: #233の「取得失敗時は保存処理を呼ばない」テストと#234の契約書扱いテスト群を併存、`conversations.md`: #233側の記録を先に時系列順で併合）。全テスト271件パス・tsc（テスト以外）エラー0を確認。
+
+## 2026-10-20 PR ＃234（契約書保存不具合の修正）マージ完了
+
+ユーザーがPR #234をマージ。ローカルstagingをpullで同期し、マージ済みの`feature/fix-contract-file-save`ブランチを削除。残る確認事項: stagingでの動作確認（契約名のみ変更して保存→契約書が残る／ドロップ差し替え→差し替わる／外して保存→削除される）、「維持」時のDriveフォルダ移動・リネームの要否、請求追加・請求編集・契約追加（確認）の同種判定の扱い（いずれもユーザー回答待ち）。
+
+ユーザーより課題表2_2_3の「PR#」欄へ231・233・234を記入する依頼（了承）。この会話ではGoogle Sheetsの編集コネクタが無効でスプレッドシートを直接編集できないため、Sheetsコネクタを有効化してもらうか、ユーザーが手入力（E列: `231, 233, 234`、F列「確認」はstaging確認後）するかの回答待ち。
+ユーザーがGoogle Sheetsコネクタを有効化したが、この会話のツール一覧には反映されず（コネクタは会話開始時に読み込まれるため）。VS Codeの再読み込みまたは新しい会話で、課題表2_2_3のE列「PR#」に`231, 233, 234`を記入する段取り。
+VS Code再読み込みでGoogle Sheetsコネクタが有効になり、課題表2_2_3（23行目）のE列「PR#」に`231, 233, 234`を記入し、読み直して反映を確認。F列「確認」はユーザーのstaging確認後に記入。
+
+## 2026-10-20 会話記録を日付別ファイルに切り替え
+
+alphasystem（全体調整）セッションから、会話記録を日付別ファイル `conversations/YYYY-MM-DD.md`（リポジトリ直下）に切り替える依頼を受領（alphasystem 側でユーザー承認済み、2026-10-20）。`conversations/` と `README.md`（alphasystem の `docs/conversations/README.md` を雛形に、パスを alphasys の配置に合わせた）を作成し、以後の記録はこのディレクトリの当日付ファイルに書く。既存の `conversations.md` は過去分のアーカイブとして残し、追記・分割・移動はしない（10/20 前半の記録＝課題2_2_3、PR #231/#233/#234 の経緯はそちらにある）。Stop フック（`find_conversation_targets`）は `conversations/` ディレクトリがあれば書き先を `conversations/<今日の日付>.md` に切り替えることを確認。ブランチ `feature/conversations-daily-files`、base: staging の Draft PR で反映する。
+
+Draft PR [#236](https://github.com/alphacmc/alphasys/pull/236)（base: staging）を作成し、alphasystem へ完了を返信。切替後最初の Stop フックで書き先が `conversations/2026-10-20.md` と表示されることを実際に確認した。マージ（ユーザー判断）までは staging 側に `conversations/` が無いため、他ブランチでのフックの書き先は旧 `conversations.md` のままになる。申し送り取り込み先のメモリも当日付ファイルへ更新済み。

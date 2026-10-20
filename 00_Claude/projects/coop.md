@@ -370,3 +370,33 @@
 
 - coopinf PR #48（stg-ops-cf.yaml）マージでリポジトリ main と実デプロイが一致（デプロイはブランチのテンプレートから実施済み、内容は同一）。
 - リレーバケットのライフサイクル（CF管理外バケット）と coop-stg-manage-role 本体（手動作成）の IaC 化は別途相談。
+
+## 2026-10-20 alphasystem の運用規則を coop 系に適用
+
+- **経緯**: ユーザーから「alphasystem 配下プロジェクトで決まった規則を coop 配下にも適用したい」。alphasystem 側では同日、coop への展開依頼を撤回し「coop 系の運用は coop 側のセッションで判断する」としていたため、coop のセッションで適用範囲を決めた。
+- **承認（ユーザー）**: 候補 A〜G のうち次を採用。
+  - **A セッション間連携**: 起動中の相手には `ListAgents`/`SendMessage`、未起動なら相手リポジトリ直下に未追跡の `INBOX_FROM_COOP.md` を置く。サブエージェントは閉じた調査・軽作業に限る。
+  - **B 会話記録の日付別化**: `conversations/YYYY-MM-DD.md`。旧 `conversations.md` はアーカイブとして残し追記しない。対象は coop・coopinf・coopbatch（既に会話記録があるもの）。coopcdebatch（廃止予定）・coopcdeinput（廃止）は対象外。coopcdeweb・coopcdealert・coops3view は会話記録がないため変更なし。
+  - **C 記録の置き場**: 設計の決定は coop に置き、実装計画以降は各プロジェクトに置く。結合試験は設計者（coop）が担当する。
+  - **D 作業エージェントの担当分け**: 全体調整（coop）／インフラ・移行（coopinf）／バッチ（coopbatch）／Web（coopcdeweb・coops3view）。
+  - **E `/project-status` と SessionStart フック**: alphasystem のスクリプトを移植。Windows（Git Bash）向けに、`.gitattributes`（`*.sh` を LF に固定）、`CLAUDE_PROJECT_DIR` と `git rev-parse --show-toplevel` のパス形式の正規化を追加した。
+- **やらないと決めたこと**:
+  - **F `/save-session`・`/resume-session`**（別 PC 再開用）は採用しない。
+  - **G ブランチ運用（main/staging の 2 本立て）は見送る**。coop 系には staging が無く、CI・デプロイのトリガーが変わるため。coop 系は従来どおり main をベースにする。
+- **実施**: coop は CLAUDE.md に「作業エージェント」「記録の置き場と結合試験」「セッション間の連携ルール」の節を追加し、`conversations/` を作成、`.claude/`（settings.json・hooks・commands）と `.gitattributes` を追加した。Windows 形式のパスを渡した場合も含め、スクリプトで 8 プロジェクト分の表が出ることを確認済み。
+- **申し送り**: coopinf・coopbatch の日付別への切り替えは、A の規則に従いそれぞれのセッションで行ってもらう（未起動のため `INBOX_FROM_COOP.md` を置いた）。
+- **有効化の注意**: SessionStart フックは、設定ファイルがあった状態で始まったセッションでしか発火しない。マージして取り込んだ後、VS Code で `Developer: Reload Window` を実行してから新しい会話を始める。
+
+## 2026-10-20 coopcdeinput・coopcdebatch を coop の構成から外す
+
+- **指示（ユーザー）**: 実質使っていない coopcdeinput・coopcdebatch を外す。
+- **対応**: CLAUDE.md の「構成」表から 2 行を削除し、`/project-status`・SessionStart フックの一覧にも出ないようにした（表から自動で拾う仕組みのため）。作業エージェントの担当からも外した。
+- **残したもの**: coopcdebatch は「coopcdebatch のロジックを再現する」原則（ユーザー共通ルール）の参照元になるため、表の外に「参照元としてのみ読む」旨の一文を残した。リポジトリ自体（~/git 配下の clone）は削除していない。
+
+## 2026-10-20 coopcdeweb・coops3view・coopcdealert にも運用規則を申し送る
+
+- **承認（ユーザー）**: 「お願いします」。最初の申し送り（日付別記録への切り替え）は会話記録がある coopinf・coopbatch だけに送っていた。しかし CLAUDE.md の無いリポジトリのセッションは coop の規則を知る手段がないため、残りの 3 リポジトリにも送ることにした。
+- **実施**: 3 つとも未起動（`ListAgents` で確認）だったため、各リポジトリ直下に `INBOX_FROM_COOP.md`（未追跡）を置いた。内容は次のとおり。
+  - 規則の要約: 位置付け（coopcdeweb・coops3view は Web担当、coopcdealert は担当未定）、連携ルール、記録の置き場、結合試験、ブランチ運用（main のまま）、coopcdeinput・coopcdebatch の除外
+  - 依頼: 会話記録は最初から `conversations/YYYY-MM-DD.md` 形式で作る。余裕があれば自リポジトリの CLAUDE.md に「coop の CLAUDE.md の規則に従う」旨の一文とリンクを足す
+- **残り**: 各セッションの起動待ち（coopinf・coopbatch を含め計 5 リポジトリ）。
