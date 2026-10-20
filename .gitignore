@@ -2,3 +2,10 @@
 
 # AWS Site-to-Site VPN のベンダー設定DL（PSK平文を含むため非追跡）
 02_Note/社内ネットワーク更改/config/aws_vpn_yamaha_config.txt
+
+# Python バイトコードキャッシュ（環境依存の生成物・競合の発生源）
+__pycache__/
+*.pyc
+
+# Obsidian Git プラグインが競合時に生成する案内メモ（固有データを含まない）
+conflict-files-obsidian-git.md
