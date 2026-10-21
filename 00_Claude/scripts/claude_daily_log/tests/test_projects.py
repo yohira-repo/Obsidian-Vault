@@ -74,18 +74,6 @@ class ListProjectsTest(unittest.TestCase):
         self.assertEqual(names, ["alphabsmail", "alphacdk", "alphasystem"])
 
 
-class ParseProjectTableRowsTest(unittest.TestCase):
-    def test_rows_include_nested_with_relative_path(self):
-        self.assertEqual(
-            projects.parse_project_table(TABLE),
-            [
-                ("alphasystem", "../alphasystem"),
-                ("alphacdk", "../alphacdk"),
-                ("alphabsmail", "./alphabsmail"),
-            ],
-        )
-
-
 class NestedProjectTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -265,10 +265,6 @@ class FetchDueTest(unittest.TestCase):
         self.assertTrue(cli._fetch_due())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class NestedProjectSkippedTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -287,3 +283,7 @@ class NestedProjectSkippedTest(unittest.TestCase):
         self.assertEqual(report["cloned"], 0)
         self.assertEqual(report["fetched"], 0)
         self.assertEqual(report["warnings"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()
