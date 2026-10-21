@@ -160,18 +160,21 @@ class LatestListSyncTest(unittest.TestCase):
         cli.run_sync(self.vault, self.git_root, "2026-09-06")
         text = self.read_daily("2026-09-06")
         self.assertIn(
-            "- **repo_a** — 2026-09-06 "
-            "[[00_Claude/projects/repo_a#2026-09-06 当日のまとめ|当日のまとめ]]",
+            r"2026-09-06 [[00_Claude/projects/repo_a#2026-09-06 当日のまとめ\|当日のまとめ]]",
             text,
         )
-        self.assertIn("- **repo_b** — 記録なし", text)
-        # 日別のサブセクションは廃止済み
-        self.assertNotIn("### ", text)
+        # 記録が無いプロジェクトは「最新の記録」列が `-`。
+        self.assertIn(r"| [[00_Claude/projects/repo_b\|repo_b]] | 未clone | - | - | - |", text)
+        # 旧「日別のサブセクション」は廃止済み。残る `###` は状況表の
+        # グループ見出しだけで、repo_* は alpha/coop いずれでもないため「その他」。
+        self.assertIn("### その他", text)
+        self.assertNotIn("### alpha", text)
+        self.assertNotIn("### coop", text)
 
     def test_past_date_shows_state_as_of_that_day(self):
         cli.run_sync(self.vault, self.git_root, "2026-09-05")
         text = self.read_daily("2026-09-05")
-        self.assertIn("- **repo_a** — 2026-09-05 ", text)
+        self.assertIn("2026-09-05 [[00_Claude/projects/repo_a#2026-09-05 ", text)
         self.assertNotIn("当日のまとめ", text)
 
     def test_mirror_receives_full_history_not_only_target_date(self):
@@ -264,7 +267,7 @@ class DiscoveryFailureTest(unittest.TestCase):
         self.assertFalse(report["daily_skipped"])
         self.assertTrue(report["daily_changed"])
         text = self.read_daily()
-        self.assertIn("- **repo_a** — 2026-01-01 ", text)
+        self.assertIn("2026-01-01 [[00_Claude/projects/repo_a#2026-01-01 ", text)
 
     def test_missing_daily_is_not_created(self):
         git_root = os.path.join(self.tmp.name, "git_ok2")
@@ -396,7 +399,10 @@ class StatusSectionInSyncTest(unittest.TestCase):
             {"CLAUDE.md": STATUS_TABLE},
         )
         os.makedirs(os.path.join(self.git_root, "alphasystem", "alphabsmail"))
-        make_daily(self.vault, self.date, body="## Claude作業ログ\n")
+        make_daily(
+            self.vault, self.date,
+            body="- [ ] 手書きタスク\n\n## Claude作業ログ\n",
+        )
 
         self._orig_lock_path = cli.LOCK_PATH
         self._orig_log_path = cli.LOG_PATH
@@ -423,7 +429,8 @@ class StatusSectionInSyncTest(unittest.TestCase):
         text = self._read_daily()
         self.assertIn("## プロジェクト状況", text)
         self.assertIn("<!-- project-status:start -->", text)
-        self.assertLess(text.index("## プロジェクト状況"), text.index("## Claude作業ログ"))
+        # 作業ログは廃止され削除される。
+        self.assertNotIn("## Claude作業ログ", text)
         self.assertTrue(report["status_changed"])
 
     def test_status_block_is_before_worklog_and_idempotent(self):
@@ -450,13 +457,15 @@ class StatusSectionInSyncTest(unittest.TestCase):
             after[after.index("<!-- project-status:start -->"):],
         )
 
-    def test_status_failure_does_not_stop_worklog(self):
+    def test_status_failure_keeps_note_intact(self):
+        """状況収集が失敗しても、手書き内容を壊さず報告だけに出す。"""
         def boom(_items):
             raise RuntimeError("収集できません")
 
         with unittest.mock.patch.object(cli.status_module, "collect_all", boom):
             report = cli.run_sync(self.vault, self.git_root, self.date)
-        self.assertIn("## Claude作業ログ", self._read_daily())
+        text = self._read_daily()
+        self.assertIn("- [ ] 手書きタスク", text)
         self.assertIn("収集できません", report["status_error"])
 
 
