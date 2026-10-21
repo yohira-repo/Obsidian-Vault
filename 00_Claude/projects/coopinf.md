@@ -450,3 +450,12 @@ coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領
 - 設計の決定は coop に、実装計画以降のやり取りは各プロジェクト（coopinf 等）に記録する。結合試験は coop（設計者）が担当する。
 - セッション間の連携は SendMessage を使う。相手が未起動なら、相手リポジトリ直下に未追跡の `INBOX_FROM_<送り元>.md` を置く。受け取った側は取り込み後に削除する。
 - ブランチ運用（main/staging の 2 本立て）は coop 系では採用しない。coopinf は従来どおり `main` をベースにする（staging ブランチは無い）。
+
+## 2026-10-21 WAF 設定値の日本語ドキュメント化
+
+ユーザー依頼「WAF の設定値を日本語ドキュメント（表）形式で残せないか」を受け、[`cf/waf-settings.md`](../cf/waf-settings.md) を作成（Web ACL 基本設定、ルール一覧と稼働値、独自ルール詳細、パラメータ、ログ、アラーム）。
+
+- 置き場所はテンプレートと同じ `cf/` 直下（テンプレート変更時に一緒に更新する前提）。
+- 稼働値（ルールごとの Count / Block）は AWS 認証が切れていて実機照会できなかったため、coop `conversations.md` の 2026-10-18 時点の記録を根拠とし、本書にその旨を明記。
+- Draft PR: https://github.com/alphacmc/coopinf/pull/50
+- ユーザー依頼「想定設定値もほしい」を受け、「想定値（最終形）」＝段階投入（Count 観察 → Block）完了後の目標値と解釈し、ルール一覧とパラメータ表に列を追加。AnonymousIpList は Count のまま（coop で Block 化しないと決定済み）、Priority 12〜14 は Block、閾値は現行値（観察で正規利用が当たれば引き上げ）。
