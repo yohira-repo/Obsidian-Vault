@@ -267,3 +267,23 @@ class FetchDueTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NestedProjectSkippedTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_nested_project_is_never_cloned_or_fetched(self):
+        nested = projects.Project(
+            name="alphabsmail",
+            path=os.path.join(self.root, "alphasystem", "alphabsmail"),
+            kind=projects.KIND_NESTED,
+        )
+        report = gitsync.run_fetch(self.root, items=[nested])
+        self.assertEqual(report["cloned"], 0)
+        self.assertEqual(report["fetched"], 0)
+        self.assertEqual(report["warnings"], [])

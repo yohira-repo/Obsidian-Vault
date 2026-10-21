@@ -28,6 +28,9 @@ def run_fetch(git_root: str, items: Optional[List] = None) -> Dict:
     """未 clone は clone し、clone 済みは並列に fetch する。失敗は warnings に積む。"""
     report = {"fetched": 0, "cloned": 0, "warnings": []}
     targets = items if items is not None else projects_module.list_projects(git_root)
+    # 同居ディレクトリ（構成表の `./` 行）は独立リポジトリではないため、
+    # clone も fetch もしない。clone しようとすると毎回失敗警告が出る。
+    targets = [item for item in targets if not item.is_nested]
 
     for project in [item for item in targets if not item.exists]:
         try:
