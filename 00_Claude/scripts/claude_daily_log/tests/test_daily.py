@@ -4,6 +4,7 @@ import unittest
 
 import daily
 import sources
+import status
 
 HANDWRITTEN = """- [ ] 手書きタスク
 
@@ -130,12 +131,14 @@ class UpdateDailyTest(unittest.TestCase):
             handle.write(text)
 
     def test_does_not_create_daily_when_missing(self):
-        self.assertFalse(daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"]))
+        changed, _, _ = daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        self.assertFalse(changed)
         self.assertFalse(os.path.exists(self.path))
 
     def test_appends_block_to_existing_note_without_markers(self):
         self.write("- [ ] 手書きタスク\n")
-        self.assertTrue(daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"]))
+        changed, _, _ = daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        self.assertTrue(changed)
         text = self.read()
         self.assertTrue(text.startswith("- [ ] 手書きタスク"))
         self.assertIn(daily.SECTION_HEADING, text)
@@ -154,7 +157,8 @@ class UpdateDailyTest(unittest.TestCase):
         self.write(HANDWRITTEN)
         daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
         before = self.read()
-        self.assertFalse(daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"]))
+        changed, _, _ = daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        self.assertFalse(changed)
         self.assertEqual(self.read(), before)
 
     def test_no_records_at_all_renders_placeholder_line(self):
@@ -352,6 +356,181 @@ class UpdateDailySourcesTest(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("が存在しません", warnings[0])
         self.assertFalse(os.path.exists(os.path.join(self.vault, daily.daily_relpath("2026-09-07"))))
+
+
+def _status(name, branch, dirty="-", when="-", message="-", linked=True):
+    return status.ProjectStatus(
+        name=name, branch=branch, dirty=dirty, when=when,
+        message=message, linked=linked, failed=False,
+    )
+
+
+class RenderStatusLinesTest(unittest.TestCase):
+    def test_two_tables_with_links_and_timestamp(self):
+        statuses = [
+            _status("alphasystem", "staging", when="2日前", message="Merge pull request #91"),
+            _status("alphabsmail", "alphasystem内", linked=False),
+            _status("coop", "main", dirty="3件", when="1日前", message="docs: 更新"),
+        ]
+        lines = daily.render_status_lines(statuses, "2026-10-21 08:55")
+        text = "\n".join(lines)
+
+        self.assertIn("### alpha", text)
+        self.assertIn("### coop", text)
+        self.assertIn("| プロジェクト | ブランチ | 未コミット | 最終コミット | メッセージ |", text)
+        self.assertIn("| [[00_Claude/projects/alphasystem|alphasystem]] | staging | - | 2日前 | Merge pull request #91 |", text)
+        self.assertIn("| alphabsmail | alphasystem内 | - | - | - |", text)
+        self.assertIn("| [[00_Claude/projects/coop|coop]] | main | 3件 | 1日前 | docs: 更新 |", text)
+        self.assertIn("（2026-10-21 08:55 時点）", text)
+
+    def test_alpha_table_comes_before_coop(self):
+        statuses = [_status("coop", "main"), _status("alphasystem", "staging")]
+        text = "\n".join(daily.render_status_lines(statuses, "2026-10-21 08:55"))
+        self.assertLess(text.index("### alpha"), text.index("### coop"))
+
+    def test_umbrella_is_moved_to_the_head_of_its_group(self):
+        """傘（alphasystem / coop）だけが先頭固定。以降の順序は入力のまま。"""
+        statuses = [
+            _status("alphacdk", "main"),
+            _status("alphasystem", "staging"),
+            _status("alphasyscdk", "main"),
+        ]
+        text = "\n".join(daily.render_status_lines(statuses, "2026-10-21 08:55"))
+        self.assertLess(text.index("|alphasystem]]"), text.index("|alphacdk]]"))
+        self.assertLess(text.index("|alphacdk]]"), text.index("|alphasyscdk]]"))
+
+    def test_coop_umbrella_is_moved_to_the_head(self):
+        statuses = [_status("coopbatch", "main"), _status("coop", "main")]
+        text = "\n".join(daily.render_status_lines(statuses, "2026-10-21 08:55"))
+        self.assertLess(text.index("|coop]]"), text.index("|coopbatch]]"))
+
+    def test_empty_group_is_omitted(self):
+        text = "\n".join(daily.render_status_lines([_status("coop", "main")], "2026-10-21 08:55"))
+        self.assertNotIn("### alpha", text)
+
+
+class StatusBlockPlacementTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = self.tmp.name
+        os.makedirs(os.path.join(self.vault, "01_Daily"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, text):
+        path = os.path.join(self.vault, "01_Daily", "2026-10-21.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def _read(self):
+        with open(os.path.join(self.vault, "01_Daily", "2026-10-21.md"), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_inserted_immediately_before_worklog_heading(self):
+        self._write("# メモ\n\n## Claude作業ログ\n\n<!-- claude-log:start -->\n- **x** — 記録なし\n<!-- claude-log:end -->\n")
+        daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=["x"],
+            status_lines=["### alpha", "（2026-10-21 08:55 時点）"],
+        )
+        text = self._read()
+        self.assertLess(text.index("## プロジェクト状況"), text.index("## Claude作業ログ"))
+        self.assertIn("<!-- project-status:start -->", text)
+
+    def test_appended_at_end_when_no_worklog_heading(self):
+        # 作業ログ見出しが元から無い場合、0 個マーカーの作業ログ側は従来どおり
+        # 末尾に新規作成される（この挙動自体は変えない）。状況ブロックは
+        # 「作業ログ見出しの直前」に挿入する同じルールを、既存の見出しか・
+        # この呼び出しで新規作成された見出しかを問わず一貫して適用するため、
+        # 新規作成された見出しの直前（＝実質ファイル末尾付近）に入る。
+        self._write("# メモ\n")
+        daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[],
+            status_lines=["### alpha"],
+        )
+        text = self._read()
+        self.assertIn("## プロジェクト状況", text)
+        self.assertIn("<!-- project-status:start -->", text)
+        self.assertLess(text.index("## プロジェクト状況"), text.index("## Claude作業ログ"))
+
+    def test_second_run_replaces_only_between_markers(self):
+        self._write("# メモ\n\n## プロジェクト状況\n\n<!-- project-status:start -->\n古い内容\n<!-- project-status:end -->\n\n## あとがき\n")
+        daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[],
+            status_lines=["新しい内容"],
+        )
+        text = self._read()
+        self.assertIn("新しい内容", text)
+        self.assertNotIn("古い内容", text)
+        self.assertIn("## あとがき", text)
+        self.assertEqual(text.count("<!-- project-status:start -->"), 1)
+
+    def test_no_change_reports_false(self):
+        self._write("# メモ\n\n## プロジェクト状況\n\n<!-- project-status:start -->\n同じ内容\n<!-- project-status:end -->\n")
+        _, status_changed, warnings = daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[], status_lines=["同じ内容"],
+        )
+        self.assertFalse(status_changed)
+        self.assertEqual(warnings, [])
+
+    def test_broken_status_markers_warn_without_touching_file(self):
+        # この fixture には作業ログ側のマーカーが一切無いため、作業ログ側は
+        # 既存仕様どおり（このタスクで変えない）末尾に新規作成される。
+        # 「状況ブロックに触れない」とは、壊れている状況ブロックの区間自体
+        # （マーカーとその中身）が一字一句変化しないことを指し、無関係な
+        # 作業ログ側の新規作成まで止める意味ではない
+        # （_replace_block の docstring: 「他方のブロックの更新は止めない」）。
+        broken_status_block = (
+            "<!-- project-status:start -->\nA\n<!-- project-status:start -->\nB\n<!-- project-status:end -->"
+        )
+        original = "# メモ\n\n%s\n" % broken_status_block
+        self._write(original)
+        _, status_changed, warnings = daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[], status_lines=["新"],
+        )
+        self.assertFalse(status_changed)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("プロジェクト状況", warnings[0])
+        self.assertIn(broken_status_block, self._read())
+        self.assertNotIn("新", self._read())
+
+    def test_timestamp_alone_does_not_rewrite_the_block(self):
+        """表の中身が同じなら、時刻行が違ってもブロックを書き換えない。"""
+        original = (
+            "# メモ\n\n## プロジェクト状況\n\n<!-- project-status:start -->\n"
+            "### alpha\n\n| a | b | c | d | e |\n（2026-10-21 08:55 時点）\n"
+            "<!-- project-status:end -->\n"
+        )
+        self._write(original)
+        _, status_changed, warnings = daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[],
+            status_lines=["### alpha", "", "| a | b | c | d | e |", "（2026-10-21 09:30 時点）"],
+        )
+        self.assertFalse(status_changed)
+        self.assertIn("08:55", self._read())
+
+    def test_content_change_updates_the_timestamp_too(self):
+        original = (
+            "# メモ\n\n## プロジェクト状況\n\n<!-- project-status:start -->\n"
+            "### alpha\n\n| a | b | c | d | e |\n（2026-10-21 08:55 時点）\n"
+            "<!-- project-status:end -->\n"
+        )
+        self._write(original)
+        _, status_changed, _ = daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[],
+            status_lines=["### alpha", "", "| a | X | c | d | e |", "（2026-10-21 09:30 時点）"],
+        )
+        self.assertTrue(status_changed)
+        text = self._read()
+        self.assertIn("09:30", text)
+        self.assertNotIn("08:55", text)
+
+    def test_status_is_not_touched_when_status_lines_is_none(self):
+        original = "# メモ\n\n## Claude作業ログ\n\n<!-- claude-log:start -->\n- **x** — 記録なし\n<!-- claude-log:end -->\n"
+        self._write(original)
+        daily.update_daily(self.vault, "2026-10-21", {}, project_names=["x"], status_lines=None)
+        self.assertNotIn("project-status", self._read())
 
 
 if __name__ == "__main__":
