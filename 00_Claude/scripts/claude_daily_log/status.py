@@ -128,6 +128,8 @@ def collect_status(project) -> ProjectStatus:
 
     try:
         branch = _branch_label(path)
+        if branch == FAILED_LABEL:
+            return _plain(name, FAILED_LABEL, failed=True)
 
         porcelain = _git(path, "status", "--porcelain")
         if porcelain is None:
@@ -147,7 +149,7 @@ def collect_status(project) -> ProjectStatus:
 
     return ProjectStatus(
         name=name, branch=branch, dirty=dirty, when=when, message=message,
-        linked=True, failed=branch == FAILED_LABEL,
+        linked=True, failed=False,
     )
 
 

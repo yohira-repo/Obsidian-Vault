@@ -2,10 +2,11 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import projects
 import status
-from tests.helpers import git, init_repo, clone_repo, write
+from tests import helpers
 
 
 class JapanizeRelativeTest(unittest.TestCase):
@@ -84,7 +85,7 @@ class CollectStatusTest(unittest.TestCase):
         self.assertEqual(result.dirty, "-")
 
     def test_clean_repo_on_main(self):
-        init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main", message="init commit")
+        helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main", message="init commit")
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.branch, "main")
         self.assertEqual(result.dirty, "-")
@@ -93,59 +94,76 @@ class CollectStatusTest(unittest.TestCase):
         self.assertFalse(result.failed)
 
     def test_dirty_count_is_rendered_with_suffix(self):
-        repo = init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
-        write(repo, "b.txt", "b")
-        write(repo, "c.txt", "c")
+        repo = helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
+        helpers.write(repo, "b.txt", "b")
+        helpers.write(repo, "c.txt", "c")
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.dirty, "2件")
 
     def test_feature_branch_without_upstream_is_marked_unpushed(self):
-        repo = init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
-        git(repo, "checkout", "-q", "-b", "feature/x")
+        repo = helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
+        helpers.git(repo, "checkout", "-q", "-b", "feature/x")
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.branch, "feature/x (未push)")
 
     def test_staging_without_upstream_is_not_marked(self):
-        init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="staging")
+        helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="staging")
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.branch, "staging")
 
     def test_deleted_upstream_is_flagged(self):
-        origin = init_repo(os.path.join(self.root, "origin"), {"a.txt": "a"}, branch="main")
-        git(origin, "checkout", "-q", "-b", "feature/gone")
-        git(origin, "commit", "-q", "--allow-empty", "-m", "x")
-        clone = clone_repo(origin, os.path.join(self.root, "repo"))
+        origin = helpers.init_repo(os.path.join(self.root, "origin"), {"a.txt": "a"}, branch="main")
+        helpers.git(origin, "checkout", "-q", "-b", "feature/gone")
+        helpers.git(origin, "commit", "-q", "--allow-empty", "-m", "x")
+        clone = helpers.clone_repo(origin, os.path.join(self.root, "repo"))
         # 注: ローカルパスからの clone は origin の「現在チェックアウト中のブランチ」を
         # そのまま初期チェックアウトし、同名ブランチで追跡設定も済ませる。
         # そのため origin の HEAD が feature/gone のこの時点では、
         # clone 側は既に feature/gone を origin/feature/gone 追跡でチェックアウト済みであり、
         # 同名での `git checkout -b` は「ブランチが既に存在する」エラーになるため不要。
-        git(origin, "checkout", "-q", "main")
-        git(origin, "branch", "-D", "feature/gone")
-        git(clone, "fetch", "--quiet", "--prune", "origin")
+        helpers.git(origin, "checkout", "-q", "main")
+        helpers.git(origin, "branch", "-D", "feature/gone")
+        helpers.git(clone, "fetch", "--quiet", "--prune", "origin")
         result = status.collect_status(self._project("repo", path=clone))
         self.assertEqual(result.branch, "feature/gone ⚠upstream消失")
 
     def test_detached_head_shows_short_hash(self):
-        repo = init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
+        repo = helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
         head = subprocess.run(
             ["git", "-C", repo, "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, check=True,
         ).stdout.strip()
-        git(repo, "checkout", "-q", "--detach")
+        helpers.git(repo, "checkout", "-q", "--detach")
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.branch, "(detached %s)" % head)
 
     def test_long_subject_is_truncated(self):
         subject = "あ" * 50
-        init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main", message=subject)
+        helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main", message=subject)
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.message, "あ" * 40 + "…")
 
     def test_pipe_in_subject_is_escaped(self):
-        init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main", message="feat: a|b")
+        helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main", message="feat: a|b")
         result = status.collect_status(self._project("repo"))
         self.assertEqual(result.message, r"feat: a\|b")
+
+    def test_branch_label_failure_short_circuits_other_columns(self):
+        helpers.init_repo(os.path.join(self.root, "repo"), {"a.txt": "a"}, branch="main")
+        real_git = status._git
+
+        def fake_git(path, *args):
+            if args == ("branch", "--show-current"):
+                return None
+            return real_git(path, *args)
+
+        with patch.object(status, "_git", side_effect=fake_git):
+            result = status.collect_status(self._project("repo"))
+        self.assertEqual(result.branch, status.FAILED_LABEL)
+        self.assertEqual(result.dirty, "-")
+        self.assertEqual(result.when, "-")
+        self.assertEqual(result.message, "-")
+        self.assertTrue(result.failed)
 
 
 class CollectAllTest(unittest.TestCase):
@@ -157,7 +175,7 @@ class CollectAllTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_order_is_preserved_and_failure_is_localized(self):
-        init_repo(os.path.join(self.root, "ok"), {"a.txt": "a"}, branch="main", message="init")
+        helpers.init_repo(os.path.join(self.root, "ok"), {"a.txt": "a"}, branch="main", message="init")
         items = [
             projects.Project(name="ok", path=os.path.join(self.root, "ok")),
             projects.Project(name="gone", path=os.path.join(self.root, "gone")),
