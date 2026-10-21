@@ -459,3 +459,5 @@ coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領
 - 稼働値（ルールごとの Count / Block）は AWS 認証が切れていて実機照会できなかったため、coop `conversations.md` の 2026-10-18 時点の記録を根拠とし、本書にその旨を明記。
 - Draft PR: https://github.com/alphacmc/coopinf/pull/50
 - ユーザー依頼「想定設定値もほしい」を受け、「想定値（最終形）」＝段階投入（Count 観察 → Block）完了後の目標値と解釈し、ルール一覧とパラメータ表に列を追加。AnonymousIpList は Count のまま（coop で Block 化しないと決定済み）、Priority 12〜14 は Block、閾値は現行値（観察で正規利用が当たれば引き上げ）。
+
+- PR #50 はユーザーがマージ済み（2026-10-21）。
