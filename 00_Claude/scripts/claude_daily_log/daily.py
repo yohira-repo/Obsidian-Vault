@@ -11,6 +11,17 @@ START_MARKER = "<!-- claude-log:start -->"
 END_MARKER = "<!-- claude-log:end -->"
 NO_ENTRIES_LINE = "- （記録がありません）"
 
+STATUS_SECTION_HEADING = "## プロジェクト状況"
+STATUS_START_MARKER = "<!-- project-status:start -->"
+STATUS_END_MARKER = "<!-- project-status:end -->"
+STATUS_TABLE_HEADER = (
+    "| プロジェクト | ブランチ | 未コミット | 最終コミット | メッセージ |",
+    "|---|---|---|---|---|",
+)
+STATUS_GROUP_HEADINGS = ("### alpha", "### coop")
+# 時刻行の先頭。中身が同じときに時刻だけで書き換えないための同値判定に使う。
+STATUS_TIME_PREFIX = "（"  # 時刻行は "（YYYY-MM-DD HH:MM 時点）"。表の行は "|"、小見出しは "#" で始まるため衝突しない
+
 # システム単位のグループ化: alpha* → coop* → その他、の順に並べ、グループ間は
 # 空行1行で区切る。各グループの傘プロジェクト（umbrella）は、そのグループの
 # 先頭に固定表示する（記録が無くても「記録なし」として表示する）。
@@ -147,69 +158,178 @@ def render_project_lines(latest_entries: Dict[str, object], project_names: List[
     return lines if lines else [NO_ENTRIES_LINE]
 
 
+def _status_row(item) -> str:
+    """1 プロジェクト分の表の行。同居はリンクを付けない。"""
+    label = (
+        "[[00_Claude/projects/%s|%s]]" % (item.name, item.name)
+        if item.linked else item.name
+    )
+    return "| %s | %s | %s | %s | %s |" % (
+        label, item.branch, item.dirty, item.when, item.message,
+    )
+
+
+def _umbrella_first(group_items: List, umbrella: Optional[str]) -> List:
+    """傘プロジェクトだけを先頭へ移す。それ以外の順序は入力のまま保つ。
+
+    並び順の要件は「各グループの先頭が傘（alphasystem / coop）であること」だけで、
+    以降の順序は問わない（2026-10-21 のユーザー判断）。
+    """
+    if umbrella is None:
+        return list(group_items)
+    head = [item for item in group_items if item.name == umbrella]
+    rest = [item for item in group_items if item.name != umbrella]
+    return head + rest
+
+
+def render_status_lines(statuses: List, now_text: str) -> List[str]:
+    """`### alpha` / `### coop` の表 2 つと時刻行を描画する。
+
+    各グループの先頭に傘プロジェクト（alphasystem / coop）を置き、以降は
+    statuses の順序をそのまま使う。該当が 1 件も無いグループは丸ごと省略する。
+    「その他」グループは状況一覧には出さない（仕様 3 章の表は alpha 系・coop 系の 2 つだけ）。
+
+    now_text は末尾の時刻行にだけ使う。表の中身が前回と同じなら呼び出し側
+    （_replace_block）がブロックごと据え置くため、時刻も更新されない。
+    """
+    buckets: Dict[int, List] = {0: [], 1: []}
+    for item in statuses:
+        index = _group_index(item.name)
+        if index in buckets:
+            buckets[index].append(item)
+
+    lines: List[str] = []
+    for group in (0, 1):
+        group_items = _umbrella_first(buckets[group], _GROUP_UMBRELLAS[group])
+        if not group_items:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(STATUS_GROUP_HEADINGS[group])
+        lines.append("")
+        lines.extend(STATUS_TABLE_HEADER)
+        lines.extend(_status_row(item) for item in group_items)
+
+    if lines:
+        lines.append("")
+    lines.append("（%s 時点）" % now_text)
+    return lines
+
+
+def _same_ignoring_volatile(current, block, volatile_prefix):
+    """時刻行のような毎回変わる行を除いて 2 つのブロックを比較する。
+
+    volatile_prefix が None なら単純一致。指定時は、その文字列で始まる行を
+    両者から取り除いてから比較する。表の中身が同じなら時刻だけのために
+    ノートを書き換えないための判定（2026-10-21 のユーザー決定）。
+    """
+    if volatile_prefix is None:
+        return current == block
+    def strip(seq):
+        return [line for line in seq if not line.startswith(volatile_prefix)]
+    return strip(current) == strip(block)
+
+
+def _replace_block(lines, start_marker, end_marker, body, heading, anchor_heading, label,
+                   volatile_prefix=None):
+    """マーカー区間を body で置き換える。無ければ挿入する。
+
+    戻り値は (新しい行リスト, 変化したか, 警告 or None)。マーカーが壊れている
+    場合は何も変更せず警告を返す（他方のブロックの更新は止めない）。
+    volatile_prefix を渡すと、その行を無視して同値判定する（時刻行用）。
+    """
+    start_indices = _marker_indices(lines, start_marker)
+    end_indices = _marker_indices(lines, end_marker)
+    start_count = len(start_indices)
+    end_count = len(end_indices)
+
+    block = [start_marker] + body + [end_marker]
+
+    if start_count == 1 and end_count == 1:
+        start_idx = start_indices[0]
+        end_idx = end_indices[0]
+        if end_idx < start_idx:
+            return lines, False, _marker_error_message(label, start_count, end_count, order_wrong=True)
+        current = lines[start_idx:end_idx + 1]
+        if _same_ignoring_volatile(current, block, volatile_prefix):
+            # 中身が同じなら時刻行も据え置く（毎分の書き換えと git 差分を避ける）。
+            return lines, False, None
+        return lines[:start_idx] + block + lines[end_idx + 1:], True, None
+
+    if start_count == 0 and end_count == 0:
+        if anchor_heading is not None:
+            for index, line in enumerate(lines):
+                if line.strip() == anchor_heading:
+                    inserted = [heading, ""] + block + [""]
+                    return lines[:index] + inserted + lines[index:], True, None
+        trimmed = list(lines)
+        while trimmed and trimmed[-1].strip() == "":
+            trimmed.pop()
+        prefix = trimmed + [""] if trimmed else []
+        return prefix + [heading, ""] + block, True, None
+
+    return lines, False, _marker_error_message(label, start_count, end_count, order_wrong=False)
+
+
 def update_daily(
     vault: str,
     date: str,
     latest_entries: Dict[str, object],
     project_names: Optional[List[str]] = None,
-) -> bool:
-    """管理ブロックだけを再生成する。書き換えが発生したら True を返す。
+    status_lines: Optional[List[str]] = None,
+) -> Tuple[bool, bool, List[str]]:
+    """管理ブロック（作業ログ / プロジェクト状況）を再生成する。
 
-    管理ブロックの中身はプロジェクトごとの1行リストだけ（`latest_entries` は
-    {source_id: Entry}＝対象日以前で最新の1件）。日付は各行に入るため、朝に開けば
-    前日以前の最新が並び、その日のセッションで記録ができればその行が当日日付に変わる。
+    戻り値は (作業ログが変わったか, 状況一覧が変わったか, 警告一覧)。
+    `status_lines` が None のときは状況一覧に一切触れない。
 
     Daily ノートが存在しない場合は**何も作らない**（利用者が毎朝テンプレートから
     作成する運用を壊さないため）。呼び出し側は事前に存在を確認して報告すること。
     """
+    warnings: List[str] = []
     path = os.path.join(vault, daily_relpath(date))
     if not os.path.exists(path):
-        return False
-
-    block_body = render_project_lines(latest_entries, project_names or [])
+        return False, False, warnings
 
     with open(path, encoding="utf-8") as handle:
         original = handle.read()
     lines = original.splitlines()
+    relpath = daily_relpath(date)
 
-    # Validate marker state before modifying anything（末尾空白は無視して検出する: item K）
+    # 作業ログ: マーカー破損は従来どおり例外にする（呼び出し側が警告へ変換する）。
     start_indices = _marker_indices(lines, START_MARKER)
     end_indices = _marker_indices(lines, END_MARKER)
     start_count = len(start_indices)
     end_count = len(end_indices)
+    if start_count == 1 and end_count == 1 and end_indices[0] < start_indices[0]:
+        raise DailyMarkerError(_marker_error_message(relpath, start_count, end_count, order_wrong=True))
+    if (start_count, end_count) not in ((1, 1), (0, 0)):
+        raise DailyMarkerError(_marker_error_message(relpath, start_count, end_count, order_wrong=False))
 
-    if start_count == 1 and end_count == 1:
-        # Exactly one of each: check that START comes before END
-        start_idx = start_indices[0]
-        end_idx = end_indices[0]
-        if end_idx < start_idx:
-            # END before START: malformed（item H: 順序が逆であることを明示する）
-            raise DailyMarkerError(
-                _marker_error_message(daily_relpath(date), start_count, end_count, order_wrong=True)
-            )
-        # Valid: replace block between markers
-        block = [START_MARKER] + block_body + [END_MARKER]
-        new_lines = lines[:start_idx] + block + lines[end_idx + 1:]
-    elif start_count == 0 and end_count == 0:
-        # Zero markers: append block at end（ファイルは必ず存在する）
-        block = [START_MARKER] + block_body + [END_MARKER]
-        while lines and lines[-1].strip() == "":
-            lines.pop()
-        prefix = lines + [""] if lines else []
-        new_lines = prefix + [SECTION_HEADING, ""] + block
-    else:
-        # Malformed: any other combination（欠落 / 重複。item H: 状態を名指しする）
-        raise DailyMarkerError(
-            _marker_error_message(daily_relpath(date), start_count, end_count, order_wrong=False)
+    block_body = render_project_lines(latest_entries, project_names or [])
+    lines, log_changed, _ = _replace_block(
+        lines, START_MARKER, END_MARKER, block_body,
+        SECTION_HEADING, None, relpath,
+    )
+
+    status_changed = False
+    if status_lines is not None:
+        lines, status_changed, warning = _replace_block(
+            lines, STATUS_START_MARKER, STATUS_END_MARKER, status_lines,
+            STATUS_SECTION_HEADING, SECTION_HEADING,
+            "%s のプロジェクト状況ブロック" % relpath,
+            volatile_prefix=STATUS_TIME_PREFIX,
         )
+        if warning:
+            warnings.append(warning)
 
-    new_text = "\n".join(new_lines).rstrip("\n") + "\n"
+    new_text = "\n".join(lines).rstrip("\n") + "\n"
     if original == new_text:
-        return False
+        return False, False, warnings
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomicio.write_text_atomic(path, new_text)
-    return True
+    return log_changed, status_changed, warnings
 
 
 def render_entry_line(source_id: str, entry) -> str:
