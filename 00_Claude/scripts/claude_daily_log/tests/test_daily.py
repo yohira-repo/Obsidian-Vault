@@ -378,9 +378,9 @@ class RenderStatusLinesTest(unittest.TestCase):
         self.assertIn("### alpha", text)
         self.assertIn("### coop", text)
         self.assertIn("| プロジェクト | ブランチ | 未コミット | 最終コミット | メッセージ |", text)
-        self.assertIn("| [[00_Claude/projects/alphasystem|alphasystem]] | staging | - | 2日前 | Merge pull request #91 |", text)
+        self.assertIn(r"| [[00_Claude/projects/alphasystem\|alphasystem]] | staging | - | 2日前 | Merge pull request #91 |", text)
         self.assertIn("| alphabsmail | alphasystem内 | - | - | - |", text)
-        self.assertIn("| [[00_Claude/projects/coop|coop]] | main | 3件 | 1日前 | docs: 更新 |", text)
+        self.assertIn(r"| [[00_Claude/projects/coop\|coop]] | main | 3件 | 1日前 | docs: 更新 |", text)
         self.assertIn("（2026-10-21 08:55 時点）", text)
 
     def test_alpha_table_comes_before_coop(self):
@@ -407,6 +407,50 @@ class RenderStatusLinesTest(unittest.TestCase):
     def test_empty_group_is_omitted(self):
         text = "\n".join(daily.render_status_lines([_status("coop", "main")], "2026-10-21 08:55"))
         self.assertNotIn("### alpha", text)
+
+
+class StatusRowPipeEscapeTest(unittest.TestCase):
+    """表のセル内の `|` は必ずエスケープする。
+
+    Obsidian の表では、ウィキリンクのエイリアス区切り `[[path|alias]]` の `|` が
+    列区切りとして解釈され、1 行が 6 列に割れてデータが右へずれる。
+    """
+
+    def _cells(self, line):
+        """エスケープ済みの `\|` を除いて、表の行を列に割る。"""
+        return line.replace(r"\|", "\x00").split("|")[1:-1]
+
+    def test_wikilink_alias_pipe_is_escaped(self):
+        row = daily._status_row(_status("alphasystem", "staging", when="2日前", message="x"))
+        self.assertIn(r"[[00_Claude/projects/alphasystem\|alphasystem]]", row)
+        self.assertNotIn("alphasystem|alphasystem", row)
+
+    def test_linked_row_has_exactly_five_cells(self):
+        row = daily._status_row(_status("alphasystem", "staging", when="2日前", message="x"))
+        self.assertEqual(len(self._cells(row)), 5)
+
+    def test_unlinked_row_has_exactly_five_cells(self):
+        row = daily._status_row(_status("alphabsmail", "alphasystem内", linked=False))
+        self.assertEqual(len(self._cells(row)), 5)
+
+    def test_pipe_in_branch_name_is_escaped(self):
+        row = daily._status_row(_status("x", "feature/a|b", when="1日前", message="m"))
+        self.assertEqual(len(self._cells(row)), 5)
+        self.assertIn(r"feature/a\|b", row)
+
+    def test_every_rendered_row_has_five_cells(self):
+        statuses = [
+            _status("alphasystem", "staging", when="2日前", message="Merge pull request #91"),
+            _status("alphabsmail", "alphasystem内", linked=False),
+            # message は status.collect_status が escape_cell 済みの値を入れる。
+            # ここでも実際のパイプラインと同じ形（エスケープ済み）を渡す。
+            _status("coop", "main", dirty="3件", when="1日前",
+                    message=status.escape_cell("docs: a|b")),
+        ]
+        for line in daily.render_status_lines(statuses, "2026-10-21 08:55"):
+            if line.startswith("|") and not line.startswith("|---"):
+                with self.subTest(line=line):
+                    self.assertEqual(len(self._cells(line)), 5)
 
 
 class StatusBlockPlacementTest(unittest.TestCase):

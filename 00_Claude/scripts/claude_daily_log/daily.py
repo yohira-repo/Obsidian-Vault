@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 import atomicio
 import sections as sections_module
+import status as status_module
 
 DAILY_DIR = "01_Daily"
 SECTION_HEADING = "## Claude作業ログ"
@@ -159,13 +160,21 @@ def render_project_lines(latest_entries: Dict[str, object], project_names: List[
 
 
 def _status_row(item) -> str:
-    """1 プロジェクト分の表の行。同居はリンクを付けない。"""
+    """1 プロジェクト分の表の行。同居はリンクを付けない。
+
+    セル内の `|` は必ず `\\|` にエスケープする。特に**ウィキリンクのエイリアス
+    区切り**（`[[path|alias]]` の `|`）は見落としやすく、エスケープしないと
+    Obsidian が列区切りとして解釈して 1 行が 6 列に割れ、データが右へずれる。
+    message 列は status 側で既にエスケープ済みだが、name / branch はここで行う。
+    """
+    name = status_module.escape_cell(item.name)
     label = (
-        "[[00_Claude/projects/%s|%s]]" % (item.name, item.name)
-        if item.linked else item.name
+        "[[00_Claude/projects/%s\\|%s]]" % (item.name, name)
+        if item.linked else name
     )
     return "| %s | %s | %s | %s | %s |" % (
-        label, item.branch, item.dirty, item.when, item.message,
+        label, status_module.escape_cell(item.branch),
+        item.dirty, item.when, item.message,
     )
 
 
