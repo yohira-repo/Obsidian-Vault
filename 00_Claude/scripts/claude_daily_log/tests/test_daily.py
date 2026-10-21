@@ -28,88 +28,15 @@ def latest(*entries):
     return {item.source_id: item for item in entries}
 
 
-class RenderTest(unittest.TestCase):
-    def test_line_carries_date_and_links_to_mirror_heading(self):
-        lines = daily.render_project_lines(
-            latest(entry(source_id="alphasystem/alphabsmail", title="Track1 の見直し", date="2026-08-12")),
-            ["alphasystem"],
-        )
-        self.assertEqual(
-            lines,
-            ["- **alphasystem/alphabsmail** — 2026-08-12 "
-             "[[00_Claude/projects/alphasystem-alphabsmail#2026-08-12 Track1 の見直し|Track1 の見直し]]"],
-        )
-
-    def test_title_is_sanitized(self):
-        line = daily.render_project_lines(latest(entry(title="A|B")), [])[0]
-        self.assertNotIn("A|B", line)
-        self.assertIn("A｜B", line)
-
-    def test_project_without_record_shows_no_record_line(self):
-        lines = daily.render_project_lines({}, ["coopcdeweb"])
-        self.assertEqual(lines, ["- **coopcdeweb** — 記録なし"])
-
-    def test_project_is_not_marked_no_record_when_a_source_under_it_has_one(self):
-        lines = daily.render_project_lines(
-            latest(entry(source_id="alphasystem/alphabsmail", date="2026-08-12")),
-            ["alphasystem"],
-        )
-        self.assertEqual(len(lines), 1)
-        self.assertNotIn("記録なし", lines[0])
-
-    def test_no_projects_and_no_records_yields_placeholder(self):
-        self.assertEqual(daily.render_project_lines({}, []), [daily.NO_ENTRIES_LINE])
+def _status(name, branch, dirty="-", when="-", message="-", linked=True):
+    return status.ProjectStatus(
+        name=name, branch=branch, dirty=dirty, when=when,
+        message=message, linked=linked, failed=False,
+    )
 
 
-class GroupingTest(unittest.TestCase):
-    """alpha グループ → 空行 → coop グループ → 空行 → その他。傘は各グループ先頭。"""
 
-    def test_alpha_group_pins_umbrella_then_subsource_then_rest_then_no_record(self):
-        lines = daily.render_project_lines(
-            latest(
-                entry(source_id="alphacdk", date="2026-08-01"),
-                entry(source_id="alphasystem/alphabsmail", date="2026-08-12"),
-                entry(source_id="alphasystem", date="2026-09-03"),
-            ),
-            ["alphacdk", "alphadb", "alphasystem"],
-        )
-        names = [line.split("**")[1] for line in lines]
-        self.assertEqual(names, ["alphasystem", "alphasystem/alphabsmail", "alphacdk", "alphadb"])
-        self.assertIn("記録なし", lines[-1])
 
-    def test_coop_group_pins_umbrella_even_without_record(self):
-        lines = daily.render_project_lines(
-            latest(entry(source_id="coopinf", date="2026-09-06")),
-            ["coop", "coopinf"],
-        )
-        names = [line.split("**")[1] for line in lines]
-        self.assertEqual(names, ["coop", "coopinf"])
-        self.assertIn("記録なし", lines[0])
-
-    def test_blank_line_separates_alpha_and_coop_groups(self):
-        lines = daily.render_project_lines(
-            latest(entry(source_id="alphacdk", date="2026-08-01"), entry(source_id="coopinf")),
-            ["alphacdk", "coopinf"],
-        )
-        self.assertEqual(lines[1], "")
-        self.assertIn("alphacdk", lines[0])
-        self.assertIn("coopinf", lines[2])
-
-    def test_empty_group_leaves_no_stray_blank_line(self):
-        lines = daily.render_project_lines(latest(entry(source_id="coopinf")), ["coopinf"])
-        self.assertEqual(lines, [line for line in lines if line != ""])
-
-    def test_third_group_follows_a_second_blank_line(self):
-        lines = daily.render_project_lines(
-            latest(
-                entry(source_id="alphacdk", date="2026-08-01"),
-                entry(source_id="coopinf"),
-                entry(source_id="zebra", date="2026-07-01"),
-            ),
-            ["alphacdk", "coopinf", "zebra"],
-        )
-        self.assertEqual(lines.count(""), 2)
-        self.assertIn("zebra", lines[-1])
 
 
 class UpdateDailyTest(unittest.TestCase):
@@ -135,23 +62,32 @@ class UpdateDailyTest(unittest.TestCase):
         self.assertFalse(changed)
         self.assertFalse(os.path.exists(self.path))
 
-    def test_appends_block_to_existing_note_without_markers(self):
+    def test_does_not_create_worklog_block_when_absent(self):
+        # 作業ログはもう「生成」しない（状況表の『最新の記録』列へ統合済み）。
+        # 見出し・マーカーが元から無ければ何も作らず、ファイルも書き換わらない。
         self.write("- [ ] 手書きタスク\n")
-        changed, _, _ = daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
-        self.assertTrue(changed)
+        changed, status_changed, warnings = daily.update_daily(
+            self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        self.assertFalse(changed)
+        self.assertFalse(status_changed)
+        self.assertEqual(warnings, [])
         text = self.read()
-        self.assertTrue(text.startswith("- [ ] 手書きタスク"))
-        self.assertIn(daily.SECTION_HEADING, text)
-        self.assertIn("<!-- claude-log:end -->", text)
+        self.assertEqual(text, "- [ ] 手書きタスク\n")
+        self.assertNotIn(daily.SECTION_HEADING, text)
 
-    def test_replaces_only_managed_block(self):
+    def test_removes_worklog_block_but_keeps_handwritten_content(self):
+        # 作業ログは置き換えではなく削除。latest_entries の内容（新しいタイトル等）が
+        # 書き込まれることはない（record 情報は状況表側でのみ描画される）。
         self.write(HANDWRITTEN)
-        daily.update_daily(self.vault, "2026-09-06", latest(entry(title="新")), ["coopinf"])
+        log_removed, _, warnings = daily.update_daily(
+            self.vault, "2026-09-06", latest(entry(title="新")), ["coopinf"])
+        self.assertTrue(log_removed)
+        self.assertEqual(warnings, [])
         text = self.read()
         self.assertIn("- [ ] 手書きタスク", text)
         self.assertNotIn("2026-09-01 旧", text)
-        self.assertIn("新", text)
-        self.assertEqual(text.count("<!-- claude-log:start -->"), 1)
+        self.assertNotIn(daily.SECTION_HEADING, text)
+        self.assertEqual(text.count("<!-- claude-log:start -->"), 0)
 
     def test_second_run_with_same_input_reports_no_change(self):
         self.write(HANDWRITTEN)
@@ -161,10 +97,16 @@ class UpdateDailyTest(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(self.read(), before)
 
-    def test_no_records_at_all_renders_placeholder_line(self):
+    def test_no_records_at_all_still_removes_worklog(self):
+        # NO_ENTRIES_LINE（プレースホルダー行）はもう存在しない。記録が無くても
+        # 作業ログは単に削除されるだけで、何も生成されない。
         self.write(HANDWRITTEN)
-        daily.update_daily(self.vault, "2026-09-06", {}, [])
-        self.assertIn(daily.NO_ENTRIES_LINE, self.read())
+        log_removed, _, warnings = daily.update_daily(self.vault, "2026-09-06", {}, [])
+        self.assertTrue(log_removed)
+        self.assertEqual(warnings, [])
+        text = self.read()
+        self.assertNotIn(daily.SECTION_HEADING, text)
+        self.assertIn("- [ ] 手書きタスク", text)
 
 
 class AtomicWriteTest(unittest.TestCase):
@@ -206,6 +148,12 @@ class AtomicWriteTest(unittest.TestCase):
 
 
 class MalformedMarkerTest(unittest.TestCase):
+    """マーカーが壊れている場合、新仕様では例外を投げず警告を返し、
+
+    手書き内容を巻き込まないためブロックには一切触れない（ファイルは一字一句
+    変化しない）。旧実装は DailyMarkerError を投げていたが、これは廃止された。
+    """
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.vault = self.tmp.name
@@ -219,28 +167,30 @@ class MalformedMarkerTest(unittest.TestCase):
         with open(self.path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
 
-    def assert_raises_and_keeps_file(self, text, expected_in_message):
+    def assert_warns_and_keeps_file(self, text, expected_in_message):
         self.write(text)
         before = open(self.path, "rb").read()
-        with self.assertRaises(daily.DailyMarkerError) as context:
-            daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
-        self.assertIn(expected_in_message, str(context.exception))
+        log_removed, _, warnings = daily.update_daily(
+            self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        self.assertFalse(log_removed)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn(expected_in_message, warnings[0])
         self.assertEqual(open(self.path, "rb").read(), before)
 
     def test_end_before_start(self):
-        self.assert_raises_and_keeps_file(
+        self.assert_warns_and_keeps_file(
             "手書き\n<!-- claude-log:end -->\n中身\n<!-- claude-log:start -->\n", "順序が逆")
 
     def test_only_start_marker(self):
-        self.assert_raises_and_keeps_file(
+        self.assert_warns_and_keeps_file(
             "手書き\n<!-- claude-log:start -->\n中身\n", "終了マーカーがありません")
 
     def test_only_end_marker(self):
-        self.assert_raises_and_keeps_file(
+        self.assert_warns_and_keeps_file(
             "手書き\n<!-- claude-log:end -->\n中身\n", "開始マーカーがありません")
 
     def test_duplicated_start_marker(self):
-        self.assert_raises_and_keeps_file(
+        self.assert_warns_and_keeps_file(
             "<!-- claude-log:start -->\n<!-- claude-log:start -->\n<!-- claude-log:end -->\n", "重複")
 
 
@@ -254,14 +204,19 @@ class MarkerWhitespaceTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_trailing_whitespace_markers_are_recognized_and_replaced_in_place(self):
+    def test_trailing_whitespace_markers_are_recognized_and_removed(self):
         with open(self.path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("手書き\n\n## Claude作業ログ\n\n<!-- claude-log:start --> \n<!-- claude-log:end --> \n")
-        daily.update_daily(self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        log_removed, _, warnings = daily.update_daily(
+            self.vault, "2026-09-06", latest(entry()), ["coopinf"])
+        self.assertTrue(log_removed)
+        self.assertEqual(warnings, [])
         with open(self.path, encoding="utf-8") as handle:
             text = handle.read()
-        self.assertEqual(text.count(daily.SECTION_HEADING), 1)
-        self.assertIn("coopinf", text)
+        # 末尾空白付きのマーカーも認識され、見出しごと削除される。
+        self.assertEqual(text.count(daily.SECTION_HEADING), 0)
+        self.assertNotIn("<!-- claude-log:start -->", text)
+        self.assertIn("手書き", text)
 
 
 MULTI_SOURCE = """- [ ] 手書きタスク
@@ -276,111 +231,38 @@ MULTI_SOURCE = """- [ ] 手書きタスク
 """
 
 
-class UpdateDailySourcesTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.vault = self.tmp.name
-        os.makedirs(os.path.join(self.vault, daily.DAILY_DIR))
-        self.path = os.path.join(self.vault, daily.daily_relpath("2026-09-06"))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def read(self):
-        with open(self.path, encoding="utf-8") as handle:
-            return handle.read()
-
-    def write(self, text):
-        with open(self.path, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-
-    def test_only_target_source_line_changes_others_untouched_exactly(self):
-        self.write(MULTI_SOURCE)
-        before_lines = MULTI_SOURCE.splitlines()
-        changed, warnings = daily.update_daily_sources(
-            self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新"))
-        )
-        self.assertTrue(changed)
-        self.assertEqual(warnings, [])
-        after_lines = self.read().splitlines()
-        self.assertEqual(len(before_lines), len(after_lines))
-        diff_indices = [i for i in range(len(before_lines)) if before_lines[i] != after_lines[i]]
-        self.assertEqual(len(diff_indices), 1)
-        self.assertTrue(after_lines[diff_indices[0]].startswith("- **coopinf** — "))
-        self.assertIn(
-            "- **alphasystem** — 2026-08-30 [[00_Claude/projects/alphasystem#2026-08-30 別件|別件]]",
-            after_lines,
-        )
-
-    def test_missing_source_line_warns_and_does_not_change(self):
-        self.write(MULTI_SOURCE)
-        before = self.read()
-        changed, warnings = daily.update_daily_sources(
-            self.vault, "2026-09-06", latest(entry(source_id="coopcdeweb"))
-        )
-        self.assertFalse(changed)
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("coopcdeweb", warnings[0])
-        self.assertIn("該当行がありません", warnings[0])
-        self.assertEqual(self.read(), before)
-
-    def test_second_run_with_same_input_reports_no_change(self):
-        self.write(MULTI_SOURCE)
-        daily.update_daily_sources(self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新")))
-        before = self.read()
-        changed, warnings = daily.update_daily_sources(
-            self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新"))
-        )
-        self.assertFalse(changed)
-        self.assertEqual(warnings, [])
-        self.assertEqual(self.read(), before)
-
-    def test_line_with_same_prefix_outside_block_is_untouched(self):
-        self.write(MULTI_SOURCE)
-        daily.update_daily_sources(self.vault, "2026-09-06", latest(entry(source_id="coopinf", title="新")))
-        text = self.read()
-        self.assertIn("- **coopinf** — outside の同名行（触ってはいけない）", text)
-
-    def test_malformed_markers_raise(self):
-        self.write("手書き\n<!-- claude-log:end -->\n中身\n<!-- claude-log:start -->\n")
-        before = open(self.path, "rb").read()
-        with self.assertRaises(daily.DailyMarkerError):
-            daily.update_daily_sources(self.vault, "2026-09-06", latest(entry(source_id="coopinf")))
-        self.assertEqual(open(self.path, "rb").read(), before)
-
-    def test_missing_daily_note_warns_and_reports_no_change(self):
-        changed, warnings = daily.update_daily_sources(
-            self.vault, "2026-09-07", latest(entry(source_id="coopinf"))
-        )
-        self.assertFalse(changed)
-        self.assertEqual(len(warnings), 1)
-        self.assertIn("が存在しません", warnings[0])
-        self.assertFalse(os.path.exists(os.path.join(self.vault, daily.daily_relpath("2026-09-07"))))
-
-
-def _status(name, branch, dirty="-", when="-", message="-", linked=True):
-    return status.ProjectStatus(
-        name=name, branch=branch, dirty=dirty, when=when,
-        message=message, linked=linked, failed=False,
-    )
 
 
 class RenderStatusLinesTest(unittest.TestCase):
     def test_two_tables_with_links_and_timestamp(self):
         statuses = [
-            _status("alphasystem", "staging", when="2日前", message="Merge pull request #91"),
+            _status("alphasystem", "staging", when="2日前"),
             _status("alphabsmail", "alphasystem内", linked=False),
-            _status("coop", "main", dirty="3件", when="1日前", message="docs: 更新"),
+            _status("coop", "main", dirty="3件", when="1日前"),
         ]
-        lines = daily.render_status_lines(statuses, "2026-10-21 08:55")
+        latest_entries = latest(
+            entry(source_id="alphasystem", date="2026-10-20", title="Merge pull request #91"),
+            entry(source_id="coop", date="2026-10-19", title="docs: 更新"),
+        )
+        lines = daily.render_status_lines(statuses, "2026-10-21 08:55", latest_entries=latest_entries)
         text = "\n".join(lines)
 
         self.assertIn("### alpha", text)
         self.assertIn("### coop", text)
-        self.assertIn("| プロジェクト | ブランチ | 未コミット | 最終コミット | メッセージ |", text)
-        self.assertIn(r"| [[00_Claude/projects/alphasystem\|alphasystem]] | staging | - | 2日前 | Merge pull request #91 |", text)
+        # 「メッセージ」列は廃止され「最新の記録」列に置き換わった。
+        self.assertIn("| プロジェクト | ブランチ | 未コミット | 最終コミット | 最新の記録 |", text)
+        self.assertIn(
+            r"| [[00_Claude/projects/alphasystem\|alphasystem]] | staging | - | 2日前 | "
+            r"2026-10-20 [[00_Claude/projects/alphasystem#2026-10-20 Merge pull request ＃91\|Merge pull request ＃91]] |",
+            text,
+        )
+        # 記録が無いプロジェクトは「最新の記録」列が `-`。
         self.assertIn("| alphabsmail | alphasystem内 | - | - | - |", text)
-        self.assertIn(r"| [[00_Claude/projects/coop\|coop]] | main | 3件 | 1日前 | docs: 更新 |", text)
+        self.assertIn(
+            r"| [[00_Claude/projects/coop\|coop]] | main | 3件 | 1日前 | "
+            r"2026-10-19 [[00_Claude/projects/coop#2026-10-19 docs: 更新\|docs: 更新]] |",
+            text,
+        )
         self.assertIn("（2026-10-21 08:55 時点）", text)
 
     def test_alpha_table_comes_before_coop(self):
@@ -472,22 +354,71 @@ class StatusBlockPlacementTest(unittest.TestCase):
         with open(os.path.join(self.vault, "01_Daily", "2026-10-21.md"), encoding="utf-8") as handle:
             return handle.read()
 
-    def test_inserted_immediately_before_worklog_heading(self):
-        self._write("# メモ\n\n## Claude作業ログ\n\n<!-- claude-log:start -->\n- **x** — 記録なし\n<!-- claude-log:end -->\n")
-        daily.update_daily(
+    def test_old_worklog_block_is_removed_and_status_remains(self):
+        """旧作業ログは見出しごと削除され、状況ブロックだけが残る。"""
+        self._write(
+            "# メモ\n\n## Claude作業ログ\n\n<!-- claude-log:start -->\n"
+            "- **x** — 記録なし\n<!-- claude-log:end -->\n"
+        )
+        removed, _, warnings = daily.update_daily(
             self.vault, "2026-10-21", {}, project_names=["x"],
             status_lines=["### alpha", "（2026-10-21 08:55 時点）"],
         )
         text = self._read()
-        self.assertLess(text.index("## プロジェクト状況"), text.index("## Claude作業ログ"))
+        self.assertTrue(removed)
+        self.assertEqual(warnings, [])
+        self.assertNotIn("## Claude作業ログ", text)
+        self.assertNotIn("claude-log:", text)
+        self.assertIn("## プロジェクト状況", text)
         self.assertIn("<!-- project-status:start -->", text)
+        self.assertIn("# メモ", text)
 
-    def test_appended_at_end_when_no_worklog_heading(self):
-        # 作業ログ見出しが元から無い場合、0 個マーカーの作業ログ側は従来どおり
-        # 末尾に新規作成される（この挙動自体は変えない）。状況ブロックは
-        # 「作業ログ見出しの直前」に挿入する同じルールを、既存の見出しか・
-        # この呼び出しで新規作成された見出しかを問わず一貫して適用するため、
-        # 新規作成された見出しの直前（＝実質ファイル末尾付近）に入る。
+    def test_handwritten_content_survives_worklog_removal(self):
+        self._write(
+            "# メモ\n\n- [ ] 手書きタスク\n\n## Claude作業ログ\n\n"
+            "<!-- claude-log:start -->\n- **x** — 記録なし\n<!-- claude-log:end -->\n\n"
+            "## あとがき\n\n本文。\n"
+        )
+        daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=["x"],
+            status_lines=["### alpha"],
+        )
+        text = self._read()
+        self.assertIn("- [ ] 手書きタスク", text)
+        self.assertIn("## あとがき", text)
+        self.assertIn("本文。", text)
+        self.assertNotIn("## Claude作業ログ", text)
+
+    def test_broken_worklog_markers_warn_and_leave_block_alone(self):
+        """作業ログのマーカーが壊れていたら触らず警告のみ（例外は投げない）。"""
+        self._write(
+            "# メモ\n\n## Claude作業ログ\n\n<!-- claude-log:start -->\nA\n"
+            "<!-- claude-log:start -->\nB\n<!-- claude-log:end -->\n"
+        )
+        removed, _, warnings = daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[],
+            status_lines=["### alpha"],
+        )
+        text = self._read()
+        self.assertFalse(removed)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("作業ログの削除を見送りました", warnings[0])
+        self.assertIn("<!-- claude-log:start -->", text)
+        self.assertIn("A", text)
+        self.assertIn("B", text)
+
+    def test_worklog_heading_without_markers_is_also_removed(self):
+        self._write("# メモ\n\n## Claude作業ログ\n\n## あとがき\n")
+        removed, _, _ = daily.update_daily(
+            self.vault, "2026-10-21", {}, project_names=[],
+            status_lines=["### alpha"],
+        )
+        text = self._read()
+        self.assertTrue(removed)
+        self.assertNotIn("## Claude作業ログ", text)
+        self.assertIn("## あとがき", text)
+
+    def test_appended_at_end_when_note_has_no_managed_blocks(self):
         self._write("# メモ\n")
         daily.update_daily(
             self.vault, "2026-10-21", {}, project_names=[],
@@ -496,7 +427,7 @@ class StatusBlockPlacementTest(unittest.TestCase):
         text = self._read()
         self.assertIn("## プロジェクト状況", text)
         self.assertIn("<!-- project-status:start -->", text)
-        self.assertLess(text.index("## プロジェクト状況"), text.index("## Claude作業ログ"))
+        self.assertTrue(text.rstrip().endswith("<!-- project-status:end -->"))
 
     def test_second_run_replaces_only_between_markers(self):
         self._write("# メモ\n\n## プロジェクト状況\n\n<!-- project-status:start -->\n古い内容\n<!-- project-status:end -->\n\n## あとがき\n")

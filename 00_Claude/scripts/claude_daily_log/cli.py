@@ -282,7 +282,9 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
             statuses = status_module.collect_all(all_projects)
             report["status_failed"] = len([item for item in statuses if item.failed])
             now_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            status_lines = daily_module.render_status_lines(statuses, now_text)
+            status_lines = daily_module.render_status_lines(
+                statuses, now_text, latest_entries=latest_by_source,
+            )
             for item in statuses:
                 if item.failed:
                     report["warnings"].append("%s: 状況の取得に失敗しました" % item.name)
@@ -295,12 +297,13 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
             project_names = [
                 project.name for project in all_projects if not project.is_nested
             ]
-            log_changed, status_changed, daily_warnings = daily_module.update_daily(
+            log_removed, status_changed, daily_warnings = daily_module.update_daily(
                 vault, date, latest_by_source,
                 project_names=project_names,
                 status_lines=status_lines,
             )
-            report["daily_changed"] = log_changed
+            report["worklog_removed"] = log_removed
+            report["daily_changed"] = status_changed or log_removed
             report["status_changed"] = status_changed
             report["warnings"].extend(daily_warnings)
         except daily_module.DailyMarkerError as error:
@@ -395,22 +398,10 @@ def run_sync_project(vault: str, git_root: str, date: str, project_name: str) ->
         if current is None or (entry.date, entry.order) > (current.date, current.order):
             latest_by_source[entry.source_id] = entry
 
-    if not latest_by_source:
-        report["daily_skipped"] = True
-        return report
-
-    try:
-        changed, daily_warnings = daily_module.update_daily_sources(vault, date, latest_by_source)
-    except daily_module.DailyMarkerError as error:
-        report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
-        return report
-    except OSError as error:
-        report["warnings"].append("Daily 更新に失敗しました (%s)" % error)
-        return report
-    report["daily_changed"] = changed
-    report["warnings"].extend(daily_warnings)
-    if any("が存在しません" in warning for warning in daily_warnings):
-        report["daily_missing"] = True
+    # 作業ログの廃止（2026-10-21）に伴い、単体同期で差し替える行が無くなった。
+    # ミラーノートの更新だけを行い、Daily には触れない。状況一覧はもともと
+    # 単体同期では更新しない（fetch しないため upstream 判定が古くなるため）。
+    report["daily_not_applicable"] = True
     return report
 
 
@@ -420,11 +411,14 @@ def format_report(report: Dict) -> str:
         "プロジェクト %d 件 / 記録のあるソース %d 件" % (report["sources"], report["entries"]),
         "ミラー: 追加 %d / 置換 %d" % (report["mirror_added"], report["mirror_replaced"]),
         "Daily: %s" % (
-            "スキップしました（走査失敗のため）" if report.get("daily_skipped")
+            "更新しません（単体同期ではミラーのみ）" if report.get("daily_not_applicable")
+            else "スキップしました（走査失敗のため）" if report.get("daily_skipped")
             else "ノートが未作成のためスキップしました" if report.get("daily_missing")
-            else "更新しました" if report["daily_changed"] else "変更なし"
+            else "更新しました" if report.get("daily_changed") else "変更なし"
         ),
     ]
+    if report.get("worklog_removed"):
+        lines.append("作業ログ: 旧ブロックを削除しました（プロジェクト状況へ統合済み）")
     if report.get("status_error"):
         lines.append("状況一覧: 更新に失敗しました（%s）" % report["status_error"])
     elif "status_changed" in report:
