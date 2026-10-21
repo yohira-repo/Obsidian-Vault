@@ -21,6 +21,7 @@ import gitsync as gitsync_module
 import mirror as mirror_module
 import projects as projects_module
 import sources as sources_module
+import status as status_module
 
 DEFAULT_VAULT = os.path.expanduser("~/Documents/Obsidian-Vault")
 DEFAULT_GIT_ROOT = os.path.expanduser("~/git")
@@ -200,6 +201,9 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
         "daily_changed": False,
         "daily_skipped": False,
         "daily_missing": False,
+        "status_changed": False,
+        "status_failed": 0,
+        "status_error": None,
         "warnings": [],
     }
     if not os.path.isdir(vault):
@@ -207,7 +211,14 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
         return report
 
     all_projects = projects_module.list_projects(git_root)
-    existing_projects = [project for project in all_projects if project.exists]
+    # 同居ディレクトリ（構成表の `./` 行）は独立リポジトリではないため収集しない。
+    # 除外しないと alphabsmail が単独ソースとして二重取り込みされ、既存の
+    # `alphasystem/alphabsmail` とは別のミラーノートが作られてしまう
+    # （実測: 516 エントリが `alphabsmail` 名で重複取得される）。
+    existing_projects = [
+        project for project in all_projects
+        if project.exists and not project.is_nested
+    ]
 
     collected: List = []
     scanned_ok = 0
@@ -265,11 +276,33 @@ def run_sync(vault: str, git_root: str, date: str) -> Dict:
         # 利用者が毎朝テンプレートから作成する運用のため、ツール側からは作らない。
         report["daily_missing"] = True
     else:
+        # 状況収集。失敗しても作業ログの更新は止めない（仕様 5 章）。
+        status_lines = None
         try:
-            project_names = [project.name for project in all_projects]
-            report["daily_changed"] = daily_module.update_daily(
-                vault, date, latest_by_source, project_names=project_names,
+            statuses = status_module.collect_all(all_projects)
+            report["status_failed"] = len([item for item in statuses if item.failed])
+            now_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            status_lines = daily_module.render_status_lines(statuses, now_text)
+            for item in statuses:
+                if item.failed:
+                    report["warnings"].append("%s: 状況の取得に失敗しました" % item.name)
+        except Exception as error:
+            report["status_error"] = str(error)
+            report["warnings"].append("状況一覧の収集に失敗しました (%s)" % error)
+
+        try:
+            # 同居ディレクトリは作業ログの対象外（記録は alphasystem/<name> 側に入る）。
+            project_names = [
+                project.name for project in all_projects if not project.is_nested
+            ]
+            log_changed, status_changed, daily_warnings = daily_module.update_daily(
+                vault, date, latest_by_source,
+                project_names=project_names,
+                status_lines=status_lines,
             )
+            report["daily_changed"] = log_changed
+            report["status_changed"] = status_changed
+            report["warnings"].extend(daily_warnings)
         except daily_module.DailyMarkerError as error:
             report["warnings"].append("Daily の管理ブロックが壊れています: %s" % error)
         except OSError as error:
@@ -392,6 +425,14 @@ def format_report(report: Dict) -> str:
             else "更新しました" if report["daily_changed"] else "変更なし"
         ),
     ]
+    if report.get("status_error"):
+        lines.append("状況一覧: 更新に失敗しました（%s）" % report["status_error"])
+    elif "status_changed" in report:
+        failed = report.get("status_failed", 0)
+        suffix = "（取得失敗 %d 件）" % failed if failed else ""
+        lines.append(
+            "状況一覧: %s%s" % ("更新しました" if report["status_changed"] else "変更なし", suffix)
+        )
     archived = report.get("archived")
     if archived:
         lines.append(

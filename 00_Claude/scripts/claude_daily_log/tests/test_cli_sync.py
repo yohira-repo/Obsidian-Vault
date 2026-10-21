@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+import unittest.mock
 
 import cli
 from tests import helpers
@@ -371,6 +372,122 @@ class DateValidationTest(unittest.TestCase):
         path = os.path.join(self.vault, "01_Daily", date + ".md")
         with open(path, encoding="utf-8") as handle:
             return handle.read()
+
+
+STATUS_TABLE = """| プロジェクト名 | 相対フォルダー | 内容 |
+| - | - | - |
+| alphasystem | ../alphasystem | システム |
+| alphabsmail | ./alphabsmail | 当プロジェクト配下 |
+"""
+
+
+class StatusSectionInSyncTest(unittest.TestCase):
+    """全体同期では状況一覧を更新し、単体同期では触らない。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.git_root = os.path.join(self.tmp.name, "git")
+        self.vault = os.path.join(self.tmp.name, "vault")
+        self.date = "2026-09-06"
+        self.project_name = "alphasystem"
+        os.makedirs(self.vault)
+        helpers.init_repo(
+            os.path.join(self.git_root, "alphasystem"),
+            {"CLAUDE.md": STATUS_TABLE},
+        )
+        os.makedirs(os.path.join(self.git_root, "alphasystem", "alphabsmail"))
+        make_daily(self.vault, self.date, body="## Claude作業ログ\n")
+
+        self._orig_lock_path = cli.LOCK_PATH
+        self._orig_log_path = cli.LOG_PATH
+        self._orig_stamp_path = cli.STAMP_PATH
+        cli.LOCK_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.lock")
+        cli.LOG_PATH = os.path.join(self.tmp.name, "logs", "claude_daily_log.log")
+        cli.STAMP_PATH = os.path.join(self.tmp.name, "cache", "claude_daily_log.fetch_stamp")
+
+    def tearDown(self):
+        cli.LOCK_PATH = self._orig_lock_path
+        cli.LOG_PATH = self._orig_log_path
+        cli.STAMP_PATH = self._orig_stamp_path
+        self.tmp.cleanup()
+
+    def _read_daily(self):
+        path = os.path.join(self.vault, "01_Daily", self.date + ".md")
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_sync_writes_status_block(self):
+        # 既存 test_cli_sync.py のヘルパーで Vault / git_root を用意し、
+        # 01_Daily/<date>.md を「## Claude作業ログ」付きで作ってから実行する。
+        report = cli.run_sync(self.vault, self.git_root, self.date)
+        text = self._read_daily()
+        self.assertIn("## プロジェクト状況", text)
+        self.assertIn("<!-- project-status:start -->", text)
+        self.assertLess(text.index("## プロジェクト状況"), text.index("## Claude作業ログ"))
+        self.assertTrue(report["status_changed"])
+
+    def test_status_block_is_before_worklog_and_idempotent(self):
+        cli.run_sync(self.vault, self.git_root, self.date)
+        first = self._read_daily()
+        report = cli.run_sync(self.vault, self.git_root, self.date)
+        self.assertEqual(first, self._read_daily())
+        self.assertFalse(report["status_changed"])
+
+    def test_nested_project_is_not_collected_as_its_own_source(self):
+        """同居ディレクトリが単独ソースとして二重取り込みされないこと。"""
+        cli.run_sync(self.vault, self.git_root, self.date)
+        mirror = os.path.join(self.vault, "00_Claude", "projects", "alphabsmail.md")
+        self.assertFalse(os.path.exists(mirror))
+        self.assertNotIn("- **alphabsmail** —", self._read_daily())
+
+    def test_project_sync_does_not_touch_status(self):
+        cli.run_sync(self.vault, self.git_root, self.date)
+        before = self._read_daily()
+        cli.run_sync_project(self.vault, self.git_root, self.date, self.project_name)
+        after = self._read_daily()
+        self.assertEqual(
+            before[before.index("<!-- project-status:start -->"):],
+            after[after.index("<!-- project-status:start -->"):],
+        )
+
+    def test_status_failure_does_not_stop_worklog(self):
+        def boom(_items):
+            raise RuntimeError("収集できません")
+
+        with unittest.mock.patch.object(cli.status_module, "collect_all", boom):
+            report = cli.run_sync(self.vault, self.git_root, self.date)
+        self.assertIn("## Claude作業ログ", self._read_daily())
+        self.assertIn("収集できません", report["status_error"])
+
+
+class StatusReportLineTest(unittest.TestCase):
+    def _base(self, **extra):
+        report = {
+            "date": "2026-10-21", "sources": 1, "entries": 1,
+            "mirror_added": 0, "mirror_replaced": 0,
+            "daily_changed": False, "warnings": [],
+        }
+        report.update(extra)
+        return report
+
+    def test_updated(self):
+        text = cli.format_report(self._base(status_changed=True))
+        self.assertIn("状況一覧: 更新しました", text)
+
+    def test_unchanged(self):
+        text = cli.format_report(self._base(status_changed=False))
+        self.assertIn("状況一覧: 変更なし", text)
+
+    def test_failure_count(self):
+        text = cli.format_report(self._base(status_changed=True, status_failed=2))
+        self.assertIn("状況一覧: 更新しました（取得失敗 2 件）", text)
+
+    def test_collection_error(self):
+        text = cli.format_report(self._base(status_error="収集できません"))
+        self.assertIn("状況一覧: 更新に失敗しました（収集できません）", text)
+
+    def test_line_is_absent_when_not_collected(self):
+        self.assertNotIn("状況一覧", cli.format_report(self._base()))
 
 
 if __name__ == "__main__":
