@@ -19,6 +19,19 @@
       "images": [],
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "63d087db-b97d-44a7-a4a4-a96a09fea43d"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1792618562130-zr7ozo5",
+      "userTurnOrdinal": 2,
+      "state": "accepted",
+      "localMessageId": "msg-1792618562114-5ii4ng2",
+      "timestamp": 1792618562114,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "45e6df5a-255c-4fb0-8d9e-2c5eb2c72563"
     }
   ]
 }
