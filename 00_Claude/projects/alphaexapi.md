@@ -713,3 +713,165 @@ alphasystem（alphasystem-da セッション）から、ユーザー承認済み
 - 作業ブランチは `feature/conversations-daily-files`（base: `staging`）。直前の `feature/mf-payroll-csv-import-impl` は PR #148 として staging にマージ済みのため、ローカルブランチを削除した。
 - Stop フックの書き先が `docs/conversations/2026-10-20.md` に切り替わることを、フックの書き先解決を実行して確認した。INBOX 申し送りの取込先（メモリ）も日付別ファイルに更新した。
 - Draft PR #150（base: staging）を作成し、alphasystem-da セッションへ完了を返信した（依頼文の「PR #147 を優先」は、実装 PR #148 がマージ済みのため待たずに着手した旨を補足）。Draft 解除・マージはユーザーが行う。
+
+## 2026-10-22 alphasystem から 4_7_1 社員情報変更依頼と MF ユーザー単位 OAuth の依頼を受領
+
+alphasystem（alphasystem-6b セッション）から、2026-10-22 にユーザー承認済みの依頼を2件受けた（alphasystem の決定記録「4_7_1 の保留を解除し alphadb・alphaexapi へ先行依頼」で承認を確認。設計書末尾の「実装依頼は保留中」は更新漏れ）。
+
+- **依頼1: 4_7_1 社員情報変更依頼の API・CSV 取込**（設計書: alphasystem `docs/design/2026-10-22-社員情報変更依頼-仕様.md` 第4版）
+  - 作るもの: 本人用 API（参照・変更依頼・取消・メール確認。自分以外の scode は不可）、総務用 API（一覧・差分・受付・却下〔理由付き〕・完了。ADMIN のみ）、従業員情報 CSV 取込（MF 給与取込と同じ型。履歴は MfJob の件数のみ、個人情報をログ・エラーに出さない）、却下時のメール通知。
+  - CSV: 実ファイルは個人情報を含むため**見出し行だけ**読む。キーは「従業員番号」。氏名（フリガナ）・生年月日・性別・入社年月日は CSV で上書き。住所・通勤費・口座・DC は完了時に依頼内容を適用。通勤費は通勤手当1 の支給額のみ、口座は口座1 のみで種別は固定「普通」、DC は手動完了のみ、退職日は更新しない。
+  - メール送信は方式未決（SES 案）。送信部分はインターフェースで抽象化し、実装は方式決定後に差し替える。通知先は mm_adder と email の両方（mm_adder 未設定なら email のみ）。
+  - **API 契約書を先に作り、alphasystem に共有する**（alphasys への引き渡し用）。
+- **依頼2: MF ユーザー単位 OAuth**（設計承認済み `docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md`）。alphadb のスキーマ変更が先（alphadb-b1 に依頼済み。契約・版数・公開順を相談する）→ 実装計画 → 実装。
+- **進め方**: 実装計画の作成から始め、コード修正は方式案を alphasystem に示して了解を得てから進める。順序は alphadb → alphaexapi → alphasys。契約・スキーマが変わるときは alphasystem と関係セッションへ連絡する。
+- **段取り**: 作業ブランチ `feature/employee-change-request`（base: staging）。直前の `feature/conversations-daily-files` は PR #150 で staging にマージ済みのためローカルブランチを削除した。まず依頼1の API 契約書を作成する。
+
+## 2026-10-22 4_7_1 の事前調査結果（契約書作成前）と alphadb-b1 への問い合わせ
+
+- **CSV 見出し確認**: 実ファイルの見出し行のみを読んだ（データ行は読んでいない）。214 列。キー「従業員番号」、姓・名・各フリガナ、性別、生年月日、電話番号、郵便番号・都道府県・市区町村・丁目・番地・マンション/ビル等、入社年月日、口座1〜3（金融機関名・支店名・口座番号・口座名義人ほか）、通勤手当1〜10（支給額ほか）。DC・メール・部署の列は無い。性別・日付の値の形式はデータ行を読まないと分からないため、別途確認が要る。
+- **契約書で方式を決める必要がある点（調査で判明）**:
+  - 本人の特定: 既存の `RolesGuard` はフロントが送る `x-user-role` ヘッダーをそのまま信用しており、既存の本人用 API（aws-instance）は本文のメールアドレスを使っている。4_7_1 では、Google ID トークンで検証済みのメール（`req.user.email`）から `alp_users` を引いて scode を決め、ADMIN 判定も DB の `alp_users.role` で行う案にする。
+  - `alp_users` に通勤費の列が無い。住所は文字列1列、氏名は姓・名に分かれていない。却下理由・完了手段・メール確認トークンの置き場も無い。→ alphadb への要望に含める。
+  - bankcode API（bankcode-jp v3）の既存検索はコードかひらがなの前方一致のみで、CSV の漢字の金融機関名からコードを引く手段が無い。照合方式（依頼側のコード→名前で比較する等）を決める必要がある。
+- **並行作業**: 旧システム（alphausers / alphaofficesystem）の changeInfo の形・各フロー・CSV 照合・却下メールの調査をサブエージェントで実行中。
+- **alphadb-b1 へ問い合わせ（送信済み）**: MF ユーザー単位 OAuth のスキーマが設計書3章（`userEmail` VarChar(256)、`@@unique([mfProduct, userEmail])`、既存2行は削除）と一致するか、版数と、4_7_1 と同じ版にするか。4_7_1 のスキーマ案は alphaexapi から本日中に送ると伝えた。
+
+## 2026-10-22 4_7_1 のメール送信方式は Amazon SES に決定（alphasystem から連絡）
+
+- **決定（2026-10-22 ユーザー承認、alphasystem-6b から連絡）**: メール送信は Amazon SES。抽象化した送信インターフェースの背後に SES 実装（AWS SDK の SES クライアント）を置く。通知先は mm_adder と email の両方（mm_adder 未設定なら email のみ）。
+- ローカル・テストでは SES を呼ばない構成（スタブ）にする。ログに宛先アドレスや本文を出さない。
+- 送信元アドレス・環境変数名（例: MAIL_FROM）・IAM 権限（ECS タスクロールの ses:SendEmail）は alphasyscdk 側のインフラ準備と合わせる（alphasyscdk へは alphasystem から申し送り）。alphaexapi は必要な環境変数・権限を実装計画に書いて alphasystem へ伝える。
+- 他の依頼（API 契約書の先行作成、CSV 取込、ユーザー単位 OAuth）は変更なし。
+
+## 2026-10-22 4_7_1 API 契約書の草案を作成（alphasystem の確認待ち）
+
+- **作成**: `docs/superpowers/specs/2026-10-22-employee-change-request-api-contract.md`（草案）。本人用 API（`/member/employee-info`）、総務用 API（`/admin/employee-change-requests`）、従業員情報 CSV 取込（`POST /money-forward/jobs/csv/employee-import`）、却下通知メール、alphadb への要望（8 章）、確認事項 Q1〜Q8（9 章）。
+- **旧システム調査で判明した、設計書の前提との差**（契約書に反映し、alphasystem へ伝える）: 旧システムに却下メールの実装は無い（状態のみ）。旧の CSV 取込は依頼を確定せず `alp_user` を直接上書きしていた。通勤費の列（旧 `traffic_cost`）は移行で捨てられている。旧の取消は物理削除、依頼中の再依頼は上書きだった（新は設計書どおり CANCEL・409）。旧の銀行コードは数値保存で先頭の 0 が落ちている。
+- **契約書で採った方式（alphasystem の確認待ち）**: 本人は検証済みメールから `alp_users` を引いて特定し、ADMIN 判定も DB の `role` で行う（`x-user-role` ヘッダーは使わない）。CSV 照合で一致しない・特定できない場合は受付のまま `MfJobDetail` に WARN（社員コードと項目名のみ）。
+- **次**: alphasystem に契約書と確認事項を共有し、alphadb-b1 に 8 章のスキーマ案を送る。回答を受けて第2版で確定し、実装計画を作る。
+- **実施**: Draft PR #152（base: staging）を作成。alphasystem-6b へ契約書草案・設計書前提との差5点・確認事項 Q1〜Q8・SES で alphasyscdk に必要なものの想定（環境変数 MAIL_FROM・APP_BASE_URL・MAIL_DRIVER、既存の AWS_REGION、タスクロールに送信元限定の ses:SendEmail。実装計画で確定させて再連絡）を送信。alphadb-b1 へ契約書8章のスキーマ案9点を送信（Q7 の回答で確認トークンの保存先が変わりうる旨も伝えた）。
+- **待ち**: alphasystem の Q1〜Q8 回答、alphadb-b1 のスキーマ回答と版数・公開順（OAuth の件を含む）。
+
+## 2026-10-22 4_7_1 の SES 送信の環境変数・権限を alphasyscdk と合意
+
+- alphasyscdk-d2 から問い合わせがあり、次の構成で合意した（alphasystem にも共有済み）:
+  - `MAIL_FROM`（staging は `no-reply@alphasys.alphacmc-test.com`、タスク定義の平文 environment で注入）
+  - `MAIL_DRIVER`（`ses` / `stub`。未設定なら stub で、送らずに宛先・本文を出さないログだけ残す。staging は `ses`）
+  - `ALPHASYS_BASE_URL`（alphasys の画面 URL、末尾スラッシュなし。確認メールのリンクと却下メールの画面 URL に使う）。先に alphasystem へ送った `APP_BASE_URL` から名前を改め、契約書 9 章 Q5 も直した（alphaexapi に同等の既存変数は無かった）。
+  - リージョンは既存の `AWS_REGION`（ap-northeast-1）。認証は ECS タスクロールの `ses:SendEmail`（`ses:FromAddress` 条件付き）でアクセスキー無し、SDK のデフォルト認証チェーン、SESv2 の SendEmail。Reply-To は不要。
+- staging の SES は当面サンドボックスのため、結合試験（設計書 10 章 #4・#8e・#10）の前に試験用社員の mm_adder・email を検証済みにする手順を入れるよう alphasystem に依頼した。
+- **alphasyscdk から確定値の連絡**: staging のバックエンドのタスク定義（平文 environment）に `MAIL_FROM=no-reply@alphasys.alphacmc-test.com`、`MAIL_DRIVER=ses`、`ALPHASYS_BASE_URL=https://alphasys.alphacmc-test.com` を注入する（`AWS_REGION` は既存）。alphasyscdk の実装は alphasystem の了解後に着手し、デプロイ後に alphaexapi へ連絡が来る。
+
+## 2026-10-22 4_7_1 契約書草案への alphasystem の回答（一部了承、4 点はユーザー確認中）
+
+- **了承（alphasystem）**: 本人の特定・ADMIN 判定の方式、CSV の不一致・コード未特定は受付のまま MfJobDetail に WARN、旧システム調査の 5 点の扱い。Q1 性別は「男」「男性」「女」「女性」を受け付ける（実ファイルは「男」「女」のみ、alphasystem が値の集計で確認）。Q2 名義人は「口座名義人（フリガナ）」列（カナ）で入力・照合。Q5 確認メールのリンクは alphasys の画面でログイン必須、変数名は ALPHASYS_BASE_URL。Q6 住所照合は空白・ハイフンに加え全角/半角数字の差も吸収、残りは総務の手動完了。Q7 確認トークンは UserChangeData に列を足す（ハッシュのみ、一覧・詳細では返さない）。Q8 alp_users に無い・退職済みは 403。
+- **ユーザー確認中（確認まで暫定のまま進める）**: ①却下メールを新規機能として作る前提でよいか ②Q3 依頼中からの直接の却下を認めるか（暫定: 認める） ③Q4 却下メールの文面案と、送信失敗でも却下を確定させる扱い（暫定: 確定させる） ④通勤費の列 `Users.commutingCost` 追加の最終確認（alphadb-b1 との調整は進めてよい）。
+- **実施**: 契約書を草案 第1.1版に更新（9 章を「決定済み」「ユーザー確認中」に分け、Q6 の照合ルールに全角/半角数字を追加）。設計書の修正（却下メールは新規、通勤費の列、SES 検証手順）は alphasystem が行う。
+- **alphadb-b1 へ連絡（送信済み）**: スキーマ案のうち確認トークン列（Q7）を含む 1〜6・8 は確定として進めてよい。7（Users.commutingCost）は調整・準備は進めてよいが、公開はユーザーの最終確認（alphasystem 経由）を待ってからにするよう依頼した。版数・公開順の回答は引き続き待ち。
+
+## 2026-10-22 4_7_1 確認事項へのユーザー回答（alphasystem 経由）、API 契約書を第2版で確定
+
+- **決定（ユーザー、alphasystem-6b から連絡）**: ①却下メールは新規機能として作る ②Q3 依頼中からの直接の却下を認める ③Q4 文面は案どおり、送信に失敗しても却下は確定させる ④通勤費の列（`Users.commutingCost`）の追加は**保留**（実態把握のため。alphadb への依頼は取り下げ、alphadb-b1 には alphasystem から伝える）。
+- **通勤費の保留中の扱い**: 完了にしても `alp_users` へは適用せず、完了の履歴（UserChangeData）だけ残す。本人画面の現在値（`current.commuting`）は直近の完了済みの通勤費の依頼の金額（無ければ null）。CSV の照合（通勤手当1 の支給額と受付済みの依頼の金額）は予定どおり行う。
+- **SES**: 方式全体を了承。DMARC を置く。staging は受信者を検証してサンドボックスのまま試験し、解除申請は本番の前。環境変数は `MAIL_FROM`・`MAIL_DRIVER`・`ALPHASYS_BASE_URL`・`AWS_REGION` で確定。設計書は alphasystem で第5版に更新済み。
+- **実施**: 契約書を**確定 第2版**に更新（1.6 通勤費の扱いを新設、3.3・5.2 に通勤費は適用しない旨、8 章から通勤費の列を削除、4 章に環境変数、9 章をすべて決定済みに）。
+- **次**: alphadb-b1 から版数・公開順の回答を受けて、実装計画を作成する。
+- **報告（送信済み）**: alphasystem-6b へ契約書第2版の確定を報告した（alphasys への引き渡しに使ってもらう）。実装計画ができたら方式案として共有し、了解を得てから実装に入ると伝えた。
+
+## 2026-10-22 alphasyscdk が SES インフラを staging にデプロイ（16:25 JST）
+
+- alphasyscdk-d2 から連絡: staging のバックエンドのタスク定義に `MAIL_DRIVER=ses`・`MAIL_FROM=no-reply@alphasys.alphacmc-test.com`・`ALPHASYS_BASE_URL=https://alphasys.alphacmc-test.com` を注入し、タスクロールに `ses:SendEmail`（FromAddress 条件付き）を付けた。ドメイン ID は検証済み（DKIM・MAIL FROM とも SUCCESS）。
+- SES はサンドボックスのままで、宛先は事前に検証したアドレスに限られる。受信者の検証は人の作業で、これから行う。
+- alphaexapi はまだこれらの変数を読む実装が無いため、現時点の staging の動作には影響しない。4_7_1 の実装がデプロイされた時点で使われる。
+
+## 2026-10-22 alphadb-b1 から OAuth・4_7_1 のスキーマ回答と版数案を受領、確認事項に回答
+
+- **alphadb の回答**: OAuth の契約は alphaexapi の前提どおり（`userEmail` VarChar(256)・FK なし、`@@unique([mfProduct, userEmail])`・複合キー名 `mfProduct_userEmail`、既存2行は DELETE）。4_7_1 は契約書 8 章どおり（`staffScode Int?`、`rejectReason`、`enum ChgCompletedBy { MANUAL, CSV }`・`completedBy`、`tokenHash VarChar(64)`、`tokenExpiresAt Timestamptz(6)`、`@@index([scode, changeType, changeStatus])`、`MfJobType.EMPLOYEE_CSV_IMPORT`、`ChgStatus.SYNCED` は削除）。`commutingCost` は保留のため追加しない。いずれも alphasystem-6b の了解待ちで未着手。
+- **段取り（alphadb 案）**: 版数は OAuth を `alphadb@0.2.6`、4_7_1 を `alphadb@0.2.7` とし、別 PR で OAuth から先に公開する。公開したら alphadb から連絡が来る。alphaexapi も OAuth と 4_7_1 を別ブランチで進める。
+- **alphaexapi の回答（送信済み）**: 承認なしの項目（緊急連絡先・メール）を完了で記録するとき `completedBy` は NULL。`staffScode` は受付・却下・完了を操作した総務の scode で、本人の操作（依頼・取消・承認なしの項目の保存・メール確認）では NULL、CSV で完了した場合は取り込んだ総務。`tokenHash` は SHA-256 の hex 64 文字。`SYNCED` の削除も可。契約書（第2版）に同じ内容を明記した。
+- **注意（alphadb から）**: staging の夜間自動移行が毎晩 JST 1:00 に `alp_user_change_data` と `alp_users` を入れ直しており、試験で作った依頼と反映は消える。対処は alphasystem が判断する。結合試験の段取りに影響するため、判断が出たら記録する。
+
+## 2026-10-22 alphadb が OAuth（＃92・0.2.6）と 4_7_1（＃93・0.2.7）の Draft PR を作成、夜間移行は試験期間中停止
+
+- alphadb-b1 から連絡: alphadb #92（OAuth、0.2.6）と #93（4_7_1、0.2.7、#92 の上に積む）の Draft PR を作成。どちらも publish 前で、publish したら連絡が来る。列名・enum 名は合意した最終案どおり（`ChgCompletedBy`・`completed_by`・`reject_reason`・`token_hash` VarChar(64)・`token_expires_at` Timestamptz(6)、`@@index([scode, changeType, changeStatus])`、`SYNCED` 削除、`EMPLOYEE_CSV_IMPORT` 追加）。
+- **段取り**: OAuth のスキーマ（#92）の staging DB への適用は、alphaexapi のユーザー単位 OAuth を staging にデプロイするタイミングに合わせる（alphasystem の指示）。alphaexapi はデプロイ予定が決まったら alphadb-b1 に伝える。
+- **決定（ユーザー、alphadb 経由）**: staging の夜間自動移行は結合試験の期間中は止める。Bastion の置換で 10/19 以降はすでに止まっている。扱いは alphasystem が判断する。
+
+## 2026-10-22 4_7_1 の実装計画を作成（alphasystem の了解待ち）、OAuth との順序の判断を依頼
+
+- **作成**: `docs/superpowers/plans/2026-10-22-employee-change-request.md`（Task 0〜11）。メール送信の抽象化（MailSender・SES・stub）→ 本人特定ガード（EmployeeGuard、DB の role で ADMIN 判定）→ 値の型と変換 → リポジトリ（期待状態つき遷移）→ 本人用サービス → メール変更・確認 → 総務用サービス → コントローラ・モジュール → CSV の解析・照合・金融機関名の解決 → CSV 取込ジョブ → 最終確認。
+- **判明した順序の問題**: alphadb #93（4_7_1、0.2.7）は #92（OAuth、0.2.6）の上に積まれているため、0.2.7 を入れると `MfOauthToken.mfProduct` の単独ユニークが無くなり、既存の `money-forward-oauth.service.ts`（`where: { mfProduct }`）がコンパイルできなくなる。alphaexapi で 4_7_1 を先に進めるには、(a) alphaexapi のユーザー単位 OAuth を先に実装する、(b) alphadb #93 を #92 から独立させる、のどちらかが要る。→ alphasystem に判断を依頼。
+- **計画で決めた細部（契約書の修正を伴うもの。alphasystem に連絡）**: 退職日は最終在籍日とし、翌日以降を 403（契約書 1.1 の「今日以前」を修正）。`POST /member/employee-info/mail` は送信不要の場合も 202 で返し `confirmationRequired` で判別（契約書 2.5 を修正）。`ALPHASYS_BASE_URL` が未設定だと起動時に失敗させる。金融機関名は完全一致で引けなければ「銀行」「支店」等の末尾を除いて引き直す。
+- **着手の前提**: alphasystem の方式了解、OAuth との順序の判断、alphadb@0.2.7 の公開、CodeArtifact トークン再取得のユーザー承認（`alphadb@0.2.7` と `@aws-sdk/client-sesv2` の install 用）。
+- **送信済み**: alphasystem-6b へ計画（方式案）・順序の判断依頼・契約書を直す細部3点を送った。alphaexapi としては、4_7_1 を先に固めて alphasys に渡せる (b)（alphadb #93 を #92 から独立させる）を推すと伝えた。回答待ち。
+
+## 2026-10-22 alphasystem が 4_7_1 の実装計画を了承、順序は 4_7_1 を先（alphadb 0.2.6）に決定
+
+- **了承（alphasystem）**: 実装計画（方式案）を了承。EmployeeGuard、期待した状態のときだけ更新、同一トランザクションでの反映、CSV は MF ジョブに EMPLOYEE_CSV_IMPORT として載せる、行ごとに独立、rerun は再アップロード、MailSender の抽象化。金融機関名→コードは結合試験 #8 で実際の名前で引けるか確認する。
+- **決定（順序）**: (b) 4_7_1 を先に公開する。alphadb #93 を #92 から独立させ、**4_7_1 を alphadb@0.2.6、OAuth を 0.2.7** とする（alphasystem から alphadb-b1 へ依頼。版数・公開順の確定は alphadb-b1 から連絡が来る）。**alphaexapi の OAuth 実装は 4_7_1 のあとで着手する。**
+- **細部の決定**: ①退職日は最終在籍日とし翌日から 403（契約書 1.1 を修正）②メール変更で同じアドレスのときも 202 + `confirmationRequired=false`（契約書 2.5 を修正）③`ALPHASYS_BASE_URL` は **`MAIL_DRIVER=ses` のときだけ必須**（未設定なら起動しない）。stub では不要（ローカル・テスト・変数未追加の環境で起動できなくなるのを避けるため）。
+- **実施**: 契約書を第2.1版に、計画を alphadb@0.2.6 前提・`ALPHASYS_BASE_URL` の条件付き必須に更新した。
+- **着手の前提**: alphadb@0.2.6 の公開を待つ。CodeArtifact トークン再取得の承認はユーザーが alphaexapi のセッションで行う（alphasystem からは承認できない）。
+
+## 2026-10-22 alphadb@0.2.6（4_7_1）公開、ユーザー承認を得て 4_7_1 の実装に着手
+
+- **承認（ユーザー）**: alphadb の公開後に CodeArtifact トークンを再取得してよい（`alphadb@0.2.6` と `@aws-sdk/client-sesv2` の install 用）。実装はサブエージェント駆動（タスクごとに新しいサブエージェント、区切りでレビュー）で進める。
+- **alphadb から連絡**: #96 で組み直し、0.2.6 は 4_7_1 のみ（`MfOauthToken` は製品単位のまま）、OAuth は #97（0.2.7、Draft、マイグレーション名 `20261022120000_mf_oauth_token_per_user`）。**alphadb@0.2.6 は 2026-10-22 17:28 JST に publish（latest）、staging DB にマイグレーション `20261022100000_employee_change_request` を 17:30 JST に適用済み。**
+- **alphasystem から着手の指示**（2026-10-22）。OAuth（#97）のマージと staging への適用は、alphaexapi のユーザー単位 OAuth を staging にデプロイする時に合わせる（目処が立ったら alphadb-b1 に伝える）。
+- **段取り**: Task 0（トークン再取得 → `npm install alphadb@0.2.6 @aws-sdk/client-sesv2` → 列・enum の確認 → 全テスト）から順に実施する。
+- **Task 0 完了（commit 316c3b7）**: CodeArtifact トークンを再取得し `alphadb@0.2.6`・`@aws-sdk/client-sesv2` を install。npm 11 が install スクリプトを止めたため `prisma generate` を手で実行。lock の `@swc` の dev→devOptional 書き換えは 2026-10-20 の M-7 と同じく base に戻した（AWS SDK 共通部品の更新は client-sesv2 の依存として残す）。`MfJobType.EMPLOYEE_CSV_IMPORT` の追加で `MF_JOB_RUNNERS` が網羅でなくなるため、rerun は給与と同じく「CSV を再アップロードしてください」のスタブに割り当てた。全 67 スイート / 407 件 PASS。
+- **段取り**: Task 1〜11 をサブエージェント駆動で順に実施（タスクごとにレビュー、最後に全体レビュー）。alphasystem に着手を、alphadb-b1 に 0.2.6 取込完了と「OAuth は 4_7_1 の後に着手、staging デプロイの目処が立ったら連絡」を伝えた。
+
+## 2026-10-22 4_7_1 実装の途中経過（Task 1〜5 完了）と、今は直さないと判断した指摘
+
+- **進捗**: Task 1（メール送信の抽象化）・Task 2（本人特定ガード・JST 日付）・Task 3（値の型と変換）・Task 4（変更依頼のリポジトリ）・Task 5（本人用サービス）が、タスクごとのレビューを通過した。Task 6（メール変更・確認と文面）を実装中。
+- **今は直さないと判断した指摘（controller 判断、最終レビューで要否を再判定）**: 同じ本人が同時に2回依頼すると、未完了の依頼の重複チェック（findOpen → create）をすり抜けて重複しうる。根本対策は DB の部分ユニーク索引（scode・changeType で未完了のみ）で alphadb の変更が要るため、今は直さない。本人の画面操作に限られ、画面側の連打防止で実害は小さい。
+- **最終レビューで要否を判定する Minor**: メールアドレスでの本人特定が大文字小文字を区別する、applyDate が実在しない日付だと 500 になりうる、確認待ちのメール変更も ID 指定で取消できる、口座種別を「普通」固定で返す（契約書どおり）など。
+- **計画からの変更（controller 判断、Task 6 レビュー指摘）**: メール変更の確認メールの送信に失敗した場合、作った確認待ちの行を CANCEL に戻してから例外を返す（計画のコードでは、届かないトークンの確認待ちが残っていた）。
+- **段取り**: タスクごとのレビューで「最終レビューで要否判定」とした Minor（大文字小文字の区別、applyDate の不正日付、確認待ちメールの ID 指定取消、同時依頼の重複など）は、全タスク完了後の最終レビューで判定し、その場で直さないものは先送りしてよいかをユーザーに1件ずつ確認する。Task 6 は修正ラウンド2（取消失敗時も元の送信エラーを返す）を実施中。
+- **計画からの変更（controller 判断）**: 却下通知メールの送信失敗時のログは、エラーの詳細（describeError）ではなくエラー名だけを出す。SES のエラーメッセージは宛先アドレスを含みうるため（サンドボックスの未検証アドレス等）。Task 6 はレビュー指摘2件（送信失敗時の取消、取消失敗時も元のエラーを返す）を直して完了、Task 7（総務用サービス）を実装中。
+- **計画からの変更（controller 判断、Task 7 レビュー指摘）**: main.ts のグローバル ValidationPipe は transform が無いため、本人用・総務用コントローラにクラス単位で `@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))` を付ける（既存の MF ジョブのコントローラと同じ形）。結合テストは main.ts と同じ設定で動かし、総務一覧の絞り込み（`status` のカンマ区切り、`page`）が型どおりに届くことを確認する。Task 7 完了、Task 8 実装中。
+
+## 2026-10-22 4_7_1 の Task 1〜10 実装完了、最終確認（Task 11）を実施し全体の最終レビューへ
+
+- **進捗**: Task 7（総務用サービス）・Task 8（コントローラ・モジュール）・Task 9（CSV 解析・照合・金融機関名の解決）・Task 10（CSV 取込ジョブ・エンドポイント）がタスクごとのレビューを通過し、Task 1〜10 の実装が完了。
+- **Task 10 の計画からの小さな変更**: 照合対象を住所・通勤費・銀行口座に限定する絞り込みをループ側にも入れた（DC は照合しない）。MF ジョブのコントローラを含む既存テストにも EmployeeGuard の差し替えを追加。
+- **Task 11（最終確認）**: 全体テスト 85 スイート / 507 件 PASS、`tsc --noEmit` エラーなし、AppModule の依存関係が解決できることを一時テストで確認（ローカルは DB が無いため実起動は DB 接続で停止）。Swagger 定義（`alphaexapi_api.yaml`）を再生成し、新しいエンドポイントがすべて載っていることを確認してコミット（給与 CSV 取込の未反映分も含む）。lint は今回の本番コードに2件（`change-info.ts:86`、`employee-csv-matcher.ts:86`）。
+- **段取り**: ブランチ全体の最終レビューを実施中。結果を受けて、直すべき指摘を1回の修正でまとめて直し、その場で直さない Minor は先送りしてよいかをユーザーに1件ずつ確認する。
+
+## 2026-10-22 4_7_1 最終レビュー結果（With fixes）と修正の方針
+
+- **最終レビューの判定**: With fixes（Critical なし）。Important 3件:
+  - I-1: 確認メールの送信失敗時に SES のエラー本文（宛先アドレスを含む）が、既存の AllExceptionsFilter 経由でログと 500 応答に出る。
+  - I-2: 実在しない applyDate（2026-13-45）で Prisma の検証エラーに依頼内容（住所・口座）が入り、ログと 500 応答に出る。2026-02-30 は黙って 3/2 に繰り上がる。
+  - I-3: 総務の受付・却下・完了が承認なしの CHANGE_MAIL にも効き、本人のメール確認を壊しうる。存在しない ID の受付が 404 でなく 409。
+- **修正の方針（controller 判断）**: I-1〜I-3 と、費用対効果の高い Minor（一覧の日付も実在検証、取消も承認ありの種別に限定、従業員番号の Int32 範囲チェック、性別の対応表の参照を安全に、CSV 行の失敗時もそれまでの WARN を出す、住所 JSON の長さ上限 512、緊急連絡先の更新をトランザクションに、lint 2件、CSV エンドポイントで非 ADMIN が 403 になる結合テスト）を1回の修正でまとめて直す。修正後に修正範囲の再レビューを行う。
+- **別課題として起票を推奨（最終レビュー）**: 既存の AllExceptionsFilter が HttpException 以外の例外の message を応答・ログにそのまま出す点（I-1・I-2 の根本原因）、未完了依頼の一意性の DB 制約（alphadb）、alphasys 向けの応答 DTO と Swagger のスキーマ、メールアドレスの大文字小文字の扱いを alphasys とそろえる検討。
+- **段取り**: 修正と再レビューの後、その場で直さない Minor を先送りしてよいかユーザーに1件ずつ確認する。
+- **承認（ユーザー、2026-10-22）**: 最終レビュー指摘の修正を承認（「修正お願いします」）。修正は上記方針でサブエージェントが実施中。
+- **最終修正の完了**: 6720e4d（I-1 確認メール送信失敗は固定文言の 503 にして SES エラー本文を出さない、I-2 実在日付の検証 IsCalendarDate を applyDate・requestedFrom/To に適用、I-3 受付・却下・完了・取消を承認ありの4種別に限定し存在しない ID は 404、住所 JSON 512 文字上限、緊急連絡先の更新と履歴を1トランザクション）と 1037bda（CSV の従業員番号の Int32 範囲チェック、行の失敗時もそれまでの WARN を出す、性別の対応表を Object.hasOwn で参照、lint 2件、非 ADMIN の CSV 取込が 403 になる結合テスト）。修正範囲の再レビューで全件 ADDRESSED、新たな問題なし。全体テスト 86 スイート / 524 件 PASS、tsc エラーなし。push 済み（Draft PR #152）。
+- **次**: その場で直さなかった Minor を先送りしてよいかユーザーに1件ずつ確認する。
+
+## 2026-10-22 4_7_1 の先送り項目と別課題の起票（ユーザー承認）、契約書を第2.2版に
+
+- **先送り（ユーザー承認「1〜7 を先送り OK」）**: ①同時2回依頼による未完了依頼の重複（alphadb の制約で対応、当面は alphasys の連打防止と総務の却下）②メールアドレスの大文字小文字の区別（alphasys とそろえて別対応）③CSV の行が途中で失敗した場合の件数（再取込で回復）④金融機関名の正規化・エスケープ（結合試験 #8 で確認）⑤日時の UTC `Z` 表記（alphasys に周知、契約書 1.2 に明記）⑥Swagger の応答の型（下記 C）⑦テスト補強・詳細画面の二重検索・DC 上限の完了時再確認・続柄 NaN。
+- **起票（ユーザー承認「A〜C を起票お願いします」）**: A = alphaexapi #153（AllExceptionsFilter が HttpException 以外の例外の message を 500 応答とログにそのまま出す）、B = alphadb #99（alp_user_change_data の未完了依頼を同じ社員・同じ項目で1本にする部分ユニーク索引）、C = alphaexapi #154（社員情報 API の応答 DTO と Swagger スキーマ）。
+- **契約書を第2.2版に更新**: 最終修正で決まった動作を反映（1.2 日時は UTC の `Z` 表記、1.3 に 503（確認メール送信失敗）と承認なし種別の 404、エラー本文は共通例外フィルタの形 `{ statusCode, timestamp, path, message: { statusCode, message, error } }`、2.2・3.1 日付の実在チェック、2.2 住所 JSON 512 文字上限、2.3・3.3 承認ありの種別に限定）。
+- **状態**: 4_7_1 の alphaexapi 実装は完了。Draft PR #152（base staging）の Draft 解除・マージはユーザーが行う。マージ・デプロイ後に alphasystem が staging で結合試験を行う。
+- **連絡（送信済み）**: alphasystem-6b へ 4_7_1 実装完了・契約書第2.2版・先送り項目（alphasys にボタン連打防止を依頼、結合試験 #8 で金融機関名の引き当てを確認）・起票した課題・結合試験前の SES 宛先の検証を連絡。alphadb-b1 へ alphadb #99 の起票を連絡（急ぎではない、着手時は alphaexapi の P2002→409 変換と合わせる）。
+- **実装中に controller が判断したこと（ユーザーに報告済み）**: 口座種別は「普通」固定のまま、同時2回依頼の重複は今回直さない（#99 で対応）、確認メール送信失敗時は確認待ちを取消、却下メール失敗のログはエラー名のみ、コントローラで ValidationPipe の transform を有効化、最終修正で費用対効果の高い Minor もまとめて修正、Task 1 のコミット末尾は実装モデルの帰属表示のまま。
+- **段取り**: PR #152 のマージ・デプロイ後に alphasystem が staging で結合試験（事前に SES の試験用宛先を検証）。次は依頼2の MF ユーザー単位 OAuth（alphadb #97 / 0.2.7）に着手予定で、着手の可否をユーザーに確認中。
+
+## 2026-10-22 MF ユーザー単位 OAuth（依頼2）に着手（ユーザー承認）
+
+（同日の 4_7_1 社員情報変更依頼の記録は、ブランチ `feature/employee-change-request`（PR #152）側の同名ファイルにある。両方のマージ後は、このファイルに両方の記録が並ぶ。）
+
+- **依頼（alphasystem、2026-10-22 ユーザー承認済み）**: MF ユーザー単位 OAuth。設計は承認済みの `docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md`。alphadb のスキーマ変更（`MfOauthToken` に `userEmail`、`@@unique([mfProduct, userEmail])`、既存2行は削除）は alphadb #97（0.2.7、Draft、マイグレーション `20261022120000_mf_oauth_token_per_user`）。順序は 4_7_1 の後（alphasystem の判断）。
+- **承認（ユーザー）**: 4_7_1 の実装完了後、MF ユーザー単位 OAuth への着手を承認（「お願いします」）。
+- **段取り**: staging から `feature/mf-user-oauth` を作成し Draft PR を作る（4_7_1 の `feature/employee-change-request` は PR #152 未マージのため残す）。10/16 以降に増えた MF 呼び出し経路を調べたうえで実装計画を作り、方式案を alphasystem に示して了解を得てから実装する。alphadb@0.2.7 の CodeArtifact への公開時期を alphadb-b1 と相談する（staging DB への適用は alphaexapi の staging デプロイに合わせる）。
+- **実施**: Draft PR #155（base staging）を作成。現在の MF API 呼び出し経路をサブエージェントで調査中。alphadb-b1 へ、開発・テスト用に alphadb@0.2.7 を CodeArtifact へ先に publish してほしいと相談（staging DB への適用は alphaexapi の staging デプロイに合わせ、0.2.7 を入れた alphaexapi とマイグレーションは同時に適用が必要と伝えた）。回答待ち。
+- **alphadb からの提案と回答（2026-10-22）**: 通常どおり 0.2.7 を publish すると main 経由になり、以後の staging DB 適用ビルドで OAuth のマイグレーションも当たってしまう（publish と適用の切り離しが運用頼みになる）ため、alphadb は #97 のブランチから試験版 `0.2.7-oauth.0` を dist-tag `next` で publish する案を推奨（ユーザーに確認中）。alphaexapi は了承と回答: 開発中は `"alphadb": "0.2.7-oauth.0"` と完全一致で指定し、staging デプロイ前に正式な 0.2.7（main 経由、latest）が出たら `^0.2.7` に切り替えて lock 再作成・全テストの後にデプロイする。切り替えが済むまで PR #155 は Draft のままにする。
+- **現行コード調査の結果（設計書 10/16 に追補）**: 設計に無い経路として、債務支払取込（PAYABLE の一覧取得 2 か所）と取引先候補一覧（画面から同期的に MF API を呼ぶ）、refreshToken 内の Prisma 直接クエリ 3 か所があった。未認可のエラーは、取引先同期・請求書送信では明細単位で握られてジョブは SUCCEEDED になる。送信・取込・rerun・取引先候補は ADMIN 限定ではない（「経理担当者向け」）一方、認可は ADMIN 限定で、ADMIN 判定はヘッダー頼み。チェーンの後続ジョブには起動者が記録されない。→ 設計書に「10. 追補」を書き、判断 D1〜D5（起動前の認可チェック、誰がトークンを持つか〔案A: 全社員に認可を開放／案B: MF を呼ぶ操作を ADMIN 限定〕、後続ジョブの起動者記録、rerun は rerun したユーザー、未使用ゲートウェイの削除）を alphasystem に確認依頼する。実装計画は回答後に作る。
+- **alphasystem の回答（2026-10-22）**: D1（起動前の認可チェック、無ければジョブを作らず 412、取引先同期は INVOICE と PAYABLE の両方）・D3（後続ジョブにも triggeredBy を記録）・D4（rerun は rerun したユーザーのトークン）・D5（NotImplementedMfPartnerGateway を削除）・追加経路の対応と CSV 経路は変更しない方針・alphadb 試験版 0.2.7-oauth.0 に固定し staging デプロイ前に正式 0.2.7 へ切り替え（それまで #155 は Draft）を了承。**D2（誰がトークンを持つか）は業務判断のためユーザーに確認中**。D2 に関わる部分（認可 API の権限、MF を呼ぶ操作の権限）は実装計画に選択肢として残し、それ以外は計画を進めてよい。案 A を採る場合、alphasys の認可の中継（Draft PR #270）の Route Handler が ADMIN 以外を 401 にしている点と、認可画面が ADMIN 限定メニューにある点も変更が要る（alphasystem から alphasys へ連絡）。
+- **alphadb から連絡（2026-10-22）**: 試験版の案ではなく、**正式な alphadb@0.2.7（OAuth）が publish され（latest）、staging DB にマイグレーション `20261022120000_mf_oauth_token_per_user` が適用された（20:41 JST、ユーザーの実行）**。既存のトークン2行は削除、一意制約は (mfProduct, userEmail)。→ #155 は `"^0.2.7"` を直接指定する（試験版への固定と「正式版までDraft」の段取りは不要になった）。staging で動いている現行の alphaexapi は製品単位の保存を前提にしているため、#155 をデプロイするまで staging では MF トークンを保存できない（もともと staging の MF 認可は通せない状態で実害は小さい、と alphadb）。#155 はマージ後すぐに staging へデプロイし、目処が立ったら alphadb-b1 に伝える。4_7_1 の PR #152（^0.2.6）はそのままでよい。設計書 10.4 を更新し、起草中の実装計画にも反映を指示した。

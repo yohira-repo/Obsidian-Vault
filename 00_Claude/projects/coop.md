@@ -400,3 +400,38 @@
   - 規則の要約: 位置付け（coopcdeweb・coops3view は Web担当、coopcdealert は担当未定）、連携ルール、記録の置き場、結合試験、ブランチ運用（main のまま）、coopcdeinput・coopcdebatch の除外
   - 依頼: 会話記録は最初から `conversations/YYYY-MM-DD.md` 形式で作る。余裕があれば自リポジトリの CLAUDE.md に「coop の CLAUDE.md の規則に従う」旨の一文とリンクを足す
 - **残り**: 各セッションの起動待ち（coopinf・coopbatch を含め計 5 リポジトリ）。
+
+## 2026-10-22 coopcdeweb から申し送り: Node 24 への更新と、他リポジトリと揃えるかの判断依頼
+
+- **受信**: coopcdeweb から `INBOX_FROM_COOPCDEWEB.md`（coop 直下、未追跡）。内容を本記録に取り込んだのでファイルは削除した。詳細は coopcdeweb の `conversations/2026-10-22.md`、PR alphacmc/coopcdeweb#110（Node 24 への更新、マージ済み）・#111（記録、Draft）。
+- **coopcdeweb の状況**: Node 18（2025-04 に EOL）から **Node 24（2028-04 に EOL）** に更新した（`node:24-alpine3.24`）。stg には 1.5.0 として反映し、確認も済んでいる。prd は未反映（1.4.1 = Node 18 のまま）。
+- **各リポジトリの Node（coop で origin/main を確認、2026-10-22 時点）**:
+
+  | リポジトリ | Node | EOL | 指定箇所 |
+  |---|---|---|---|
+  | coopcdeweb | 24 | 2028-04 | `apps/{backend,frontend}/Dockerfile`（`node:24-alpine3.24`） |
+  | coopbatch | 20 | **2026-04（EOL 済み）** | `Dockerfile`（`node:20-alpine`） |
+  | coops3view | 22 | 2027-04 | `Dockerfile`（`node:22-alpine`） |
+  | coopcdealert | 22（申し送りでは推定） | 2027-04 | Lambda `nodejs22.x`（`coopcde-send-error-alart-stg/prd-index`）。coopcdealert にも coopinf にもランタイムの指定は無い |
+
+- **判断依頼（未決）**:
+  1. coopbatch・coops3view・coopcdealert を Node 24 に揃えるか。揃える場合は、各リポジトリへ申し送る。
+  2. coopcdeweb を prd に反映（1.5.0）する時期。
+- **他リポジトリで更新するときに効く知見（coopcdeweb より）**:
+  - Prisma と alpine: 新しい alpine では `libssl.so.3` が `/usr/lib` にしか無く、Prisma が OpenSSL のバージョンを判定できない。その結果 OpenSSL 1.1 用のエンジンを入れ、DB に接続できなくなる。`RUN apk add --no-cache openssl` で解消する（coopbatch では PR #3 で同じ対応が済んでいる）。
+  - bcrypt: 5.x には Node 24 / musl 向けのビルド済みファイルが無いため、6.x に上げた。ハッシュ形式は `$2b$` のままで互換性がある。
+  - CloudFormation: `ecs-alb-stg-stack` を更新すると、ECS のタスク数が `ECSTaskDesiredCount`（=2）に戻る。stg を止めたままスタックを更新すると、DB が止まった状態でタスクが起動するので注意。
+- **stg の状態**: coopcdeweb の確認のため stg を起動しており、ユーザーの判断で**しばらく起動したまま**にする。日次の停止スケジュール `coopcde-stg-daily-down` は DISABLED のまま。止めるときは `stg-env-down.sh` を使う（停止スケジュールも有効に戻る）。
+
+## 2026-10-22 Node バージョン統一の方針（ユーザー、coopcdeweb 経由）と、定期的なバージョンアップの必要性
+
+- **受信**: coopcdeweb のセッション（coopcdeweb-b5）から `SendMessage` で追送があった。先の申し送り（coopcdeweb 2623dc2）の続き。詳細は coopcdeweb の `conversations/2026-10-22.md`（PR alphacmc/coopcdeweb#111）。
+- **方針（ユーザー、coopcdeweb で表明）**:
+  - Node の統一は coop と相談して決める。統一先は**おそらく Node 24**（最終決定は coop で行う）。
+  - **coopcdeweb は急ぐ**（インターネットに公開されているため）。
+  - coopbatch・coops3view・coopcdealert は直接インターネットに公開されていないので、**後日対応**とする。
+    → 先の判断依頼 1 の推奨（coopbatch を至急）とは優先度の考え方が異なる。インターネットに公開されているかどうかを優先度の基準にする。
+- **新しい課題: 定期的・継続的なバージョンアップのスケジュールを組む**（Node と依存ライブラリの両方。全体調整として coop で扱う。スケジュールは未定）。
+  - 参考（coopcdeweb の現状）: 依存ライブラリは 2023 年ごろのまま。`npm audit --omit=dev` で既知の脆弱性が 59 件ある（critical 4 / high 29 / moderate 19 / low 7）。Next 13.4.7 と NestJS 9.4.3 はすでに更新が終わっている。Prisma は backend が 4.16.2、frontend が 5.1.1 でバージョンがずれている。
+- **訂正（coopcdeweb より）**: 先の申し送りにあった「backend の Dockerfile が package-lock を使っていない」は誤り。`turbo prune --docker` を経由して、実際には lock どおりにインストールされている。turbo のバージョンが固定されていない（ビルドのたびに最新が入る。現在は 2.11.10）のは事実。
+- **coopcdeweb 側で決めること**: 脆弱性への対応と、prd への反映（1.5.0）の進め方。決まったら coop に連絡が来る（先の判断依頼 2 は coopcdeweb 側で決まる）。

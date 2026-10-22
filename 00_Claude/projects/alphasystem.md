@@ -3025,3 +3025,280 @@ alphaofficesystemの現行CSV連携は、仕様書4.3章（請求書、38列）�
 - **作成**: [docs/design/2026-10-22-社員情報変更依頼-仕様.md](../design/2026-10-22-社員情報変更依頼-仕様.md)（草案）。項目別の扱い、状態遷移、本人画面・総務画面、CSV による自動確定、alphadb のスキーマ案、実装分担（alphadb→alphaexapi→alphasys）、結合試験項目 12 件、未決事項 7 件。
 - **旧仕様から変える点（要確認）**: 旧システムは CSV で氏名・住所・銀行などを `alp_users` に直接反映していたが、新システムは「依頼 → 総務が MFクラウド給与を更新 → CSV で確認」の一方向とし、CSV の値で `alp_users` を上書きしない案。`alp_change_req` は採用せず `alp_user_change_data` に一本化する案。
 - **次**: ユーザーが設計書をレビューし、11 章の未決事項に回答 → 確定後に alphadb・alphaexapi・alphasys へ依頼（セッションが別 PC の場合はユーザーが連絡文を仲介）。
+
+## 2026-10-22 ケーススタディ文書の題材・読み手を決定し、草案を作成（レビュー待ち）
+
+- **決定（ユーザー）**: 題材は **AI 複数セッション開発の進め方**、読み手は**社内の他メンバー・経営層**。
+- **作成**: [docs/case-study/2026-10-22-AI複数セッション開発-ケーススタディ.md](../case-study/2026-10-22-AI複数セッション開発-ケーススタディ.md)（草案）。要点、背景、進め方（役割分担・3 つの連携の仕組み・人間とのルール）、事例（給与 CSV 取込の設計から実装まで約 1 日）、課題 6 件、示唆、リスク、他の取り組みへの要点。数値は git・PR の記録で確認したものだけを使用。
+- **配置**: リポジトリの `docs/case-study/`（別 PR）。社内共有用の形式（Claude Docs や Word）への変換は、ユーザーの指示があれば行う。
+- **次**: ユーザーが草案をレビューし、書き足す事例・削る点を指示する。
+
+## 2026-10-22 ケーススタディは別 PC で発表資料（Slides）が作成済みだった（見落としの訂正）
+
+- **指摘（ユーザー）**: 別 PC での作業記録が残っていないのか。すべて push しているはずで、発表資料（スライド）も最初のバージョンができてレビュー中のはず。
+- **事実確認**: 記録は 2026-10-21 にあり、**staging にマージ済み**（PR #103・#105。`docs/conversations/2026-10-21.md` の「ケーススタディ発表資料の作成」「初版を作成」「改訂（5 枚）」）。成果物は Slides 型アーティファクト「Claudeセッション連携の実践」（https://claude.ai/artifact/7hteRvyXHr3eRWs1VDKYVv 、非公開）。決定済みの内容: 聞き手は社内の技術者向け（同じ進め方を他案件に展開）、15 分・10〜12 枚、構成は案1「1 日の流れ」、画面例は伏せ字なし。未完: スクリーンショット 3 枚の差し替え、表紙の発表者名・発表日。
+- **見落としの原因**: 本日「ケーススタディ文書」の指示を受けたとき、題材・読み手をあらためて質問し、`docs/case-study/` に別の文書草案（PR #109）を作った。着手前に、関連リポジトリの直近の PR・記録（2026-10-21 の記録）を確認しなかった（既存ルール「候補提示前に対応済みの PR・マージを横断確認」に反する）。
+- **扱い**: PR #109 の草案は、ユーザーの指示があるまでマージしない。発表資料との関係（取り下げるか、補足文書として使うか）は確認中。
+
+## 2026-10-22 4_7_1 設計書の未決事項への回答（通知先・上書き対象・戻す・却下メール・完了手段）と従業員情報CSVの確認
+
+- **決定（ユーザー）**:
+  1. **通知先は `mm_adder` と `email` の両方**。`mm_adder` の設定が無ければ `email` のみ。
+  2. **氏名・生年月日も CSV で上書き対象**（本システムには修正する手段が無いため）。
+  3. 旧の「戻す」は**不要**。
+  4. 却下時のメール通知は**継続する**。
+  5. 完了の手段（`MANUAL`/`CSV`）を列に記録する形で **OK**。
+- **従業員情報 CSV の確認**: ユーザーが `クラウド給与_従業員情報_20261022_123531.csv`（214 列・データ 55 行、Shift-JIS）を配置。**見出し行だけ**を読み、データ行の内容は出力していない。判明したこと:
+  - キーの見出しは旧「従業員コード」から**「従業員番号」**に変わっている。
+  - **DC（確定拠出年金）の列が無い**。通勤費は「通勤手当1〜10」の支給額の合計で確認できる（通勤手当がある人は 22/55 件）。口座は 口座1〜3 の金融機関名・支店名・口座番号・名義人で、**口座種別とコードの列は無い**。退職日の列は無く「離職等年月日(雇用保険)」のみ（2/55 件）。
+- **設計書を第2版に更新**: 項目別の CSV 確認方法の表、上書き対象、通知先、「戻す」削除、結合試験項目の追加（8b〜8e）、未決事項を 5 件に絞り直し。
+- **残りの確認（回答待ち）**: DC は手動完了のみでよいか／口座種別を判定に含めないか／性別・入社年月日・退職日（離職等年月日）も上書きするか／通勤費は支給額の合計で比較か／複数口座は口座1 を使うか。
+
+## 2026-10-22 4_7_1 CSV 確認の残り項目を決定（口座種別・退職日・通勤費・口座）、実装依頼は保留
+
+- **決定（ユーザー）**:
+  1. **DC は、総務が SBI の管理画面で操作したあと手動で完了にするだけ**（CSV では確認しない）。
+  2. **口座種別は固定値「普通」**。
+  3. **退職日は「離職等年月日(雇用保険)」を使用しない**（役員昇格でも入るため）。**退職者は CSV に連携されない**ので、退職日は CSV で更新しない。
+  4. **通勤費は「通勤手当1」のみ**を使用する（2〜10 は連携されない可能性がある）。
+  5. **口座は口座1 のみ**を基本とする。
+- **保留（ユーザー指示）**: **alphadb・alphaexapi・alphasys への実装依頼は今は保留**。設計書が確定しても、ユーザーの指示があるまで依頼しない（不作為の決定）。
+- **設計書**: 第3版に更新（CSV 確認方法の表、退職日の扱い、結合試験項目 8b・8d の修正と 8f の追加）。
+- **残り**: (1) 性別・入社年月日の上書きは回答が無く、氏名・生年月日と同じ扱いを暫定案として確認待ち。(2) 退職日の入力手段（CSV 対象外のため別途整理が要る）。
+
+## 2026-10-22 4_7_1 設計を確定（性別・入社年月日は CSV で上書き、退職日は alphasys の退職ボタンで入力）、実装依頼は引き続き保留
+
+- **決定（ユーザー）**:
+  1. **性別・入社年月日は CSV で上書き**する（氏名・生年月日と同じ扱い）。
+  2. **退職日の入力手段**: alphasys に**既に退職ボタンがある**。押下でダイアログを表示し、退職年月日を入力してもらう。本仕様の変更は不要（CSV の対象外）。
+- **設計書を確定（第4版）**: [docs/design/2026-10-22-社員情報変更依頼-仕様.md](../design/2026-10-22-社員情報変更依頼-仕様.md)。未決事項なし。
+- **段取り**: 実装依頼（alphadb → alphaexapi → alphasys の順）は、**ユーザーの指示があるまで保留**のまま。設計書のマージはユーザーが行う（PR #107）。
+
+## 2026-10-22 社内システム構築関連を一旦休止し、ケーススタディ文書の作成に切り替える
+
+- **方針変更（ユーザー）**: 社内システム構築関連の作業は**一旦休止**し、**ケーススタディ文書の作成**に切り替える。
+- **休止中のもの（再開の指示待ち）**: 4_7_1 社員情報変更依頼の実装依頼（alphadb → alphaexapi → alphasys、設計書は確定済み）、alphadb・alphasyscdk の日付別ファイル切替（受信ファイル待ち）、MF連動の段階2〜4、PR #107 のマージ。
+- **未確認**: ケーススタディの題材・読み手・形式（確認中）。
+
+## 2026-10-22 ケーススタディは別 PC で発表資料（Slides）が作成済みだった（見落としの訂正）と、文書草案（PR ＃109）の取り下げ
+
+- **指摘（ユーザー）**: 別 PC での作業記録が残っていないのか。すべて push しているはずで、発表資料（スライド）も最初のバージョンができてレビュー中のはず。
+- **事実確認**: 記録は 2026-10-21 にあり、staging にマージ済み（PR #103・#105。`docs/conversations/2026-10-21.md` の「ケーススタディ発表資料の作成」「初版を作成」「改訂（5 枚）」）。成果物は Slides 型アーティファクト「Claudeセッション連携の実践」（https://claude.ai/artifact/7hteRvyXHr3eRWs1VDKYVv 、非公開）。決定済み: 聞き手は社内の技術者向け（同じ進め方を他案件に展開）、15 分・10〜12 枚、構成は案1「1 日の流れ」、画面例は伏せ字なし。未完: スクリーンショット 3 枚の差し替え、表紙の発表者名・発表日。
+- **見落としの原因**: 本日「ケーススタディ文書」の指示を受けたとき、題材・読み手をあらためて質問し、`docs/case-study/` に別の文書草案（PR #109）を作った。着手前に関連リポジトリの直近の PR・記録を確認しなかった（既存ルール「候補提示前に対応済みの PR・マージを横断確認」に反する）。
+- **決定（ユーザー）**: PR #109 の草案は **Obsidian の観点（デイリーノートへの状況一覧・作業プロジェクトの管理）が欠落している**ため**取り下げる**。PR #109 はクローズした（ブランチ `docs/case-study-ai-multi-session` は残してある。草案は参照用で、マージしない）。ケーススタディは発表資料「Claudeセッション連携の実践」を正とする。
+- **未確認**: 次の作業（発表資料のレビュー反映など）。聞き手は 10/21 決定の「社内の技術者向け」のまま（今日の「他メンバー・経営層」との違いは確認中）。
+
+## 2026-10-22 発表資料の構成変更（全体像を 5 枚目へ）と、状況一覧の自動表示を廃止（コマンドのみ）
+
+- **指示（ユーザー）**:
+  1. 発表資料「Claudeセッション連携の実践」で、**スライド 7（実装）を 5（設計）の前に持ってきて、全体像を打ち出す**。その際に不足している **Obsidian と alphasyscdk** を足す。
+  2. **デイリーノートにプロジェクトのステータスを載せているので、alphasystem でのセッション開始時の自動表示（SessionStart フック）は不要**。コマンド（`/project-status`）を打ったときだけでよい。
+- **実施（資料）**: 旧 7 枚目を新しい 5 枚目「全体像　役割ごとのセッションと Obsidian」に作り直した（id は `overview`）。Obsidian デイリーノートを最上段、alphasystem、alphadb → alphaexapi → alphasys、alphasyscdk（インフラ、デプロイは人が実行）の構成図。ページ番号は設計 6、引き継ぎ 7 に繰り下げ。sections の「日中」の開始を `overview` に変更。資料の公開は Version 14。
+- **実施（設定）**: `.claude/settings.json` の SessionStart フックを削除（`{}`）。`.claude/commands/project-status.md` の説明を更新。スクリプト `.claude/hooks/project-status.sh` と `/project-status` コマンドは残す。Obsidian 側の状況表は別機構で変更なし。
+
+## 2026-10-22 発表資料に比較表と改善点のスライドを追加（14 枚）、表紙タイトルの案を検討中
+
+- **指示（ユーザー）**: (1) セッション分離方式とサブエージェント方式（「サブドリブン」はサブエージェントと解釈）の**比較表**がどこかに欲しい。(2) 表紙のタイトル「複数プロジェクトを 1 人で回す」はサブタイトルに当たるので、**もっとインパクトのあるタイトル**が欲しい。(3) 最後に**さらなる改善点**を挙げてほしい。
+- **実施（資料 Version 17）**: 6 枚目に「比較　セッション分離とサブエージェント」（構造・人との対話・記録・連携の手間・負荷・向く作業の 6 観点＋このプロジェクトの使い分け）、13 枚目に「次へ　さらなる改善点」（結合確認の担当、承認待ち一覧、同時起動の絞り込み、別 PC 連携、Stop フックの絞り込み、個人情報の仕組み化の 6 件。いずれも未実施）を追加。計 14 枚、ページ番号を更新。8 枚目の記録のルールから、廃止した状況表の自動注入の記述を外し、`/project-status` とデイリーノートで見る旨に直した。
+- **注意**: 当初の決定（15 分・10〜12 枚）より枚数が増えた。発表時間との兼ね合いで、削る・まとめるスライドをユーザーが判断する。
+- **未決**: 表紙のタイトル（候補を提示、ユーザーが選ぶ）。
+
+## 2026-10-22 発表資料の表紙タイトルを「AI に『チーム』を持たせてみた」に決定、AI 間の双方向コミュニケーションを実例で打ち出す案
+
+- **決定（ユーザー）**: 表紙のタイトルは **「AI に『チーム』を持たせてみた」**。旧タイトル「複数プロジェクトを 1 人で回す」はサブタイトルに回し、Obsidian と Claude セッション連携の実践を併記する（資料 Version 20）。
+- **注意（編集の衝突）**: 表紙の公開時、直前の 2 分前にページ上で保存された版を置き換えた。表紙をページ上で編集していた場合、その編集（発表者名・発表日の記入など）が失われている可能性があるため、ユーザーに確認する。
+- **ユーザーの問い**: AI 間のコミュニケーションはあるか。一方的な通知だけでなく双方向のアクションがあるとインパクトがある。
+- **回答の要点**: ある。本日の実例（D5 の確認）: alphadb-56 が「D5 は確定済みか」と alphasystem へ質問 → alphasystem が記録を横断検索して「未確定」と返信 → alphadb-56 がユーザーの回答（保留）を報告 → 文書整合の PR #88 を連絡。alphaexapi-1b は完了報告に加えて「#147 は計画のみ、実装は #148」と alphasystem の認識を訂正。alphasys と alphaexapi が再実行ボタンの扱いを直接合意した例もある。制約: メッセージは相手のターンの合間に読まれ、送信成功は相手が読んだことを保証しない（10/21 に Obsidian セッションとは双方向とも届かず、申し送りファイルを正にした）。
+- **案（確認中）**: 引き継ぎのスライド（8 枚目）に、D5 のやり取りを「双方向の実例」として載せる。
+
+## 2026-10-22 発表資料の引き継ぎスライドに「双方向の実例」（D5 の確認）を追加
+
+- **承認（ユーザー）**: 引き継ぎのスライド（8 枚目）に、D5 のやり取りを「双方向の実例」として載せる案に賛成。
+- **実施（資料）**: 8 枚目のタイトルを「引き継ぎ　セッション同士が双方向にやり取りする」に変更。右側のスクリーンショット仮置き枠（VS Code のセッション一覧）を、吹き出し 4 つ（alphadb の質問 → alphasystem の返信 → alphadb の報告 → alphaexapi による訂正）に置き換えた。左の 3 カードは短縮。発表者ノートに、制約（相手のターンの合間に読まれる、送信成功は読了の保証ではない）を記載。
+- **未配置**: 置き換えた「VS Code セッション一覧」のスクリーンショット枠は、どのスライドにも移していない（全体像・比較・記録の各スライドに余白が無い）。ユーザーが必要か判断する。
+
+## 2026-10-22 発表資料は深いレビューのため一旦区切り（明日以降に相談）、社内システムの設計に戻る。プロジェクト間の連携状況を整理
+
+- **段取り（ユーザー）**: 発表資料「AI に『チーム』を持たせてみた」（14 枚）は、**ユーザーが深いレビューを行う。明日以降に相談**する。社内システムの設計作業に戻る。
+- **持ち越し**: 14 枚から削るスライドの判断、VS Code セッション一覧のスクリーンショットの要否、表紙をページ上で編集していた場合の再入力（公開時に直前の保存を置き換えた可能性）。
+- **プロジェクト間の連携状況（2026-10-22 時点）**: 日付別ファイル切替は alphaexapi #150、alphadb #90、alphasyscdk #103、alphasys で完了（各リポジトリに open の PR なし。受信ファイルも残っていない）。MF給与 CSV 取込は alphadb・alphaexapi #148・alphasys #229 がマージ済みで、残りは staging の結合確認。4_7_1 社員情報変更依頼は設計確定済みで、実装依頼は保留。MF の staging 認可の中継（alphasys）は承認待ちのまま未実装（alphasys に `oauth` のルートなし、`api/money-forward` は `csv-export` のみ）。ユーザー単位 OAuth（alphadb の `MfOauthToken` は `mfProduct` が一意のまま）は未着手。open の PR は alphasystem の #110・#111（マージはユーザー）と alphasys の課題表対応 4 本（#259〜#262、他プロジェクトとの連携なし）のみ。
+
+## 2026-10-22 連携の条件: alphasys 以外はいつでも依頼可、alphasys は課題表取込の完了後（リモート PC のため少し待つ）
+
+- **条件（ユーザー）**: **alphasys 以外（alphadb・alphaexapi・alphasyscdk）への連携はいつでも OK**。**alphasys は、単純な課題表の取込が終わるまで待ってから依頼する**。alphasys のセッションは**リモート PC**にあるため、依頼は少し待つ。
+- **調査（進め方の検討中に判明）**: 4_7_1 の却下通知・メール変更の確認には**メール送信**が要るが、alphaexapi にはメール送信のライブラリも実装もない（既存の `sales-mail` は受信側）。旧 alphausers は社内 SMTP サーバーを使い、認証情報が設定ファイルに直書きされている（値は記録しない。新システムに持ち込まない）。したがって、送信方式（SES・社内 SMTP・Google Workspace 等）の決定、alphaexapi のメール送信モジュール、alphasyscdk のシークレット注入と送信元の準備が、alphasys 以外で先行できる連携項目になる。
+- **未決（ユーザーに確認中）**: 4_7_1 の保留解除（alphadb・alphaexapi・alphasyscdk の先行着手）、メール送信方式。
+
+## 2026-10-22 4_7_1 の保留を解除し alphadb・alphaexapi へ先行依頼、MF ユーザー単位 OAuth も同時着手（SES のコストを確認）
+
+- **承認（ユーザー）**: (1) 4_7_1 の保留を解除し、alphadb・alphaexapi・alphasyscdk へ先行して依頼してよい。(3) MF のユーザー単位 OAuth も同時に始めてよい。(2) メール送信方式は、SES の場合のコストを確認してから決める。
+- **SES のコスト（調査、2026-10-22）**: 送信は 1,000 通あたり約 $0.10（従量）、添付は 1 GB あたり $0.12。2026-07-21 から新規アカウントは Essentials プランで、0〜1,000 万通/月が 1,000 通あたり $0.16。無料枠（月 3,000 通・12 か月）は新規向けには終了。社員は約 55 名で、却下通知とメール変更の確認は月に数十通の見込みなので、月額は数十円以下。かかる手間はドメイン認証（DKIM・SPF）と、サンドボックス解除の申請。出典の価格ページの最新確認は要。
+- **依頼（2026-10-22 送信）**: 稼働中の alphadb-b1（4_7_1 のスキーマ変更、`MfOauthToken` の製品×ユーザー化）と alphaexapi-aa（4_7_1 の API・CSV 取込・却下メール、ユーザー単位 OAuth、API 契約書の先行作成）へ `SendMessage`。いずれも方式案を alphasystem に示して了解を得てから着手する。メール送信は抽象化したインターフェースで進め、実装は方式の決定後。
+- **未依頼**: alphasyscdk（メール送信のシークレット・送信元は、送信方式の決定後に依頼）、alphasys（課題表取込の完了後。リモート PC のため、依頼文は alphasystem のリポジトリに置き、リモート側が `git pull` で読む形を想定）。
+- **未決（ユーザーに確認中）**: メール送信方式（SES・社内 SMTP・Google Workspace）。
+
+## 2026-10-22 メール送信方式は Amazon SES に決定、alphaexapi・alphasyscdk へ連絡
+
+- **決定（ユーザー）**: 4_7_1 のメール送信（却下通知、メール変更の確認）は **Amazon SES** で行う。
+- **連絡**: 稼働中の alphaexapi-aa へ `SendMessage`（SES の実装を抽象化したインターフェースの背後に置く、スタブでテスト、ログに宛先・本文を出さない、必要な環境変数・権限は実装計画に書く）。未起動の alphasyscdk へは `INBOX_FROM_ALPHASYSTEM.md`（未追跡）を置いた（送信元ドメインの DNS 管理、タスクロールへの `ses:SendEmail`、環境変数の注入、サンドボックス解除の申請下書きの案を求める。本番は設計のみ）。
+- **残り**: alphasys は課題表取込の完了後（リモート PC）。alphadb-b1・alphaexapi-aa は方式案を示してから着手する。
+
+## 2026-10-22 alphaexapi の API 契約書草案（Draft PR ＃152）と alphasyscdk の SES 方式案を受領、設計者として決められる項目を回答（業務判断は確認中）
+
+- **受領**: alphaexapi-aa から 4_7_1 の API 契約書草案（alphaexapi の `docs/superpowers/specs/2026-10-22-employee-change-request-api-contract.md`、Draft PR #152）。alphasyscdk-d2 から SES メール送信インフラの方式案（`alphasyscdk/docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md`、未コミット）。
+- **旧システム調査で判明（設計書の前提と違う点）**: (1) 旧システムに**却下メールの実装は無い**（状態と表示文言のみ）。設計書 7 章の「旧仕様どおり継続」は成り立たず、新規機能になる。(2) 旧 CSV 取込は依頼を確定せず、CSV と `alp_users` の差を直接上書きしていた（「一致したら完了」は新仕様）。(3) `alp_users` に通勤費の列が無い（旧 `traffic_cost` は移行で捨てられた）。(4) 旧の取消は物理削除、再依頼は上書き。(5) 旧の銀行コードは数値保存で先頭の 0 が落ちている（新は 0 埋め文字列）。
+- **回答（設計者として了承、alphaexapi-aa へ送信済み）**: 本人特定は検証済み ID トークンのメールから `alp_users` を引く（`x-user-role` は使わない）。CSV の不一致は受付のまま WARN（社員コード + 項目名のみ）。Q1 性別: 実ファイルの「性別」は「男」41・「女」14 のみ（値の集計のみで、個人のデータは見ていない）。Q2 名義人: 「口座名義人」列はカナのみ 0/55、「口座名義人（フリガナ）」列は 54/55 がカナ → **フリガナ列で入力・照合**。Q5 確認メールのリンクは alphasys の画面（ログイン必須）、変数名は ALPHASYS_BASE_URL。Q6 空白・ハイフン・全角半角数字の差を吸収。Q7 確認トークンは `UserChangeData` に列（ハッシュのみ）。Q8 `alp_users` に無い・退職済みは 403。
+- **ユーザー確認中**: (1) 却下メールを新規機能として作るか、(2) Q3 依頼中からの直接却下を認めるか、(3) Q4 却下メールの文面案と、送信失敗でも却下は確定させる扱い、(4) `Users.commutingCost` の追加、(5) SES の (a) 方式全体、(b) DMARC の TXT（p=none）を置くか、(c) staging はサンドボックス解除を申請するか受信者を検証して試験するか。
+- **設計書の修正（予定）**: 7 章の却下メール（新規）、通勤費の列、結合試験の SES 検証手順（#4・#8e・#10 の前に試験用の受信者を SES で検証済みにする）。
+
+## 2026-10-22 4_7_1 の確認事項への回答（却下メール新規・依頼中からの却下・文面案・通勤費の列は保留・SES 了承）、設計書を第5版に更新
+
+- **決定（ユーザー）**:
+  1. **却下メールは新規機能として作る**（旧システムに実装は無かった）。
+  2. **依頼中からの直接の却下を認める**。
+  3. **却下メールの文面は案どおり**（件名「【自動送信】社員情報の変更依頼が却下されました」、本文は項目名・依頼日・却下理由・画面の URL、依頼した値は書かない）。**送信に失敗しても却下は確定**する。
+  4. **通勤費の列（`Users.commutingCost`）の追加は保留**（実態把握のため）。保留の間は、完了にしても `alp_users` へ適用せず履歴だけ残す。画面の現在値は直近の完了済みの依頼の金額（無ければ未設定）。alphadb への列追加の依頼は取り下げ。
+  5. **SES の方式全体を了承**（staging は DNS を CDK で自動登録、本番は設計のみ）。
+  6. DMARC・サンドボックスは**お任せ** → 設計者として決定: **DMARC の TXT（`p=none`）は置く**。staging は**受信者を検証済みにしてサンドボックスのまま試験**し、**解除の申請は本番の前**に行う。
+- **連絡（送信済み）**: alphaexapi-aa（契約書を第2版として確定、通勤費の扱いの変更）、alphadb-b1（通勤費の列追加は取り下げ、追加してほしい列の一覧）、alphasyscdk-d2（SES 方式案を了承、`feature/ses-mail-infra` で実装、`cdk deploy` は人が実行）。
+- **設計書**: [docs/design/2026-10-22-社員情報変更依頼-仕様.md](../design/2026-10-22-社員情報変更依頼-仕様.md) を第5版に更新（却下メールの新規化と文面、依頼中からの却下、通勤費の保留、結合試験の SES 検証手順と事前準備）。
+- **人の作業（これから）**: 結合試験の前に、試験用の社員の `mm_adder` と `email` を SES で検証済みにする（SES コンソール）。`cdk deploy` の実行。サンドボックス解除の申請（本番の前）。通勤費の実態把握（旧システムでの使われ方と、新システムでの扱い）。
+- **注**: PR #111 のブランチに、設計書の更新と会話記録を載せている（PR の題名は状況一覧の自動表示の廃止のまま）。
+
+## 2026-10-22 4_7_1 の API 契約書が第2版で確定（alphaexapi Draft PR ＃152）、alphadb の回答待ち
+
+- **連絡（alphaexapi-aa）**: API 契約書を第2版で確定（alphaexapi の `docs/superpowers/specs/2026-10-22-employee-change-request-api-contract.md`、Draft PR #152）。alphasys への引き渡しに使う。反映済み: 却下メールは新規機能（依頼中・受付のどちらからも却下、却下を先に確定しメール失敗でも取り消さない）、通勤費は保留の扱い（完了しても `alp_users` に適用せず履歴のみ、`current.commuting` は直近の完了済みの依頼の金額か null、CSV 照合は行う。列が追加されたら API の形は変えず取得元を切り替える）、環境変数（`MAIL_FROM`・`MAIL_DRIVER`・`ALPHASYS_BASE_URL`・`AWS_REGION`）。
+- **次**: alphaexapi-aa は実装計画を作り、方式案として alphasystem に共有してから実装に入る。alphadb-b1 の版数・公開順の回答待ち（連絡後まだ返信なし）。
+- **alphasys への依頼（未実施）**: 契約書が確定したので、課題表取込の完了後に、alphasystem のリポジトリに置く依頼文（契約書の場所・画面要件・結合試験項目）をリモート PC の alphasys セッションが `git pull` で読む。依頼文の作成は、alphasys の着手の目処が立った時点で行う。
+
+## 2026-10-22 SES メール送信インフラの Draft PR を受領（alphasyscdk ＃105、マージ・デプロイは人）
+
+- **連絡（alphasyscdk-d2）**: [alphasyscdk PR #105](https://github.com/alphacmc/alphasyscdk/pull/105)（base=staging、Draft）。`cdk diff` は想定どおり: SES の ID 1 件、Route 53 のレコード 6 件（DKIM 3、MAIL FROM の MX・TXT、DMARC の TXT）、`ses:SendEmail`（FromAddress 条件付き）、タスク定義に `MAIL_DRIVER=ses`・`MAIL_FROM`・`ALPHASYS_BASE_URL`。`AUTH_URL` に差分なし。本番は変更なし。
+- **文書**: alphasyscdk の `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 4.1（試験用の受信者の検証手順、SES コンソール）と 4.2（本番のアクセス申請の下書き）。結合試験の手順書から参照する。
+- **人の作業（順序）**: #105 のレビューとマージ → `deploy:staging` の実行 → ドメイン ID が「検証済み」になるのを確認 → 試験用の受信者（社員の `mm_adder`・`email`）を SES で検証 → 結合試験。デプロイ後は alphasyscdk-d2 が alphaexapi-aa に連絡する。
+
+## 2026-10-22 SES インフラのデプロイ完了（alphasyscdk ＃105 マージ済み、staging に 16:25 JST）、残りは試験用の受信者の検証
+
+- **連絡（alphasyscdk-d2）**: PR #105 はマージ済み。staging へのデプロイを 2026-10-22 16:25 JST にユーザーが実行して完了。ドメイン ID `alphasys.alphacmc-test.com` は検証済み（DKIM・MAIL FROM とも SUCCESS）。alphaexapi-aa にも連絡済み。
+- **残り（人の作業）**: 試験用の受信者の検証（SES コンソール。手順は alphasyscdk の `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 4.1）。結合試験の直前に行う。試験に使うアドレス（試験用の社員の `email`・`mm_adder`、メール変更で新しく登録するアドレス）は未決。
+- **次**: alphaexapi-aa の実装計画（方式案）の確認、alphadb-b1 の回答待ち。
+
+## 2026-10-22 staging の SES で試験用の受信者を検証済みにした（yohira@alphacmc.co.jp）
+
+- **連絡（alphasyscdk-d2）**: staging の SES で、試験用の受信者 `yohira@alphacmc.co.jp` を検証済みにした（ユーザーが作業）。サンドボックス中に送れる宛先は、いまのところこのアドレスだけ。
+- **残り**: 結合試験の #8e（`mm_adder` あり・なしの 2 人）と #10（メール変更。新しく登録するアドレス）には追加の宛先が要る。決まったら同じ手順（alphasyscdk の `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 4.1）で登録する。試験に使うアドレスは、実装（alphaexapi・alphasys）が揃う前に決めておく。
+
+## 2026-10-22 alphadb のスキーマ方式案（4_7_1・MF ユーザー単位 OAuth）を了承、夜間自動移行との衝突はユーザー確認中
+
+- **受領（alphadb-b1）**: スキーマ方式案。4_7_1 は `ChgType` に `CHANGE_EMERGENCY`・`CHANGE_MAIL`、`staffScode` の NULL 許容、`rejectReason`・`completedBy`（`ChgCompletedBy { MANUAL, CSV }`）・`tokenHash`・`tokenExpiresAt`、索引、`MfJobType` に `EMPLOYEE_CSV_IMPORT`、`ChgStatus.SYNCED` の削除、`alp_change_req` の廃止。OAuth は `userEmail` の追加と `(mfProduct, userEmail)` の複合一意（既存 2 行は DELETE）。`Users.commutingCost` は追加しない。
+- **了承（設計者として）**: 上記すべて。版数は OAuth を 0.2.6、4_7_1 を 0.2.7（別ブランチ・別 Draft PR）。旧データの `staffScode` は NULL に変えない。
+- **留意**: staging の DB へ OAuth のマイグレーションを適用すると、現行の alphaexapi の MF 呼び出しが動かなくなる。適用は alphaexapi がユーザー単位 OAuth の実装を staging にデプロイするタイミングに合わせる（staging の MF 認可は alphasys の中継が未実装のため現状でも通せない）。
+- **重要な指摘（夜間自動移行）**: 夜間自動移行は毎晩 JST 1:00 に `alp_user_change_data` を DELETE して旧システムの 8 行で入れ直し、`alp_users` も入れ直す。staging で新システムから作った依頼や、完了時に反映した住所・CSV による氏名等の上書きは、毎晩消える・戻る。結合試験が日をまたぐと影響が出る。対処案: a. 試験を 1 日の中で完結させる（変更なし）、b. `alp_user_change_data` を夜間処理で触らないテーブルにする（夜間キットの修正が要る。`alp_users` の巻き戻りは残る）、c. 結合試験の期間中だけ夜間タイマーを止める（運用）。alphadb の推奨は a か c。**ユーザーに確認中**。結論が出るまで夜間移行キットは変更しない。
+
+## 2026-10-22 夜間自動移行との衝突は案 c で対処（結合試験の期間中だけ夜間タイマーを止める）
+
+- **決定（ユーザー）**: 夜間自動移行が毎晩 `alp_user_change_data`・`alp_users` を入れ直す問題には、**案 c: 結合試験の期間中だけ夜間タイマー（Bastion の `alphadb-migration.timer`）を止める**。夜間移行キットは変更しない（`staffScode` を NULL に変えない件も変更なし）。
+- **連絡（alphadb-b1 へ送信済み）**: キットは変更しない。`nightly_automation.md` に「結合試験中の一時停止」の節を追記する（停止・状態確認・再開のコマンド、停止中は staging のデータが更新されない点、再起動や Bastion の置換で再開してしまう可能性、再開後の最初の夜に CloudWatch で `RESULT: SUCCESS` を確認する手順）。実際の停止・再開は人が行う。スキーマ（4_7_1 は 0.2.7、OAuth は 0.2.6）は方式案どおり着手。
+- **段取り（人の作業）**: 結合試験の開始時に夜間タイマーを停止、終了時に再開する。開始・終了のタイミングは alphasystem から連絡する。**再開を忘れないよう、結合試験の手順書の完了条件に「夜間タイマーの再開」を入れる**。
+
+## 2026-10-22 alphadb の Draft PR 3 本を受領、夜間自動移行は 10/19 から止まっていると判明（Bastion の置換）、復旧のタイミングは確認中
+
+- **受領（alphadb-b1）**: [#92 OAuth（0.2.6）](https://github.com/alphacmc/alphadb/pull/92)、[#93 4_7_1（0.2.7、#92 の上に積んでいるので #92 が先）](https://github.com/alphacmc/alphadb/pull/93)、[#94 nightly_automation.md「9. 結合試験中の一時停止」](https://github.com/alphacmc/alphadb/pull/94)。base はいずれも staging。マージと publish はユーザー。OAuth の staging DB への適用は alphaexapi のデプロイに合わせる旨を PR に明記済み。停止は `sudo systemctl disable --now alphadb-migration.timer`（`stop` だけだと Bastion の再起動で再開する）、再開は `enable --now`。確認コマンドは実機で動作確認済み。
+- **発見**: 夜間自動移行は **10/19 から止まっている**。CloudWatch の最新は `nightly-20261019-010003`（`RESULT: SUCCESS`）で、10/20〜10/22 は未実行。原因は **Bastion の置換**（10/19 13:25 JST と 10/22 16:25 JST。この 2 つの時刻は staging へのデプロイ時刻と一致する）。置換されると移行資材とタイマーが消える（`nightly_automation.md` 7 章の既知事項で、2026-10-06 に恒久対応を行わないと決定済み）。staging のデータは 10/19 1:00 時点のまま。結合試験の間は止める方針なので、状態としては「すでに停止中」と同じ。
+- **未決（ユーザーに確認中）**: (1) 試験が終わるまで止めたままにし、終了時に復旧手順（`deploy.sh` → Bastion で `setup_bastion.sh` → `/etc/alphadb-migration.env` の再作成 → タイマーの start）を行う、(2) 今すぐ復旧し、試験開始時に停止の手順で止める。alphasystem の推奨は (1)（二度手間を避ける）。alphadb 側では何も実行していない。
+- **留意**: StagingStack を `cdk deploy` するたびに Bastion が置換され、夜間移行が止まる。結合試験が終わるまで、StagingStack の追加デプロイは最小限にする。
+
+## 2026-10-22 alphaexapi の 4_7_1 実装計画を了承、順序は「4_7_1 を先に公開」（alphadb の版数を入れ替え）
+
+- **受領（alphaexapi-aa）**: 4_7_1 の実装計画（alphaexapi の `docs/superpowers/plans/2026-10-22-employee-change-request.md`、Draft PR #152）。新モジュール `src/employee-info`・`src/mail`（`MailSender` を抽象化、`MAIL_DRIVER` で `ses`/`stub`）、`EmployeeGuard`、状態更新は期待した状態のときだけ（他の総務が先なら 409）、完了時の反映は同一トランザクション、CSV は `EMPLOYEE_CSV_IMPORT` として MF ジョブに載せ行ごとに独立。
+- **判断（設計者として）**: alphadb の #93（4_7_1、0.2.7）は #92（OAuth、0.2.6）の上に積まれていて、0.2.7 を入れると `MfOauthToken.mfProduct` の単独一意が無くなり alphaexapi の既存の MF 認可処理がコンパイルできない。そのため **(b) 4_7_1 を先に公開**する。#93 を #92 から独立させ、**4_7_1 を 0.2.6、OAuth を 0.2.7** に入れ替える（alphadb-b1 へ依頼）。OAuth の alphaexapi 実装は 4_7_1 のあと。
+- **細部（了承）**: 退職日は最終在籍日とし翌日から 403。同じアドレスのメール変更は 202 + `confirmationRequired=false`。`ALPHASYS_BASE_URL` 未設定で起動しないのは **`MAIL_DRIVER=ses` のときだけ**（stub・ローカル・まだ変数を足していない環境を壊さない）。金融機関名→コードの変換は、結合試験 #8 で実際の名前で引けるか確認する。
+- **人の作業**: alphaexapi-aa のセッションで、CodeArtifact トークン再取得の承認（`alphadb` と `@aws-sdk/client-sesv2` の install 用）。alphadb の 0.2.6 の公開後に実装に入る。
+
+## 2026-10-22 alphasys の復帰（alphasys-0a）と、MF 認可の中継・4_7_1 の画面の依頼（この順）
+
+- **段取り（ユーザー）**: alphasys のセッションがこの PC に復帰（alphasys-0a）。「1・2 の順にお願いします」の回答を受け、依頼を送る: (1) MF の staging 認可の中継（承認済み）、(2) 4_7_1 社員情報変更依頼の画面。課題表の PR は #269 までマージ済みで open の PR は無い。
+- **依頼（2026-10-22 送信）**: alphasys-0a へ `SendMessage`。方式案を alphasystem に示してから着手する（画面はモックで事前確認）。
+  1. 認可の中継: 認可開始（ID トークン付きで alphaexapi の authorize を呼び、nonce Cookie を載せ替えて MF へリダイレクト）とコールバック（`src/app/money-forward/oauth/callback/route.ts` で code・state・nonce Cookie を alphaexapi に中継）。alphaexapi・ALB の変更なし。staging での通し確認は alphasystem が実施。
+  2. 4_7_1 の画面: (a) `/member/employees`（本人）、(b) 社員情報管理の変更依頼（総務）、(c) CSV 連携の「従業員情報」タブ、(d) 確認メールのリンク先。設計書は第5版、API 契約書は alphaexapi の Draft PR #152。実 API とのつなぎ込みは、alphadb の 0.2.6 の公開と alphaexapi の実装後に、alphasystem が連絡する。
+- **前提の仮定**: 「課題表取込は完了」は、open の PR が無いこととユーザーの回答から判断した。違えば alphasys-0a が着手前に知らせる。
+
+## 2026-10-22 alphasys の MF 認可の中継の方式案を了承（SSM の redirect URI は確認済み）
+
+- **受領（alphasys-0a）**: 依頼 1 の方式案。現行の alphaexapi は、`/authorize` が ADMIN 必須で JSON の `{ url }` を返し nonce を Cookie（`mf_oauth_nonce`、path=`/money-forward/oauth/callback`）で返す、`/callback` はガードなしで code・state と Cookie の nonce を照合する。alphasys に Route Handler 2 本（`/api/money-forward/oauth/authorize` で nonce Cookie を付け直して 302、`/money-forward/oauth/callback/route.ts` で中継して `/common/mf-oauth?result=…` へ戻す）を新設し、認可画面のリンクを差し替える。alphaexapi・ALB の変更なし。
+- **確認（alphasystem）**: staging の SSM `/alpha/staging/alphaexapi/MF_OAUTH_REDIRECT_URI` の値は `https://alphasys.alphacmc-test.com/money-forward/oauth/callback`（すでに alphasys を指す。変更・再起動は不要）。
+- **回答（了承）**: Q1 は上記のとおり確認済み。Q2 コールバックに Bearer は付けない（ID トークンを送る範囲を最小に。必要になったら足す）。Q3 認可画面上部の結果メッセージでよく、新しい画面はないのでモックは省略。追加: 認可開始で返る url は https に加えてホストが `moneyforward.com` 配下であることを確認する。
+- **次**: alphasys-0a が Draft PR を作る。マージ・staging へのデプロイ後に、alphasystem が通し確認（ADMIN が認可画面から MF 認可を完了し、トークンが保存される）。その後に依頼 2（4_7_1 の画面、モックから）。
+
+## 2026-10-22 夜間自動移行を復旧（案 2 を選択）、alphadb の公開順の組み直しはユーザー確認中
+
+- **決定（ユーザー。alphadb のセッションで回答）**: 夜間自動移行は **案 2: 今すぐ復旧し、結合試験の開始時に停止の手順（`nightly_automation.md` 9 章）で止める**。2026-10-22 17:08 JST に復旧済み（タイマーは enabled・active、次回は 10/23 01:00 JST）。10/23 の朝に CloudWatch で結果を確認する。結合試験を始めるときは、停止手順（`sudo systemctl disable --now alphadb-migration.timer`）を人（ユーザー）に案内する。
+- **原因（alphadb-b1 の調査）**: Bastion が置き換わったのは StagingStack の `cdk deploy`（10/19 13:24 と 10/22 16:25 の SES の PR #105）。`latestAmazonLinux2023` が新しい AMI を拾い、CloudFormation が Bastion を作り直した。`nightly_automation.md` 7 章の既知の事象。
+- **公開順の変更（4_7_1 を 0.2.6、OAuth を 0.2.7）**: alphadb の #92〜#94 はユーザーがすでに staging にマージ済みで、いまの staging は OAuth と 4_7_1 の両方が入った 0.2.7。publish と staging DB への適用はまだ（最新の公開版は 0.2.5）なので組み直しはできる。staging から OAuth の変更だけを外して 0.2.6 を 4_7_1 のみにする方法をユーザーに提示して承認待ち。それまで `alphadb-publish` は実行しない。決まったら公開順を alphasystem と alphaexapi-aa に連絡する。
+- **留意**: StagingStack を `cdk deploy` するたびに Bastion が置き換わり、夜間移行が止まる（AMI が更新されるため）。結合試験の前後、特に StagingStack のデプロイ後は、夜間タイマーの状態を確認する。恒久対応（AMI の固定など）は 2026-10-06 に行わないと決めているが、デプロイのたびに止まる実態を踏まえ、見直すかをユーザーと相談する。
+
+## 2026-10-22 MF の staging 認可の中継を実装（alphasys Draft PR ＃270）、通し確認の段取り
+
+- **連絡（alphasys-0a）**: [alphasys PR #270](https://github.com/alphacmc/alphasys/pull/270)（Draft、base=staging）。回答を反映（コールバックに Bearer は付けない、認可 URL は https かつ `moneyforward.com` 配下のときだけリダイレクト）。追加で決めたこと: コールバックの失敗理由は alphaexapi の 400/401 を「有効期限切れ・要求が正しくない」、502 を「MF との処理に失敗」、それ以外を「処理に失敗」と表示し、失敗時は製品名を出さない。コールバックで未ログインなら `/login`、ADMIN 以外なら `/unauthorized` へ送り中継しない。nonce Cookie はどの場合も消す。確認済み: jest 全体（79 スイート・424 件）、型チェック、ESLint、`next build`。
+- **人の作業（順序）**: #270 のレビューとマージ → staging へのデプロイ（alphasys のデプロイ。StagingStack の `cdk deploy` ではないので Bastion の置換は起きない）→ 通し確認。
+- **通し確認の観点（alphasystem が実施。MF のログインはユーザー）**: ADMIN で認可画面（`/common/mf-oauth`）から MF 認可を完了する。戻り先が `https://alphasys.alphacmc-test.com/common/mf-oauth?result=success&product=…` で、認可画面の上部に緑のメッセージが出る。トークンが保存される。拒否（MF 側でキャンセル）した場合に「認可がキャンセルされました」が出る。
+- **留意**: alphadb の OAuth（ユーザー単位）を staging の DB に適用すると既存のトークンが消えるため、そのあとで各 ADMIN の再認可が要る。通し確認は今回の中継の検証として有効で、OAuth の適用後に再度認可する。
+- **次**: alphasys-0a は依頼 2（4_7_1 の画面）のモックに着手。
+
+## 2026-10-22 4_7_1 のモック 5 枚を受領（alphasys Draft PR ＃271）、補足 5 点に回答
+
+- **受領（alphasys-0a）**: [alphasys PR #271](https://github.com/alphacmc/alphasys/pull/271)（Draft、base=staging）。モック 5 枚をユーザーが確認中。設計書・契約書に無かった点を案で埋めた。
+- **回答（設計者として）**: (1) 総務画面は `/manager/employee-change-requests`（一覧）と `/[id]`（詳細）、メニュー「社員情報管理 ＞ 変更依頼」で了承。(2) 確認メールのリンク先（`/member/employees/mail-confirm?token=…`）は、開いただけでは確定せず「変更を確定する」ボタンで `POST /mail/confirm` を呼ぶ案で了承（GET で状態を変えない）。(3) MF 実行状況に「従業員情報取込」（`EMPLOYEE_CSV_IMPORT`）の行を足し再実行ボタンは出さない。alphaexapi の rerun も「CSV を再アップロード」で同じ扱いに決定済み。(4) 総務の一覧の「状態の更新」列は日時だけ表示。総務の氏名が必要になれば alphaexapi に `staffName` の追加を依頼する。
+- **既存の不備（`/manager` が ADMIN を確認していない）**: ユーザーは以前（alphasys の記録）に「社員情報管理（/manager）は ADMIN 専用」と伝えている。alphasystem の見解は**保護する**（個人情報を扱うため）。4_7_1 とは別の小さな PR に分ける。進め方はユーザーが alphasys のセッションで判断する。
+
+## 2026-10-22 alphadb の公開順を組み直し（0.2.6 が 4_7_1、0.2.7 が OAuth）、PR ＃96・＃97
+
+- **決定（ユーザーが alphadb のセッションで承認）**: 公開順を組み直し、**0.2.6 を 4_7_1、0.2.7 を OAuth** とする。
+- **連絡（alphadb-b1）**: [alphadb #96](https://github.com/alphacmc/alphadb/pull/96)（base: staging）で、マージ済みの #92 の OAuth 分を staging から外して版数を 0.2.6 にする（#92 前のスキーマに 4_7_1 のマイグレーションを足したものと一致することを確認済み）。[alphadb #97](https://github.com/alphacmc/alphadb/pull/97)（Draft、#96 の上）で OAuth を 0.2.7 として戻す（マイグレーションの日付は 4_7_1 より後の 20261022120000）。
+- **公開順（人の作業を含む）**: (1) ユーザーが #96 をマージ → (2) `alphadb-publish` で 0.2.6 を出し staging に適用 → (3) 4_7_1 は alphaexapi → alphasys の順に進む → (4) alphaexapi のユーザー単位 OAuth の実装後に #97 をマージして 0.2.7 を出す（マージ・publish・staging DB への適用は alphaexapi の実装に合わせる）。0.2.6 が publish されたら alphadb-b1 から連絡が来る。
+
+## 2026-10-22 alphadb@0.2.6（4_7_1）を公開し staging の DB に適用、alphaexapi が着手可能に
+
+- **連絡（alphadb-b1）**: `alphadb@0.2.6` を 2026-10-22 17:28 JST に公開（CodeArtifact で Published・latest）。staging の DB にはマイグレーション `20261022100000_employee_change_request` を `staging-prisma-merge-project-build` で適用し成功（17:30 JST、ソースは main の `2fb8901`）。alphadb 側の 4_7_1 対応は完了。型・列名は合意どおり（`ChgType` に `CHANGE_EMERGENCY`・`CHANGE_MAIL`、`staffScode` は `Int?`、`rejectReason`・`completedBy`（`ChgCompletedBy`: `MANUAL`・`CSV`）・`tokenHash`・`tokenExpiresAt`、索引、`MfJobType` に `EMPLOYEE_CSV_IMPORT`、`ChgStatus` から `SYNCED` を削除）。OAuth は #97（0.2.7、Draft）のまま alphaexapi の実装に合わせる。
+- **連絡（送信済み）**: alphaexapi-aa へ（0.2.6 が使える、実装に着手、CodeArtifact トークン再取得の承認はユーザーが alphaexapi のセッションで行う）。alphasys-0a へ（情報共有。画面はモックで進め、つなぎ込みは alphaexapi の実装後に連絡）。
+- **確認予定（人の作業を含む）**: 夜間自動移行の復旧後およびスキーマ適用後の初回（10/23 01:00 JST）の結果を、10/23 の朝に CloudWatch で確認する（alphadb-b1 が確認し、alphasystem に連絡）。`alp_user_change_data` の新しい列・enum で夜間移行が成功するかの確認を兼ねる。
+
+## 2026-10-22 alphaexapi が 4_7_1 の実装に着手（Draft PR ＃152）
+
+- **連絡（alphaexapi-aa）**: ユーザーの承認で CodeArtifact のトークンを再取得し、`alphadb@0.2.6` と `@aws-sdk/client-sesv2` を導入。0.2.6 で既存の MF 認可処理がそのままコンパイルでき、全テスト（67 スイート・407 件）が通る。`EMPLOYEE_CSV_IMPORT` の追加に合わせ、MF ジョブの rerun は給与と同じく「CSV を再アップロードしてください」で返す。Task 1〜11 をサブエージェントで順に実装し、タスクごとにレビューする。API 契約書を第 2.1 版に更新（1.1 退職日、2.5 応答コード、4 章の `ALPHASYS_BASE_URL` は `ses` のときだけ必須）。
+- **次**: alphaexapi の実装の完了後、alphasystem が alphasys へ実 API とのつなぎ込みを連絡する。結合試験（staging、SES の受信者の検証、夜間タイマーの停止）は、alphaexapi のデプロイ後。
+
+## 2026-10-22 alphaexapi の 4_7_1 の実装が完了（Draft PR ＃152、契約書は第 2.2 版）、alphasys へ引き渡し
+
+- **連絡（alphaexapi-aa）**: 実装完了（Draft PR #152、base=staging。Draft 解除とマージはユーザー）。タスクごとのレビューと全体の最終レビュー（指摘を修正し再レビューで全件解消）を通過。全体テスト 86 スイート・524 件 PASS。契約書は第 2.2 版（日時は UTC の Z 表記、エラー本文は共通例外フィルタの形で画面の文言は `message.message`、確認メール送信失敗は 503、承認なしの種別の依頼の取消・受付・却下・完了は 404、日付の実在チェック、住所は 512 文字超で 400）。Swagger も再生成（応答の型は別課題）。
+- **最終レビューで直した点（個人情報の漏えい対策）**: 確認メール送信失敗時に SES のエラー（宛先アドレス入り）がログ・応答に出る経路と、実在しない日付で依頼内容が Prisma のエラー経由でログ・応答に出る経路を塞いだ。
+- **ユーザー判断で先送りした点**: 同じ社員が同時に 2 回依頼すると未完了の依頼が重複しうる（alphasys のボタン連打防止で対処、根本対策は alphadb #99）。メールアドレスの大文字小文字は区別（alphasys の `get-role` と同じ）。金融機関名→コードの引き当ては結合試験 #8 で実際の CSV の名前で確認。
+- **別課題（ユーザー承認）**: alphaexapi #153（共通例外フィルタが `HttpException` 以外の例外の `message` を 500 応答とログにそのまま出す）、alphadb #99（未完了依頼の部分ユニーク索引）、alphaexapi #154（応答 DTO と Swagger スキーマ）。
+- **alphasys への連絡（送信済み）**: 契約書第 2.2 版で実 API につなぐ準備、日時の JST 変換、エラー文言は `message.message`、ボタンの連打防止、alphadb 0.2.6 に上げてよい時期、デプロイの時期は alphasystem が連絡。
+- **次**: alphaexapi-aa は MF ユーザー単位 OAuth（alphadb #97・0.2.7）に着手。人の作業: #152 のレビュー・マージと staging へのデプロイ、alphasys のモック確認（PR #271）。結合試験（staging、SES の受信者の検証、夜間タイマーの停止）は、alphasys のつなぎ込みの後。
+
+## 2026-10-22 alphasys の 4_7_1 の画面は実装中（PR ＃271）、/manager の保護は別 PR ＃273、MF 連動画面のエラー文言の既存の不備
+
+- **連絡（alphasys-0a）**: モック 5 枚はユーザーが了承済み。[PR #271](https://github.com/alphacmc/alphasys/pull/271) で画面を実装中。型とクライアントは完成。実 API がそろうまでは `EMPLOYEE_CHANGE_API_MOCK=true` のときだけ見本データで動く（つなぎ込むときは環境変数を外すだけ）。画面 3 つ（社員本人＋確認メールのリンク先、総務の一覧・詳細、CSV タブ＋MF 実行状況）は実装中。契約書第 2.2 版の差分には対応済み（`message.message` を読む、日時を JST に変換、503・404 の扱い、承認なしの種別には操作ボタンを出さない、日付の実在チェックと住所 512 文字の上限を画面側でも先に確認）。送信中のボタンの無効化は、サブエージェントに伝えてあり反映待ち。alphadb の 0.2.6 への更新は、画面がそろったところで行い、staging につなぐのはデプロイの連絡後。
+- **`/manager` の保護**: ユーザーの了承を得て別の Draft PR #273 にした。`/manager` は middleware の対象外で、ログインの確認すらしていなかった。
+- **既存の不備（未対応・ユーザー判断待ち）**: alphaexapi の共通例外フィルタ（e6e80b6）は staging に入っているが、既存の MF 連動画面のクライアント（`callMfApi` 等）は `message` を文字列として読んでいるため、alphaexapi のエラー文言（409 の理由など）が画面に出ず既定の文言に置き換わっている。直すかどうかはユーザーが判断する。
+- **次**: alphaexapi の #152 のレビュー・マージと staging へのデプロイ（ユーザー）。alphasys の画面の完成後、つなぎ込みと結合試験。
+
+## 2026-10-22 alphasys の 4_7_1 の画面の実装が完了（Draft PR ＃274）、つなぎ込みは alphaexapi のデプロイ後
+
+- **連絡（alphasys-0a）**: 画面の実装が完了。[alphasys PR #274](https://github.com/alphacmc/alphasys/pull/274)（Draft、base=staging）。#271 はモックの HTML を置いた時点でユーザーがマージ済みだったため、実装は #274 に出し直した。staging に入ったモック 5 枚も #274 で削除する（モックの HTML は画面として配信されない）。内容: 社員本人（`/member/employees` と確認メールのリンク先）、総務（`/manager/employee-change-requests` の一覧と詳細、メニュー「変更依頼」）、CSV 連携の「従業員情報」タブ、MF 実行状況の「従業員情報取込」の行（再実行ボタンなし）。契約書第 2.2 版の差分を反映済み。確認: jest 全体 595 件、型チェック、`next build` が通っている。
+- **つなぎ込み**: 実 API がそろうまでは `EMPLOYEE_CHANGE_API_MOCK=true` のときだけ見本データで動く（つなぐときはこの変数を外す）。PR 本文に、つなぎ込みまでマージしない旨が書いてある。残作業: alphadb の 0.2.6 への更新（CodeArtifact の認証が切れていてユーザーにログインを依頼中）、staging で実 API に通すこと（alphaexapi の staging へのデプロイの連絡待ち）。
+- **人の作業（順序）**: alphaexapi の #152 のレビュー・マージ → alphaexapi を staging へデプロイ → alphasystem が alphasys に連絡 → alphasys が実 API につなぐ（環境変数を外す、alphadb 0.2.6）→ #274 をマージ → staging へデプロイ → 結合試験（SES の受信者の検証、夜間タイマーの停止）。
+- **次（alphasystem）**: 結合試験の手順書の作成（設計書 10 章の 12 項目を、実行できる手順にする。事前準備: SES の受信者の検証、夜間タイマーの停止、完了条件に夜間タイマーの再開）。
+
+## 2026-10-22 MF ユーザー単位 OAuth の追補（alphaexapi Draft PR ＃155）の判断 D1〜D5、D2 はユーザー確認中
+
+- **連絡（alphaexapi-aa）**: MF ユーザー単位 OAuth に着手（Draft PR #155、base=staging）。現行コードを調べ直し、設計（`docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md`）に無い経路を発見: 債務支払取込（PAYABLE の一覧取得）、取引先候補一覧（画面からその場で MF API を呼ぶ）、`refreshToken` 内の DB 直接参照 3 か所。CSV 経路は MF API を呼ばないので変更しない。設計書に「10. 追補」を追加。alphadb は試験版 `0.2.7-oauth.0`（`next` タグ）を先に出す案で、開発中はこれに固定し、staging デプロイ前に正式な 0.2.7 へ切り替える。
+- **了承（設計者として、alphaexapi-aa へ回答済み）**: D1 起動前の認可チェック（送信・取込・rerun の起動時に起動者が使う製品のトークンを持っているか確認し、無ければジョブを作らず 412。取引先同期は INVOICE と PAYABLE の両方）、D3 チェーンの 2 つ目以降のジョブにも `triggeredBy` を記録、D4 rerun は rerun したユーザーのトークンを使う、D5 未使用の `NotImplementedMfPartnerGateway` を削除、`0.2.7-oauth.0` の試験版の運用。
+- **ユーザー確認中（D2）**: 誰が MF のトークンを持つか。認可は現在 ADMIN 限定だが、送信・取込・rerun・取引先候補は ADMIN 限定ではない（コード上「経理担当者向け」）。ユーザー単位にすると、ADMIN 以外はトークンを作れず MF を呼ぶ操作が必ず未認可になる。案 A: 認可を全社員に開放し、MF のアカウントを持つ人が各自で認可する（MF 側の操作者記録が実際の担当者になる。alphaexapi の推奨）。案 B: MF を呼ぶ操作を ADMIN 限定にする（経理担当者が ADMIN でなければ使えなくなる）。案 A を採る場合は、alphasys の認可の中継（#270）の ADMIN 以外 401 と、認可画面の ADMIN 限定メニューも変更が要る。
+
+## 2026-10-22 alphadb@0.2.7（MF ユーザー単位 OAuth）を公開し staging の DB に適用（20:41 JST）
+
+- **連絡（alphadb-b1）**: `alphadb@0.2.7` を正式に publish し、staging の DB にも適用（ユーザーの実行、2026-10-22 20:41 JST）。CodeArtifact で 0.2.7 が latest。適用したマイグレーションは `20261022120000_mf_oauth_token_per_user`。`alp_mf_oauth_token` の既存 2 行が削除された。当初の「staging への適用は alphaexapi のデプロイに合わせる」より先に適用された形。alphaexapi-aa には、#155 で `^0.2.7` を直接指定するよう連絡済み（試験版 `0.2.7-oauth.0` は使わない）。
+- **影響**: staging で今動いている alphaexapi は MF のトークンを保存できない見込み（MF の API を呼ぶ操作が動かない）。staging の MF 認可は alphasys の中継が未実装でもともと通せない状態だったので、実害は小さい。CSV 経路（請求書・債務支払・給与）はトークンを使わないので影響なし。4_7_1（alphaexapi #152、`alphadb@0.2.6` でビルド）も、MF のトークンを使わないため、0.2.7 の DB でも動く見込み。
+- **次**: alphaexapi の MF ユーザー単位 OAuth の実装（#155）と、staging へのデプロイ。D2（誰が MF のトークンを持つか）はユーザーの回答待ち。デプロイ後に、各自で MF を再認可する（alphasys の中継 #270 のマージ・デプロイが前提）。

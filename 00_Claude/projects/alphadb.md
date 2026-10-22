@@ -256,3 +256,177 @@
   `feature/docs-migration-overview-status`を削除し、`feature/conversations-by-date`ブランチで作業。
 - 結果: Draft PR #90（base: staging）を作成。切替後のStopフックの書き先が`conversations/2026-10-20.md`
   になったことを実機で確認済み（旧`conversations.md`は書き先から外れた）。
+
+## 2026-10-22 4_7_1 社員情報変更依頼・MFユーザー単位OAuthのスキーマ依頼を受領し方式案を提示
+
+- 発端: alphasystem-6b から依頼（2026-10-22 ユーザー承認済み。方式案を alphasystem に示し了解後に着手）。
+  設計書: `alphasystem/docs/design/2026-10-22-社員情報変更依頼-仕様.md`（第5版）8章、
+  `alphaexapi/docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md` 3章、
+  alphaexapi 契約書草案 `2026-10-22-employee-change-request-api-contract.md` 8章（alphaexapi Draft PR #152）。
+- alphaexapi-aa 経由の確定事項: メール確認トークンは `UserChangeData` に列を持つ（changeInfo に入れない）。
+  ChgType追加・staffScode NULL許容・rejectReason・索引・completedBy・MfJobType.EMPLOYEE_CSV_IMPORT は案どおり。
+- やらないと決めたこと: **`Users.commutingCost` の追加は保留**（ユーザー判断、実態把握のため。alphasystem-6b 連絡）。
+  通勤費の依頼は完了しても alp_users へ適用せず履歴だけ残す。
+- 方式案（alphasystem-6b・alphaexapi-aa へ送付、了解待ち）:
+  - 4_7_1: ChgType に `CHANGE_EMERGENCY`/`CHANGE_MAIL`、`staffScode Int?`、`rejectReason String?`、
+    enum `ChgCompletedBy { MANUAL, CSV }` と `completedBy ChgCompletedBy? @map("completed_by")`、
+    `tokenHash String? @map("token_hash") @db.VarChar(64)`、`tokenExpiresAt DateTime? @map("token_expires_at") @db.Timestamptz(6)`、
+    `@@index([scode, changeType, changeStatus])`、MfJobType に `EMPLOYEE_CSV_IMPORT`。
+  - `ChgStatus.SYNCED` は削除を提案（使用コード無し。移行の抽出は 1〜3→REQUEST/RECEPTION/COMPLETE のみで SYNCED 行は存在しない）。
+  - `alp_change_req` は不採用。テーブル設計書を「廃止（alp_user_change_data に一本化）」と整理し、
+    `alp_user_change_data.md` を新しい列・enum・状態遷移に更新する。
+  - OAuth: 設計書3章どおり（`userEmail VarChar(256)`、FKなし、`@@unique([mfProduct, userEmail])`、既存2行はマイグレーションで削除）。
+  - 版数案: OAuth を 0.2.6、4_7_1 を 0.2.7 で別ブランチ・別PR（公開は OAuth→4_7_1 の順）。
+- 判断を仰いだ点: 夜間自動移行が毎晩 `alp_user_change_data` を DELETE→旧8行で入れ直すため、
+  新システムで作った依頼が staging で毎晩消える（alp_users も毎晩入れ直されるため完了時の反映も戻る）。
+  対処案を alphasystem に提示（回答待ち）。移行時 `staff_scode` を `COALESCE(...,0)` で 0 にしている点の扱いも確認。
+  - 対処案: a. 現状のまま（試験は1日で完結） / b. `alp_user_change_data` を夜間処理で触らないテーブルにする（clear/load/check/verify 修正） /
+    c. 結合試験期間中は夜間タイマーを止める。alphadb の推奨は a か c（本番向けの夜間移行手順を変えないため）。
+  - `staff_scode` の 0 は変えない（抽出SQLを変更しない）ことを推奨。
+- alphaexapi-aa へ確認中: 承認なし項目（緊急連絡先・メール）を COMPLETE で記録する際の `completedBy`（NULL か）と `staffScode`（本人か NULL か）。
+- 着手条件: alphasystem-6b の了解後に OAuth（0.2.6）→ 4_7_1（0.2.7）の順で別ブランチ・別 Draft PR（base: staging）。
+
+## 2026-10-22 alphaexapi-aa が契約・版数・列の最終案に合意
+
+- 合意: OAuth の契約、版数と公開順（0.2.6 OAuth → 0.2.7 4_7_1）、4_7_1 の列の最終案はすべてそのまま。`ChgStatus.SYNCED` の削除も可。
+- 回答: 承認なし項目（緊急連絡先・メール）を COMPLETE で記録する際の `completedBy` は **NULL**（MANUAL/CSV は総務の確定手段）。
+  `staffScode` は受付・却下・完了を操作した総務の scode。本人の操作（依頼作成・取消・承認なし項目の保存・メール確認）では NULL。
+  CSV 完了時は CSV を取り込んだ総務の scode。`tokenHash` は SHA-256 hex 64文字で `VarChar(64)`。
+  alphaexapi 契約書（Draft PR #152）に明記済み。テーブル設計書の備考にもこの意味を書く。
+- 残: alphasystem-6b の了解（方式案全体・夜間移行の対処 a/b/c・staff_scode の 0）待ち。着手はその後。
+
+## 2026-10-22 alphasystem-6b が方式案を了承 — 着手
+
+- 了承: 4_7_1 の変更一式（ChgType追加・staffScode NULL許容・rejectReason/completedBy/tokenHash/tokenExpiresAt・索引・
+  EMPLOYEE_CSV_IMPORT・SYNCED削除・alp_change_req廃止と設計書整理）、Users.commutingCost を追加しないこと、
+  OAuth（設計書3章どおり）、版数（OAuth 0.2.6 → 4_7_1 0.2.7、別ブランチ・別 Draft PR）。
+- (B) 旧データの staff_scode は**変えない**（抽出の COALESCE(...,0) のまま）で了承。
+- 留意: 0.2.6 の publish は先でよいが、**staging DB へのマイグレーション適用は alphaexapi のユーザー単位 OAuth 実装の
+  staging デプロイに合わせる**（現行 alphaexapi は製品単位の一意前提のため）。PR 説明に明記し、alphaexapi-aa と日程を合わせる。
+- (A) 夜間移行で alp_user_change_data・alp_users が毎晩入れ直される件はユーザー確認中。**結論が出るまで夜間移行キットは変更しない**。
+
+## 2026-10-22 OAuth（0.2.6）・4_7_1（0.2.7）を実装し Draft PR を作成／夜間移行は結合試験中に停止と決定
+
+- OAuth: `feature/mf-oauth-token-per-user` で実装、Draft PR #92（base: staging）。staging DB への適用は alphaexapi の
+  ユーザー単位 OAuth の staging デプロイに合わせる旨を PR に明記。
+- 4_7_1: `feature/employee-change-request` を #92 の上に積んで実装（版数・マイグレーション順を揃えるため）。
+  **#92 を先にマージする**。マイグレーション `20261022100000_employee_change_request`。
+- 確認: `prisma validate`・`npm test`。マイグレーション SQL は `prisma migrate diff`（alphaexapi の prisma 6.19.3 を使用。
+  alphadb の node_modules 未導入・CodeArtifact トークン期限切れのため）で生成。実 DB への適用は未確認。
+- 決定（ユーザー、alphasystem-6b 経由）: (A) 夜間自動移行は **c. 結合試験の期間中だけ夜間タイマーを止める**。
+  夜間移行キット（clear/load/check/verify）は変更しない。停止期間は 4_7_1 結合試験の開始〜終了（タイミングは alphasystem から連絡）。
+- 依頼: `nightly_automation.md` に「結合試験中の一時停止」の節を追記（停止・状態確認・再開コマンド、停止中は staging データが
+  更新されないこと、再起動や Bastion 置換で再開してしまうかの確認、再開後最初の夜の CloudWatch `RESULT: SUCCESS` 確認）。
+  実際の停止・再開はユーザーが行う。
+
+## 2026-10-22 夜間タイマーの一時停止手順を追記／夜間移行が10/19以降止まっていることを発見
+
+- `nightly_automation.md` に「9. 結合試験中の一時停止」を追記（`feature/docs-nightly-pause-during-test`、Draft PR #94）。
+  停止は `systemctl disable --now`（`stop` だけだと Bastion 再起動で再開するため）、再開は `enable --now`。
+  `Persistent=false` のため再開時に止めていた分の実行はしない。停止中は §7 の復旧手順・`setup_bastion.sh` を実施しない
+  （timer が enable される）。CloudWatch 確認コマンドは実機で動作確認済み（`--max-items` は余計な `None` 行が出るため `--limit` を使う）。
+- 発見: Bastion が 2026-10-19 13:25 JST と 2026-10-22 16:25 JST に置換されており、夜間移行は **10/19 の SUCCESS を最後に停止**
+  （10/20〜10/22 のログストリーム無し）。§7 の復旧は未実施。**復旧するか試験終了まで止めたままにするかは未決**
+  （alphasystem・ユーザーに判断を依頼。alphadb からは何も実行しない）。
+
+## 2026-10-22 PR ＃92〜＃94 マージ／夜間移行を今すぐ復旧（ユーザー決定）／Bastion 置換の原因
+
+- ユーザーが PR #92〜#94 を staging にマージ（publish・staging への migrate は未実施。最新 publish は 0.2.5、
+  `alphadb-publish`・`staging-prisma-merge-project-build` の最終実行は 2026-10-19）。
+- 決定（ユーザー）: 夜間移行は **(2) 今すぐ復旧し、4_7_1 結合試験の開始時に §9 の手順で止める**。
+- Bastion 置換の原因: StagingStack の `cdk deploy`（CloudTrail `ExecuteChangeSet`、実行者 aws-cdk-yohira）。
+  2026-10-19 13:24 JST（alphasyscdk PR #98 系のデプロイ）と 2026-10-22 16:25 JST（alphasyscdk PR #105 SES）。
+  `latestAmazonLinux2023()` が AMI 更新を拾い（10/19 機 ami-05534a20c2195f7ab → 10/22 機 ami-0d6d9b11f5af70dfc）、
+  CloudFormation が Bastion を置換・終了した（§7 の既知事象。恒久対応しない方針 2026-10-06）。10/20 のデプロイは AMI 不変で置換なし。
+- 復旧（2026-10-22 17:08 JST、i-02b9da547de06014a）: 配布（`deploy.sh` 相当。手元に jq が無いため JSON 生成のみ node で代替、
+  キットは変更なし）→ `setup_bastion.sh` → `/etc/alphadb-migration.env` 再作成（0640 root:postgres）→ `systemctl start` timer。
+  enabled/active、次回 2026-10-23 01:00 JST。手動実行はしていない（日中の staging データを消さないため）。
+  **2026-10-23 朝に CloudWatch で `RESULT: SUCCESS` を確認する。**
+
+## 2026-10-22 公開順の変更依頼（4_7_1 を 0.2.6、OAuth を 0.2.7）— 組み直し案をユーザーに提示
+
+- alphasystem-6b の決定（alphaexapi-aa の判断依頼への回答）: **4_7_1 を先に 0.2.6 で公開、OAuth は 0.2.7** に入れ替える。
+  理由: OAuth を含む版では `MfOauthToken.mfProduct` の単独一意がなくなり、alphaexapi の既存 MF 認可処理がコンパイルできない。
+  OAuth の公開・staging 適用は alphaexapi のユーザー単位 OAuth 実装に合わせる（適用の留意は変更なし）。
+- 現状: #92・#93 は staging にマージ済み（両方入りの 0.2.7）。publish・staging 適用は未実施。
+- 組み直し案（**ユーザー承認待ち**）: ① staging から OAuth 分（schema・migration `20261022090000_mf_oauth_token_per_user`・
+  `alp_mf_oauth_token.md`）を外し版数を 0.2.6 に戻す PR → マージ後に publish（0.2.6 = 4_7_1 のみ）。
+  ② OAuth を戻す PR を Draft で用意（migration は 4_7_1 より後の日付に付け直し、0.2.7）。alphaexapi 実装後にマージ。
+- 段取り: 組み直しが決まるまで **`alphadb-publish` を実行しない**（今 publish すると OAuth 入りの 0.2.7 になる）とユーザーに依頼。
+  決まり次第、公開順を alphasystem・alphaexapi-aa に連絡する。
+
+## 2026-10-22 組み直し案をユーザーが承認 — 0.2.6 = 4_7_1 のみ、OAuth は 0.2.7 へ
+
+- 承認: ユーザーが組み直し案を承認（「この案でお願いします」）。
+- ①`feature/defer-mf-oauth-to-0.2.7`: staging から OAuth 分（schema の MfOauthToken・migration `20261022090000_mf_oauth_token_per_user`・
+  `alp_mf_oauth_token.md`）を外し、版数を 0.2.6 に。確認: 本ブランチの schema は #92 前の schema に 4_7_1 の migration
+  （`20261022100000_employee_change_request`）を足したものと一致（`prisma migrate diff` で照合）。`prisma validate`・`npm test` OK。
+- ②OAuth を 0.2.7 として戻す Draft PR を ① の上に用意（migration は 4_7_1 より後の日付に付け直す）。
+  **マージ・publish・staging 適用は alphaexapi のユーザー単位 OAuth 実装に合わせる**。
+- 公開順: ① マージ → `alphadb-publish`（0.2.6）→ staging 適用 → … → ② は alphaexapi の準備ができてから。
+- PR: ① **#96**（base: staging、0.2.6 = 4_7_1 のみ）、② **#97**（#96 の上に積む Draft。OAuth 0.2.7、migration `20261022120000_mf_oauth_token_per_user`）。
+  #97 の schema は #92・#93 両方マージ後の staging（b19f321）と一致することを確認。alphasystem-6b・alphaexapi-aa に公開順を連絡。
+
+## 2026-10-22 ＃96 と staging→main（＃95）がマージ済み — 0.2.6 の publish・staging 適用の段取り
+
+- ユーザーが #96 と staging→main の #95 をマージ済み。main は 0.2.6 で、2026-10-22 のマイグレーションは
+  `20261022100000_employee_change_request` のみ（OAuth なし）を確認。
+- 「staging DB に適用」= CodeBuild `staging-prisma-merge-project-build` による `prisma migrate deploy`（＋アプリ用 DB ロール・権限の再設定）。
+  このビルドの**ソースは main ブランチ**（sourceVersion=main）なので、適用前に main が意図した版であることを確認する。
+- 段取り: ① `alphadb-publish`（0.2.6 を CodeArtifact へ）→ ② `staging-prisma-merge-project-build`（ユーザーが実行）→
+  ③ alphadb が CodeArtifact の 0.2.6 Published/latest とビルド成功を確認し、alphasystem-6b・alphaexapi-aa に連絡。
+
+## 2026-10-22 0.2.6（4_7_1）の publish・staging 適用完了
+
+- ユーザーが `alphadb-publish`（17:27 JST）・`staging-prisma-merge-project-build`（17:30 JST）を実行。どちらも SUCCEEDED、
+  ソースは main の 2fb8901（#95）。
+- 確認: CodeArtifact で `0.2.6` が Published（17:28 JST）かつ既定版（latest）。ビルドログで
+  `Applying migration 20261022100000_employee_change_request` → `All migrations have been successfully applied.`
+- alphasystem-6b・alphaexapi-aa に 0.2.6 の publish・staging 適用完了を連絡。**alphadb 側の 4_7_1 対応は完了**（次は alphaexapi → alphasys）。
+- 残: OAuth は #97（0.2.7、Draft）を alphaexapi のユーザー単位 OAuth 実装に合わせてマージ。
+  2026-10-23 朝に夜間移行の CloudWatch `RESULT: SUCCESS` を確認（復旧後初回・0.2.6 適用後初回）。
+
+## 2026-10-22 alphaexapi が 0.2.6 を取り込み完了／OAuth は 4_7_1 実装後に着手
+
+- alphaexapi-aa: `alphadb@0.2.6` を取り込み、既存の MF 認可処理はそのままコンパイルでき全テスト pass。
+- 段取り: OAuth（#97、0.2.7）は **alphaexapi の 4_7_1 実装が終わってから**ユーザー単位 OAuth に着手。staging デプロイの目処が立ったら
+  alphaexapi-aa から連絡が来る。それまで #97 は Draft のまま待機。
+
+## 2026-10-22 issue ＃99（未完了依頼の部分ユニーク索引）を受領 — 着手はユーザー判断待ち
+
+- alphaexapi-aa がユーザー承認のうえ alphacmc/alphadb#99 を起票（alphaexapi PR #152 最終レビューの指摘）。
+  アプリ側の「未完了があれば 409」は原子的でなく、同時2回の依頼で重複しうる。対応案: `(scode, change_type)` の部分ユニーク索引
+  （`change_status IN (REQUEST, RECEPTION)` かつ承認ありの4項目。`CHANGE_MAIL` は対象外案）。
+- 急ぎではない。**当面は alphasys の連打防止と、重複時は総務が片方を却下する運用**。着手時は alphaexapi の P2002→409 変換と合わせる（要連絡）。
+- 着手の可否・時期はユーザー判断待ち（論点: Prisma schema で部分索引を表現できず migration の SQL のみになる点、既存データの重複有無の事前確認、版数）。
+
+## 2026-10-22 alphaexapi から 0.2.7（OAuth）の先行 publish 依頼 — 方式をユーザーに確認中
+
+- alphaexapi-aa: ユーザー承認のうえユーザー単位 OAuth に着手（alphaexapi Draft PR #155）。開発・テスト用に `alphadb@0.2.7` の先行 publish を依頼。
+  staging DB への適用は alphaexapi の staging デプロイと**同時**（0.2.7 の alphaexapi は (mfProduct, userEmail) で検索するため）。
+- 論点: 通常の publish は #97 を staging→main に入れて `alphadb-publish` を実行する。`staging-prisma-merge-project-build` も main を
+  ソースにするため、main に OAuth のマイグレーションが入ると、以後の適用ビルド（#99 など他のスキーマ変更を含む）で OAuth も当たってしまい、
+  「publish と DB 適用を切り離す」ことが運用ルール頼みになる。0.2.7 が latest になり、他の消費側の更新時にも入る。
+- 選択肢（ユーザー判断待ち）: A. 通常どおり 0.2.7 を publish し、OAuth デプロイまで適用ビルドを止める／
+  B. #97 ブランチから試験版 `0.2.7-oauth.0` を dist-tag `next` で publish（main・latest・適用ビルドに影響しない。正式 0.2.7 は
+  デプロイ時に main 経由で publish）／ C. publish せず alphaexapi はローカル参照で開発。alphadb の推奨は B。
+- alphaexapi-aa は B 案に同意（ユーザー確認待ち）。B の場合の段取り: #155 は開発中 `"alphadb": "0.2.7-oauth.0"`（完全一致）→
+  正式 0.2.7（main 経由・latest）publish 後に `^0.2.7` へ切替・lock 作り直し・全テスト → staging デプロイと DB 適用を同時に実施。
+  #155 は正式版へ切り替えるまで Draft のまま。4_7_1 の PR #152 は `^0.2.6` のままで #155 と独立。
+- 失敗: マージ済みの #98 のブランチへ push してしまった（push 前のマージ確認漏れ）。未取り込みのコミットを Draft PR #101 に移した。
+  以後、push のたびに対象 PR のマージ状態を確認する。
+
+## 2026-10-22 0.2.7（OAuth）が正式 publish・staging 適用された（結果として A 案）
+
+- ユーザーが #97・#101・staging→main（#102）をマージし、`alphadb-publish`（20:41 JST）・`staging-prisma-merge-project-build`（20:41 JST）を実行。
+  どちらも SUCCEEDED、ソースは main の 41c28c6。
+- 確認: CodeArtifact で `0.2.7` が Published かつ既定版（latest）。ビルドログで
+  `Applying migration 20261022120000_mf_oauth_token_per_user` → 成功。staging の `alp_mf_oauth_token` は既存2行が削除され、
+  (mfProduct, userEmail) の複合一意に変わった。試験版（B 案）は作っていない。
+- 影響: staging で動いている現行 alphaexapi（製品単位前提）は、トークンの保存（mfProduct の単独一意を使う upsert／user_email なしの insert）が
+  失敗する見込み。ただし staging の MF 認可は alphasys の中継が未実装で元々通せない状態で、既存トークンも削除済みのため、
+  実害は「MF API 呼び出しが未認可」のまま変わらない程度と見ている。
+- alphaexapi-aa・alphasystem-6b に連絡（#155 は試験版を経ず `^0.2.7` を直接指定できる。staging デプロイは急ぐ必要あり）。
+- alphaexapi-aa 返信: #155 は `"alphadb": "^0.2.7"` を直接指定（設計書 10.4・会話記録も更新済み）。段取り: 実装計画 → alphasystem の了解 →
+  実装 → ユーザーがマージ後すぐ staging デプロイ。デプロイの目処が立ったら連絡が来る。現行 alphaexapi がトークンを保存できない状態は
+  #155 のデプロイまで続く（alphaexapi-aa からもユーザーへ伝える）。

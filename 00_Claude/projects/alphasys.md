@@ -763,3 +763,148 @@ ID採番変更（4_6_1→4_7_1）が既存の「AWSインスタンス管理・�
 alphasystemへの依頼内容は `/private/tmp/claude-501/-Users-yohira-git-alphasys/c825e4f9-1a85-47ce-a38e-a62125ea246a/scratchpad/alphasystem-request-2026-10-22.md` としてファイル出力し、ユーザーが別PCへ手動転送する運用とした（当時alphasystemセッションが稼働しておらずSendMessageできなかったため）。
 
 本日のalphasys課題表対応はこれで一区切り。残りの着手候補（4_5_1, 4_2_1, 5_2_1, 5_3_1, 2_1_6, 2_2_4, 2_4_2, 4_3_2, 4_3_3/5_1_2等）はピックアップ済み・未着手（実行はユーザー指示待ち）。
+
+## 2026-10-22 alphasys課題表対応、追加4件（「すぐ着手できそう」リスト）をPR化
+
+ユーザーがPR #238〜243をマージ。マージ済みのローカル・リモート追跡を確認した上でローカルブランチを削除し、ピックアップ済みリストのうち「すぐ着手できそう（簡易〜中程度）」4件に着手するよう指示を受けた。
+
+1. **4_5_1** 追加シートアップロードで、xlsx添付→保存失敗後の再送信が「ファイル未選択」扱いになり「※ファイル情報は必須です」が誤表示される不具合を修正（`reset()`の`keepValues`オプション追加＋確認モーダルの早すぎるプレビュークリアを削除） → PR [#245](https://github.com/alphacmc/alphasys/pull/245)
+2. **4_2_1** 業務経歴基本情報の住所表示をJSON生文字列から「郵便番号＋短縮住所（町域以降は・・・）」に変更。前例の無い切り詰めルール・address2表示要否をユーザーに確認の上決定（最初の数字の直前で切る／address2は非表示） → PR [#246](https://github.com/alphacmc/alphasys/pull/246)
+3. **5_2_1** 社員個人情報画面に「退職」ボタンを新設。退職年月日入力ダイアログ→更新→一覧へリダイレクト（既存の`updateEmployeeInfo`は全カラム上書き方式のため、現在値を取得してマージする新規Server Actionを追加）。既存の所属情報アコーディオン内の退職日直接編集フィールドは維持 → PR [#247](https://github.com/alphacmc/alphasys/pull/247)
+4. **5_3_1** DC管理一覧の表示フィルタを追加。DC加入者番号なし・入社2年超・50歳以上の条件を全て満たす場合のみ非表示（`shouldShowInDcList()`） → PR [#248](https://github.com/alphacmc/alphasys/pull/248)
+
+各PRにテスト追加済み、`npx jest`全体（50スイート・298件）でリグレッション無しを確認。課題表のPR#列（E67, E57, E81, E84）にも記入済み。
+
+## 2026-10-22 alphasys課題表対応、「行末メニュー追加」パターンの中程度4件をPR化
+
+ユーザーがPR #245〜248をマージ。マージ済みローカルブランチを削除し、ピックアップ済みリストの「中程度（行末メニュー追加パターン）」4件に着手するよう指示を受けた。
+
+1. **2_1_6** プロジェクト一覧の明細行に編集/削除/契約メニューを追加。削除は配下契約が空の場合のみ（`Project`↔`Contract`はPrismaリレーション未定義のためraw SQL COUNT）。契約メニューはプロジェクト情報画面の`ContractList`を再利用し、新規`fullyExpanded`propで全開表示 → PR [#250](https://github.com/alphacmc/alphasys/pull/250)
+2. **2_2_4** 契約一覧（プロジェクト情報画面／プロジェクト一覧の契約モーダル）の明細行に編集/削除/請求一覧メニューを追加。削除は配下請求データが空の場合のみ（`Contract`↔`BillRecipt`はPrismaリレーション定義済みのため`prisma.billRecipt.count()`）。請求一覧メニューは契約情報画面の`BillList`を再利用 → PR [#251](https://github.com/alphacmc/alphasys/pull/251)（**#250に依存、base=`feature/project-list-row-actions`。#250マージ後にbase付け替えが必要**）
+3. **4_3_2** 業務経歴一覧の明細行に編集/削除メニューを追加。`Skilldata`は他モデルから参照されない独立レコードのため配下チェック不要、既存の削除・編集導線をそのまま流用 → PR [#252](https://github.com/alphacmc/alphasys/pull/252)
+
+**実装上の発見**: DropdownMenuItemのクリックで直接Dialog（ConfirmModal含む）を開くと、メニューが閉じる際のフォーカス処理とDialogのフォーカストラップがjsdom上で無限ループする既知のRadix UI composition issueがあり、2_1_6で最初に遭遇・対処（`setTimeout(..., 0)`での遅延オープン＋`DropdownMenuContent`への`onCloseAutoFocus={(e) => e.preventDefault()}`）。2_2_4・4_3_2でも同じ対策を踏襲。既存の`BillRowActions.tsx`（2項目メニュー）にはこの対策が入っていないが、今回は踏査のみで改修はスコープ外とした。
+
+各PRにテスト追加済み、`npx jest`でリグレッション無しを確認済み。課題表のPR#列（E20, E25, E61）にも記入済み。
+
+本日のalphasys課題表対応はこれで一区切り（本日計10件PR化: #238〜#252のうち課題対応分）。残りのピックアップ候補（バグ系2件: 2_4_2[2件目]・4_2_2、ペア対応候補: 4_3_3/5_1_2）は未着手、ご指示待ち。
+
+## 2026-10-22 alphasys課題表対応、ペア対応（4_3_3・5_1_2）をPR化
+
+ユーザーがPR #250〜252をマージ。マージ済みローカルブランチを削除し、ピックアップ済みリストの「ペアで対応すると効率的」（業務経歴一覧・社員一覧、同一要望が2画面）に着手するよう指示を受けた。
+
+- **4_3_3**（業務経歴一覧）・**5_1_2**（社員一覧）: 「一ページの表示件数をデフォルト15に」。共有`DataTable`コンポーネントは既に`pageSize`propを持っていた（未指定時はデフォルト8）ため、2画面それぞれに`pageSize={15}`を明示指定するのみ。共有コンポーネント自体のデフォルト値は変更せず、他画面（請求一覧・プロジェクト一覧等）への影響なし → PR [#254](https://github.com/alphacmc/alphasys/pull/254)
+
+テスト追加済み（15件ちょうどではページ送りボタンが出ない、16件では出て15件のみ表示、を確認）、`npx jest`全体（65スイート・347件）でリグレッション無しを確認済み。課題表のPR#列（E62, E77）にも記入済み。
+
+残りのピックアップ候補（バグ系2件: 2_4_2[2件目]・4_2_2）は未着手、ご指示待ち。
+
+## 2026-10-22 alphasys課題表対応、バグ系2件をPR化
+
+ユーザーがPR #254をマージ。マージ済みローカルブランチを削除し、ピックアップ済みリストの「調査してから判断したいもの（バグ系）」2件に着手するよう指示を受けた。
+
+1. **2_4_2**（2件目）「請求一覧明細選択で、請求情報が表示されない。」: 契約情報画面の`BillList.tsx`の各行に`onClick`が一度も実装されていなかった（git logで確認、デグレードではなく実装漏れ）。`ContractList.tsx`と同じパターンで`"use client"`化し、行クリックで`/sales/bill/edit/{billNo}`へ遷移するよう実装 → PR [#256](https://github.com/alphacmc/alphasys/pull/256)
+2. **4_2_2** 「経験年月の算出がおかしい。」: `SkillBaseForm.tsx`の`diffInYearMonth()`が年・月の差分のみで計算し「日」を考慮していなかった（同ファイルの年齢計算は日まで見て正しく補正済み）。入社日の「日」がまだ巡ってきていない月を1ヶ月多く数える不具合を、年齢計算と同じ補正パターンで修正 → PR [#257](https://github.com/alphacmc/alphasys/pull/257)
+
+各PRにテスト追加済み、`npx jest`でリグレッション無しを確認済み。課題表のPR#列（E30, E58）にも記入済み。
+
+本日ピックアップした候補はこれで全て対応完了（簡易4件・中程度4件・ペア1件・バグ系2件＝計11件、PR #238〜257のうち課題対応分）。残りの課題表の未対応項目（「項目が間延びしている」除外方針のもの、大型機能〔Google SpreadSheet連携〕、要件未確定のもの等）は本セッションでは着手せず、継続的に追加される課題への対応は次回以降。
+
+## 2026-10-22 alphasys課題表対応、新規追加課題から「簡易」3件＋「中程度（行末メニュー追加パターン）」3件をPR化
+
+ユーザーが課題表に新規課題を追加後、再確認・提案を依頼。「すぐ着手できそう（簡易、alphasysに閉じている）」と「中程度（行末メニュー追加パターン、他画面の実装を流用可能）」を併せて実行するよう指示を受け、計6件を続けて実施。
+
+1. **6_3_1**（1件目）部門メンバー一覧の追加リストに退職社員まで表示される問題を修正。`getBelongUsers()`のraw SQLに`au.retirement IS NULL`を追加 → PR [#259](https://github.com/alphacmc/alphasys/pull/259)
+2. **5_6_1** AWSインスタンス操作画面で、起動中は起動ボタン、停止中は停止ボタンをプロテクト（`disabled`制御） → PR [#260](https://github.com/alphacmc/alphasys/pull/260)
+3. **5_5_2** インスタンス作成完了後のポップアップに「一覧へ戻る」ボタンを追加、インスタンス管理一覧へ遷移 → PR [#261](https://github.com/alphacmc/alphasys/pull/261)
+4. **6_1_1** 部門一覧の明細行に編集/削除/メンバー管理メニューを追加。削除は配下にプロジェクト・契約明細・所属データが無い場合のみ（`Divs`は`Project.divId`/`ContDetail.divId`/`Belong.divId`いずれもPrismaリレーション未定義のため3テーブルの`.count()`合算でチェック） → PR [#262](https://github.com/alphacmc/alphasys/pull/262)
+5. **5_4_1** インスタンス管理一覧をカード型の羅列から表形式に変更（共有`DataTable`を使用、ステータス/操作列は既存の`ControlInstanceContainer`をセル内に埋め込み） → PR [#263](https://github.com/alphacmc/alphasys/pull/263)（**#260に依存、base=`fix/aws-instance-button-protection`。両PRとも`ControlInstanceContainer.tsx`を変更するため。#260マージ後にbase付け替えが必要**）
+6. **5_5_1** インスタンス作成画面のインスタンス名入力に「ユーザー選択」モードを追加。在籍社員一覧（新規Server Action、`userId`はASCIIのためインスタンス名に使用、`userName`は日本語のため不使用）から選択すると、OSプレフィックス（Linux→server-, Windows→client-、既存の付け替えロジックを`_lib/instance-name.ts`に切り出してCreateInstanceContentと共通化）+ userIdでインスタンス名を自動設定 → PR [#264](https://github.com/alphacmc/alphasys/pull/264)（**#261に依存、base=`feature/aws-instance-create-redirect-to-list`。両PRとも`CreateInstanceContent.tsx`を変更するため。#261マージ後にbase付け替えが必要**）
+
+**実装上の発見**: 5_5_1のテストで、Radix UI `Select`がマウント時に`scrollIntoView`を呼ぶため、jsdom環境で`TypeError: candidate?.scrollIntoView is not a function`が発生（2_1_6で発見したDropdownMenu+Dialogのフォーカスループ問題とは別の、Radix UI+jsdomの既知の制約）。`jest.setup.js`の既存の`hasPointerCapture`等のガードと同様に、`Element.prototype.scrollIntoView`のモックを追加して解消（リポジトリ全体に効くため、今後同様のSelect使用箇所でも再発しない）。
+
+各PRにテスト追加済み、`npx jest`全体（68スイート・357件）でリグレッション無しを確認済み。課題表のPR#列（E104, E97, E91, E99, E87, E90）にも記入済み。
+
+**今回スコープ外（投稿のみ、未着手）**: 課題表調査中に見つかった新規項目 — 5_4_2（延長申請済みインスタンスの折りたたみ表示）、5_5_3〜5_5_5（インスタンス作成のデフォルトユーザー/AMI直接指定/インスタンスタイプ直接指定）、6_1_2（部門一覧の項目間延び）、6_2_1（部門編集画面、内容未記入）。いずれも今回の指示範囲外のため対応せず。
+
+## 2026-10-22 alphasys課題表対応、スコープ外新規項目5件を調査し1件をPR化
+
+ユーザーがPR #259〜264をマージ。マージ済みローカルブランチ6本を削除し、前回バッチで「スコープ外」として記録した新規項目5_4_2・5_5_3〜5_5_5・6_1_2・6_2_1のうち対応可能なものを実行するよう指示を受けた。実行前に各項目を調査した結果:
+
+- **5_4_2**（延長申請済みインスタンスの折りたたみ表示）: alphasys単独で対応可能と判断し実装。
+- **5_5_3**（インスタンス生成時のデフォルトユーザー作成、administrators/wheelグループ所属）・**5_5_4**（AMI直接指定）・**5_5_5**（インスタンスタイプ直接指定）: いずれも`create-instance.action.ts`が外部API（`API_URL`、CloudFormation/CDKを扱う別サービス、alphasyscdk相当）にパラメータを渡すのみで、OS/AMI/インスタンスタイプの実体解決やOSユーザー作成はalphasys側に存在しないため、**alphasys単独では実装不可。alphasyscdk側（または外部API実装側）との設計調整が必要**と判断し、今回は見送り。
+- **6_1_2**（部門一覧の「項目が間延びしている」）: これまでの方針（間延び系の表示崩れ要望は対象外）と同じ分類のため対応不要。
+- **6_2_1**（部門編集画面）: 修正内容欄が空欄のため対応不可。ユーザーに内容確認が必要。
+
+対応可能と判断した1件を実施:
+- **5_4_2** インスタンス管理一覧の「延長申請済みインスタンス」テーブルを、常時展開表示からAccordionによる折りたたみ（デフォルト閉じた状態、見出しに件数表示）に変更 → PR [#266](https://github.com/alphacmc/alphasys/pull/266)
+
+テスト追加済み（デフォルト折りたたみ／クリックで展開／0件時の空状態表示）、`npx jest`全体（75スイート・379件、2件skip）でリグレッション無しを確認済み。課題表のPR#列（E88）にも記入済み。
+
+**継続課題**: 5_5_3〜5_5_5はalphasyscdk（またはAPI_URL先の外部サービス）側の対応が前提となるため、必要であれば該当プロジェクトのセッションに連携（`ListAgents`/`SendMessage`）するか、ユーザー側で別途調整が必要。
+
+## 2026-10-22 alphasys課題表対応、5_4_2マージ後の残課題（5_5_3〜5_5_5）の方針確認
+
+ユーザーがPR #266をマージ。マージ済みローカルブランチを削除し、前回「alphacdkのインフラ変更が絡むため見送り」とした5_5_3・5_5_4・5_5_5について、確認してから進めたいものとして再検討を依頼された。
+
+実装経路を追加調査した結果、当初の想定より詳細が判明:
+- **5_5_5**（インスタンスタイプ直接指定）: CDK側（`alphacdk`の`Ec2NativeTemplateStack`）は`InstanceTypeParam`を`allowedValues`制限のない自由文字列として受け取る設計のため、**alphacdkのインフラ変更・再デプロイは不要**と判明。small/big制限は`alphaexapi`側（`instance-create.service.ts`の2値マッピング）とalphasys側のUIのみ。
+- **5_5_4**（AMI直接指定）: AMIは`alphacdk`の`LaunchTemplatesStack`でLaunch Template作成時に一度だけ焼き込まれる設計で、インスタンス作成リクエスト時にAMIを都度指定する経路が存在しない。**alphacdkのコード変更＋再デプロイが必須**と確認。
+- **5_5_3**（デフォルトユーザー作成）: 関連するUserData機構（`alphacdk/userdata/`）は存在するが、本来「研修環境向けのWindows⇔LinuxのSSH鍵橋渡し」用に作られたものであり、5_5_3が求める「ユーザー名=インスタンス名サフィックス、Windows→administrators、Linux→wheel」とは目的・実装とも一致しない（Linux側はそもそも新規ユーザーを作成しない）。alphacdk・alphaexapi・alphasysの3リポジトリにまたがる設計判断が必要。
+
+上記を提示の上、ユーザーの判断を確認:
+- **5_5_5**: 「進める（推奨）」との回答を受け、alphasys側（UI・schema・Server Action）を実装 → PR [#268](https://github.com/alphacmc/alphasys/pull/268)。**alphaexapi側の`instance-create.service.ts`が現状small以外を全て"big"とみなすマッピングになっているため、alphaexapi側を「small/big以外の値はそのままCloudFormationへ渡す」よう修正しない限り本PRだけでは機能しない**旨をPR本文・課題表に明記。alphaexapi側の対応は別セッション・別PRで行う想定とし、今回のセッションでは着手しない。
+- **5_5_3・5_5_4**: 「方針だけ詰めて、実装は保留」との回答。alphacdk側の設計・運用判断（AMI管理方法、ユーザー作成ポリシー）は今回のセッション範囲外として一旦保留し、必要になったタイミングで別途対応する。
+
+テスト追加済み（CreateInstanceForm.test.tsxにカスタム指定入力欄の表示/非表示、create-instance.action.test.ts新規）、`npx jest`全体（76スイート・384件、2件skip）でリグレッション無しを確認済み。課題表のPR#列（E94）にも「268（alphaexapi側の対応待ち、要マージ順調整）」と記入済み。
+
+## 2026-10-22 alphasystem から MF staging 認可の中継と 4_7_1 社員情報変更依頼画面の依頼を受領
+
+alphasys の会話をこのPCへ移し、他プロジェクトのセッションと `SendMessage` で直接連携できる状態になった。alphasystem-6b から依頼2件を受領（2026-10-22 ユーザー承認済み）。順序は **依頼1 → 依頼2**。いずれも方式案を alphasystem に示し、了解を得てから着手する（ブランチ＋Draft PR、base=staging。画面は従来どおりモックで事前確認）。
+
+- **依頼1: MF の staging 認可の中継**（2026-10-20 に「承認待ち・着手しない」としていた件の承認にあたる）。認可開始の Route Handler（ID トークン付きで alphaexapi `/money-forward/oauth/authorize` を呼び、nonce Cookie を alphasys ドメインへ載せ替えて MF へリダイレクト）と、`src/app/money-forward/oauth/callback/route.ts` でのコールバック中継。alphaexapi・ALB の変更なし。staging での通し確認は alphasystem が行う。
+- **依頼2: 4_7_1 社員情報変更依頼の画面**（設計書: alphasystem `docs/design/2026-10-22-社員情報変更依頼-仕様.md` 第5版、API 契約書: alphaexapi `docs/superpowers/specs/2026-10-22-employee-change-request-api-contract.md` 第2版・Draft PR #152）。(a) 社員本人 `/member/employees`、(b) Admin の変更依頼一覧・差分・受付/却下/完了、(c) CSV 連携「従業員情報」タブ、(d) 確認メールのリンク先画面。モック確認 → 画面実装（API が揃うまでモックデータ）。実 API のつなぎ込みは alphadb 0.2.6 公開と alphaexapi 実装の後に alphasystem から改めて連絡がある。
+
+依頼1の方式案を作るために現行コードを確認した。alphaexapi の `/authorize` はリダイレクトではなく JSON `{ url }` を返し、nonce を `mf_oauth_nonce` Cookie（HttpOnly・Secure・Lax・path `/money-forward/oauth/callback`・TTL は state と同じ）で返す。`/callback` は認証ガードなしで `code`・`state` が必須（MF で拒否された場合の `error` だけのリダイレクトは 400 になる）。redirect_uri は2製品共通の SSM `/alpha/staging/alphaexapi/MF_OAUTH_REDIRECT_URI`。方式案を alphasystem-6b に送り、了解を待つ。
+
+送付した方式案（alphasystem-6b の了解待ち・未着手）: (1) 認可開始の Route Handler `GET /api/money-forward/oauth/authorize?product=`（ADMIN 確認→Bearer 付きで alphaexapi `/authorize`→`mf_oauth_nonce` を同じ属性で alphasys ドメインに付け直し→返った url へ 302）。(2) `src/app/money-forward/oauth/callback/route.ts`（ログイン・ADMIN を確認し、code・state・nonce を alphaexapi `/callback` に中継、nonce Cookie を削除、`/common/mf-oauth?result=…&product=…` へ戻して固定文言で結果表示。MF で拒否された `error` 戻りは alphaexapi を呼ばずに「キャンセル」表示）。(3) 認可画面のボタンを同じタブで Route Handler へ遷移する形に変更し、`API_URL` を画面に渡すのをやめる。(4) 将来のユーザー単位 OAuth に備え、コールバックの中継にも Bearer を付ける。(5) Route Handler 2本に jest を追加。確認事項: Q1 staging SSM `MF_OAUTH_REDIRECT_URI` が alphasys の callback URL か、Q2 コールバックにも Bearer を付けてよいか、Q3 結果表示は認可画面上部のメッセージとし、モックを省略してよいか。
+
+alphasystem-6b が方式案を了承し、着手の指示が出た（Draft PR、base=staging）。回答: Q1 staging SSM `MF_OAUTH_REDIRECT_URI` はすでに `https://alphasys.alphacmc-test.com/money-forward/oauth/callback`（変更・再起動不要）。Q2 **コールバックの中継に Bearer は付けない**（ID トークンを送る範囲を最小にする。ユーザー単位 OAuth で必要になれば alphaexapi-aa から連絡がある）。Q3 結果は認可画面上部のメッセージ（成功は緑、失敗は赤）、モックは省略。追加: 認可開始で返った url は https に加え、**ホストが moneyforward.com 配下であること**も確認する。依頼2（4_7_1）はこれが済んでからモック確認から進める。staging での通し確認は alphasystem が行う。
+
+MF staging 認可の中継を実装し、PR [#270](https://github.com/alphacmc/alphasys/pull/270)（Draft、base: staging）に push。認可開始 `GET /api/money-forward/oauth/authorize` とコールバック中継 `GET /money-forward/oauth/callback` を新設し、認可画面（`common/mf-oauth`）のボタンを同じタブで Route Handler へ遷移する形に変更、結果は画面上部のメッセージ（成功は緑・失敗は赤、理由コードごとの固定文言）で表示する。実装時の追加判断: コールバックでの失敗理由コードは、alphaexapi の 400/401 を「有効期限切れ・要求不正」、502 を「MF との処理失敗」、それ以外を「処理失敗」とする（コールバック時点では製品が分からないため、失敗メッセージに製品名は出さない）。コールバックで未ログインなら `/login`、ADMIN 以外なら `/unauthorized` へリダイレクトし、どちらも中継はしない（nonce Cookie は必ず消す）。全テスト（79スイート・424件）、テスト以外の型チェック、ESLint、`next build` で確認済み。残りは staging での通し確認（alphasystem が実施）。リダイレクト先の組み立てには middleware と同じ `req.url` を使っている。
+
+## 2026-10-22 4_7_1 社員情報変更依頼の画面、モックを作成（ユーザー確認待ち）
+
+依頼1（PR #270）を alphasystem に報告したうえで、依頼2に着手した。staging から `feature/employee-change-request` を作成。設計書第5版と API 契約書第2.1版（alphaexapi `origin/feature/employee-change-request`）を読み、モック5枚を作った（実装はユーザーの確認後。確認後にモックは削除する）:
+
+- `src/app/member/employees/page-mock.html`（社員本人）: 基本情報（参照のみ）、承認ありの4項目（状態の見本: 住所＝依頼中＋取消、通勤費＝依頼なし＋依頼フォーム、銀行口座＝却下理由つき、DC＝受付）、すぐ反映される緊急連絡先（2件固定）と通知用メール（確認待ち表示）。
+- `src/app/member/employees/mail-confirm/page-mock.html`（確認メールのリンク先）: **開いただけでは変更せず「変更を確定する」ボタンで確認 API を呼ぶ案**（GET で状態を変えないため）。結果は成功／無効・期限切れ（400）／他の社員が使用中（409）の3パターン。
+- `src/app/manager/employee-change-requests/page-mock.html`（総務の一覧）・`[id]/page-mock.html`（詳細・差分・受付／却下〔理由入力〕／完了）。パスとメニュー名は「社員情報管理 ＞ 変更依頼」`/manager/employee-change-requests` の案。
+- `src/app/common/mf-csv/page-mock.html`（CSV 連携の「従業員情報」タブ）。MF実行状況には「従業員情報取込」の行を追加し、再実行ボタンは出さない想定。
+
+調査で判明した既存の不備: `/manager` 配下は middleware でも各画面でも ADMIN を確認していない（`/admin`・`/common` のみ確認）。総務画面は画面側で ADMIN を確認する予定。`/manager` 全体の保護を追加するかはユーザー判断待ち。
+
+モックは Draft PR [#271](https://github.com/alphacmc/alphasys/pull/271)（base: staging）に置いた。ユーザーへの確認事項（回答待ち）: (1) 確認メールのリンク先は「変更を確定する」ボタンで確定する案でよいか、(2) 総務画面のパスとメニュー名、(3) `/manager` 全体を middleware で保護するか（保護するなら別の課題・PR にする案）。alphasystem-6b にも、設計上の扱いとして (1)(2)、MF実行状況の「従業員情報取込」で再実行ボタンを出さないこと（alphaexapi 側の再実行の扱いとの整合）、一覧の「状態の更新」では総務の氏名を出さないことの確認を依頼した（回答待ち）。#270 と #271 はどちらもこのファイルに追記しているため、後からマージするほうで競合を解消する。
+
+alphasystem-6b の回答（4_7_1 モックの確認事項）: (1) 総務画面のパス `/manager/employee-change-requests`・`/[id]` とメニュー「社員情報管理 ＞ 変更依頼」は了承。(2) 確認メールのリンク先は「変更を確定する」ボタンで POST `/mail/confirm` を呼ぶ案を了承（GET で状態を変えない）。(3) MF実行状況に「従業員情報取込」を追加し、再実行ボタンは出さないことを了承（alphaexapi 側の rerun も「CSV を再アップロードしてください」で給与と同じ扱い）。(4) 一覧の「状態の更新」列は日時だけを表示する（総務の氏名が必要になれば alphaexapi に staffName の追加を依頼する）。(5) `/manager` 配下の ADMIN 保護について、alphasystem の見解は「保護する」（ユーザーは以前に「/manager は ADMIN 専用」と伝えている）。ただし 4_7_1 とは別の小さな PR にし、進め方はユーザーの回答に従う。新しい総務画面は画面側でも ADMIN を確認する。画面の実装は、ユーザーのモック確認を待ってから着手する。
+
+alphasystem-6b より情報共有: alphadb@0.2.6（4_7_1 のスキーマ）が公開され、staging DB にも適用済み（2026-10-22 17:30 JST）。alphaexapi が 4_7_1 の実装に着手。alphasys の画面は引き続きモックのデータで進め、実 API とのつなぎ込みは alphaexapi の実装後に連絡がある。alphadb を 0.2.6 に上げるのはつなぎ込みのタイミングでよい。影響確認の結果、alphasys で `SYNCED` を使っているのは MF 取引先の連携状態（`MfLinkStatus`、`src/types/money-forward.ts`）だけで、`ChgStatus` ではないため影響なし。`ChgType`・`UserChangeData` は未使用。`MfJobType` は alphadb の型ではなく `src/types/money-forward.ts` の独自定義のため、4_7_1 の実装で `EMPLOYEE_CSV_IMPORT` を追加し、`MF_RERUNNABLE_JOB_TYPES` には入れない（再実行不可）。
+
+ユーザーより「PR#271 で conflict が発生しています。対応おねがいします」との指示。PR #270（MF staging 認可の中継）が 2026-10-22 08:55 UTC にマージされ、両 PR がこのファイルに追記していたため競合した。origin/staging を `feature/employee-change-request` にマージし、両方の記録を時系列順（#270 側の依頼受領〜実装 → #271 側のモック以降）に並べて解消した。
+
+ユーザーより「1,2とも進めてください」と了承。(1) 4_7_1 のモック5枚を了承 → モックを削除し、PR #271 で画面を実装する（実 API が揃うまではモックのデータ。#271 は画面の実装を足してからマージする想定）。(2) `/manager` 配下の ADMIN 保護を、4_7_1 とは別の小さな PR（staging から新規ブランチ）で進める。順序は (2) → (1)。
+
+## 2026-10-22 /manager 配下を ADMIN 専用に保護（4_7_1 とは別 PR）
+
+ユーザーの了承（上記 (2)）を受け、origin/staging から `feature/manager-admin-guard` を作成。middleware の対象パスに `/manager/:path*` を追加し、ADMIN 以外は `/unauthorized` へリダイレクトする（`/admin`・`/common` と同じ扱い）。調査で、`/manager` はこれまで middleware の対象パスに入っておらず、ADMIN かどうかだけでなく、**ログインしているかどうかも middleware で確認していなかった**ことが分かった（今回の変更で、未ログインなら `/login` へ送られる）。middleware のテストを新設（`src/__tests__/middleware.test.ts`、8件）、全テスト 80スイート・432件パス。マージ済みの `feature/mf-oauth-relay` ローカルブランチは削除した。
+
+## 2026-10-22 4_7_1 社員情報変更依頼の画面実装に着手（PR ＃271）
+
+`/manager` の保護を Draft PR [#273](https://github.com/alphacmc/alphasys/pull/273) にしたあと、#271 で画面の実装に着手。土台として、型（`src/types/employee-change.ts`）と alphaexapi クライアント（`src/lib/employee-change-api.ts`、契約書第2.1版どおり。`x-user-role` は送らない）を作成。実 API が揃うまでは環境変数 `EMPLOYEE_CHANGE_API_MOCK=true` のときだけ、メモリ上の見本データ（`src/lib/employee-change-api.mock.ts`。契約書の 409/400・状態遷移を簡易に再現）で動かす方式とした（つなぎ込み時は環境変数を外すだけ）。**実 API のつなぎ込みまで #271 はマージしない**（staging で見本データや存在しない API を呼ぶ画面が出ないようにするため）。画面は、社員本人＋確認メールのリンク先、総務の一覧・詳細＋メニュー、CSV 連携の「従業員情報」タブ＋MF実行状況の「従業員情報取込」の3つに分け、サブエージェントで並行して実装中。
+
+alphasystem-6b より: alphaexapi の 4_7_1 実装が完了（Draft PR #152。Draft 解除・マージ・staging デプロイはユーザー）。契約書は**第2.2版**。画面に影響する差分: (1) 日時は UTC の Z 表記 → 画面で JST に変換、(2) エラー本文は共通例外フィルタの形 `{ statusCode, timestamp, path, message: { statusCode, message, error } }` で、表示する文言は `message.message`、(3) 確認メールの送信失敗は 503、承認なしの種別の取消・受付・却下・完了は 404、(4) 日付の実在チェック・住所 JSON 512 文字超は 400。依頼: 依頼・取消・受付・却下・完了などのボタンは送信中に無効化して連打を防ぐ（重複依頼の根本対策は alphadb #99 で別課題）。alphadb は 0.2.6 に上げてよい（`MfJobType.EMPLOYEE_CSV_IMPORT` の追加と合わせる）。段取り: 実装 → alphaexapi の staging デプロイ（時期は alphasystem から連絡）→ 実 API につなぐ → 結合試験（alphasystem、SES の受信者検証・夜間タイマー停止を含む）。対応: クライアントのエラー文言の読み取りを入れ子の形に修正（テスト18件）、実装中のサブエージェントに (1)(3)(4) とボタンの無効化を伝えた。alphadb 0.2.6 への更新は画面の実装がそろってから行う。
+調査で分かった既存の不備（未対応・ユーザー判断待ち）: この例外フィルタは staging の alphaexapi に既にあり（`e6e80b6 共通ログ出力`）、既存の MF 連動の画面（`callMfApi`・`getMfCsvExport` 等）は `message` を文字列として読むため、alphaexapi のエラー文言（409 の競合理由など）が画面に出ず、statusText 等の既定文言に置き換わっている。
+
+4_7_1 の画面3つ（社員本人＋確認メールのリンク先、総務の一覧・詳細＋メニュー「変更依頼」、CSV 連携「従業員情報」タブ＋MF実行状況「従業員情報取込」〔再実行なし〕）の実装がそろい、モック5枚を削除した。契約書第2.2版の差分（UTC→JST 表示、送信中のボタン無効化、503/404、日付の実在・住所 512 文字の事前チェック）も反映。検証: `npx jest` 全体 97スイート・595件（EditProjectInfo の3件が全体実行時にタイムアウトしたが、今回は触っていない画面で、単独実行では19件すべてパス）、テスト以外の型チェックはエラー0、`next build` 成功、変更範囲の ESLint は既存の指摘3件（`MfCsvExportSection.test.tsx`・`src/types/data-table.ts`）のみ。**alphadb の 0.2.6 への更新は、CodeArtifact の認証トークン切れ（E401）で未実施**。ユーザーに CodeArtifact へのログインを依頼する（4_7_1 の画面は alphadb の型を使っていないため、検証には影響なし）。
+
+PR #271 は 2026-10-22 09:01 UTC（モック5枚と会話記録だけの時点）にユーザーがマージ済みだった。push 前のマージ確認を怠り、画面の実装を同じブランチへ push してしまったため、ブランチを `feature/employee-change-request-screens` に改名し、画面の実装（staging に入ったモック5枚の削除を含む）を新しい Draft PR [#274](https://github.com/alphacmc/alphasys/pull/274) として出し直した。#274 は実 API とのつなぎ込みが済むまでマージしない旨を PR 本文に明記。モックの HTML は Next.js の画面として配信されないため、staging の利用者からは見えない。
