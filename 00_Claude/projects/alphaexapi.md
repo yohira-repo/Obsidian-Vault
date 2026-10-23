@@ -865,7 +865,10 @@ alphasystem（alphasystem-6b セッション）から、2026-10-22 にユーザ�
 
 ## 2026-10-22 MF ユーザー単位 OAuth（依頼2）に着手（ユーザー承認）
 
-（同日の 4_7_1 社員情報変更依頼の記録は、ブランチ `feature/employee-change-request`（PR #152）側の同名ファイルにある。両方のマージ後は、このファイルに両方の記録が並ぶ。）
+- **承認（ユーザー）**: MF ユーザー単位 OAuth への着手を承認（「お願いします」）。
+- **段取り**: staging から新ブランチ `feature/mf-user-oauth` を作り Draft PR を作成する（4_7_1 の `feature/employee-change-request` は PR #152 が未マージのため残す）。設計は承認済みの `docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md`。10/16 以降に増えた MF 呼び出し経路（債務支払取込・CSV 経路・給与・従業員情報の rerun スタブ等）を調べたうえで実装計画を作り、方式案を alphasystem に示して了解を得てから実装する。alphadb@0.2.7（#97、Draft）の CodeArtifact への公開時期を alphadb-b1 と相談する（staging DB への適用は alphaexapi の staging デプロイに合わせる）。
+
+## 2026-10-22 MF ユーザー単位 OAuth: PR ＃155 作成、現行コード調査と設計の追補、alphadb 0.2.7 の公開
 
 - **依頼（alphasystem、2026-10-22 ユーザー承認済み）**: MF ユーザー単位 OAuth。設計は承認済みの `docs/superpowers/specs/2026-10-16-mf-user-oauth-design.md`。alphadb のスキーマ変更（`MfOauthToken` に `userEmail`、`@@unique([mfProduct, userEmail])`、既存2行は削除）は alphadb #97（0.2.7、Draft、マイグレーション `20261022120000_mf_oauth_token_per_user`）。順序は 4_7_1 の後（alphasystem の判断）。
 - **承認（ユーザー）**: 4_7_1 の実装完了後、MF ユーザー単位 OAuth への着手を承認（「お願いします」）。
@@ -875,3 +878,32 @@ alphasystem（alphasystem-6b セッション）から、2026-10-22 にユーザ�
 - **現行コード調査の結果（設計書 10/16 に追補）**: 設計に無い経路として、債務支払取込（PAYABLE の一覧取得 2 か所）と取引先候補一覧（画面から同期的に MF API を呼ぶ）、refreshToken 内の Prisma 直接クエリ 3 か所があった。未認可のエラーは、取引先同期・請求書送信では明細単位で握られてジョブは SUCCEEDED になる。送信・取込・rerun・取引先候補は ADMIN 限定ではない（「経理担当者向け」）一方、認可は ADMIN 限定で、ADMIN 判定はヘッダー頼み。チェーンの後続ジョブには起動者が記録されない。→ 設計書に「10. 追補」を書き、判断 D1〜D5（起動前の認可チェック、誰がトークンを持つか〔案A: 全社員に認可を開放／案B: MF を呼ぶ操作を ADMIN 限定〕、後続ジョブの起動者記録、rerun は rerun したユーザー、未使用ゲートウェイの削除）を alphasystem に確認依頼する。実装計画は回答後に作る。
 - **alphasystem の回答（2026-10-22）**: D1（起動前の認可チェック、無ければジョブを作らず 412、取引先同期は INVOICE と PAYABLE の両方）・D3（後続ジョブにも triggeredBy を記録）・D4（rerun は rerun したユーザーのトークン）・D5（NotImplementedMfPartnerGateway を削除）・追加経路の対応と CSV 経路は変更しない方針・alphadb 試験版 0.2.7-oauth.0 に固定し staging デプロイ前に正式 0.2.7 へ切り替え（それまで #155 は Draft）を了承。**D2（誰がトークンを持つか）は業務判断のためユーザーに確認中**。D2 に関わる部分（認可 API の権限、MF を呼ぶ操作の権限）は実装計画に選択肢として残し、それ以外は計画を進めてよい。案 A を採る場合、alphasys の認可の中継（Draft PR #270）の Route Handler が ADMIN 以外を 401 にしている点と、認可画面が ADMIN 限定メニューにある点も変更が要る（alphasystem から alphasys へ連絡）。
 - **alphadb から連絡（2026-10-22）**: 試験版の案ではなく、**正式な alphadb@0.2.7（OAuth）が publish され（latest）、staging DB にマイグレーション `20261022120000_mf_oauth_token_per_user` が適用された（20:41 JST、ユーザーの実行）**。既存のトークン2行は削除、一意制約は (mfProduct, userEmail)。→ #155 は `"^0.2.7"` を直接指定する（試験版への固定と「正式版までDraft」の段取りは不要になった）。staging で動いている現行の alphaexapi は製品単位の保存を前提にしているため、#155 をデプロイするまで staging では MF トークンを保存できない（もともと staging の MF 認可は通せない状態で実害は小さい、と alphadb）。#155 はマージ後すぐに staging へデプロイし、目処が立ったら alphadb-b1 に伝える。4_7_1 の PR #152（^0.2.6）はそのままでよい。設計書 10.4 を更新し、起草中の実装計画にも反映を指示した。
+- **コンフリクト解消（2026-10-22）**: PR #152（4_7_1）の staging へのマージで、本ブランチと同名の `docs/conversations/2026-10-22.md` が add/add で衝突したため、staging 側の記録をそのまま残し、本ブランチの OAuth の記録を後ろに足して解消した。
+
+## 2026-10-22 通勤費は給与データから廃止済み: 人件費の列は残し、4_7_1 の通勤費の変更依頼は API から外す（ユーザー決定）
+
+- **事実（ユーザー）**: 現在、給与データ（MF クラウド給与）から通勤費は廃止されている。
+- **決定（ユーザー）**: ①人件費の通勤費の列（`alp_usercost.tax_free_commuting`・`commuting_cost`）は DB の列として残す（給与 CSV の取込で値が 0 になるのはそのままでよい）。②4_7_1 の「通勤費の変更依頼」機能（本人の依頼 API、総務の一覧・操作の対象、従業員情報 CSV の通勤手当1 との照合）は API から外す。`alp_user_change_data` の種別 `CHANGE_COMMUTING` は DB に残す。`alp_users` への通勤費の列追加（保留中だったもの）は行わない。
+- **段取り**: 4_7_1 の追補として、staging から別ブランチで修正する（OAuth の PR #155 とは分ける）。契約書を改版し、alphasys の画面からも外してもらうよう alphasystem 経由で連絡する。
+- **補足**: OAuth の PR #155（着手の記録と設計の追補 10 章のみ）は 2026-10-22 にユーザーが staging へマージ済み。OAuth の実装は、実装計画ができたら staging から新しいブランチ・PR で行う。
+- **実施（2026-10-22）**: コミット 31d108e で通勤費の変更依頼を API から外した（本人の `POST /member/employee-info/requests/commuting` と DTO、`GET /member/employee-info` の `current.commuting`・`requests.commuting`、総務の承認対象〔一覧の既定は住所・銀行口座・DC の3種別、通勤費の行の受付・却下・完了は 404〕と詳細の現在値、従業員情報 CSV の通勤手当1 との照合）。`ChgType.CHANGE_COMMUTING`・種別ラベル・人件費の通勤費の列（給与 CSV 取込）は残した。契約書を第2.3版に改版、Swagger からも削除（アプリ起動で再生成し手編集と一致することを確認）。テスト 32 スイート / 230 件 PASS、tsc・eslint エラーなし。レビュー承認（Important なし）。未使用になったリポジトリの `findLatestCompleted` は汎用の読み取りメソッドのため残す。
+- **連絡**: alphasystem へ、契約書第2.3版と、alphasys の本人画面・総務画面から通勤費の依頼を外してもらう依頼を送る。
+- **PR の作り直し**: PR #157 は記録のコミット（8248483）だけの状態でユーザーが staging にマージ済みだった。コード（31d108e）と結果の記録（e147b2f）はマージ後のブランチに push してしまい staging に入っていなかった（push 前にマージ済みかを確認する手順を、状態の確認と push を1コマンドにしたため守れなかった）。staging から `feature/employee-info-remove-commuting-2` を作って2コミットを cherry-pick し、新しい Draft PR で出し直した。
+
+## 2026-10-22 MF ユーザー単位 OAuth の実装計画を作成（alphasystem の了解待ち、D2 はユーザー判断待ち）
+
+- **作成**: `docs/superpowers/plans/2026-10-22-mf-user-oauth.md`（T0〜T14）。新ブランチ `feature/mf-user-oauth-impl`（staging から、Draft PR）。マージ済みの `feature/mf-user-oauth` はローカルから削除。
+- **構成**: 共通の `AuthenticatedRequest` → 未使用ゲートウェイ削除（D5）→ ランナーに起動者を渡し後続ジョブにも記録（D3・D4）→ Client に移行用の新シグネチャ → 取引先同期・候補一覧 → 請求書送信 → 請求書取込 → 債務支払取込 → 中間レビュー → alphadb@^0.2.7 導入とトークンのユーザー単位化（Repository・OAuth の state/refresh・authorize を1コミット）→ 起動前の認可チェック（D1、未認可 412・起動者不明 401）→ 全体確認 → D2 の案A／案B（どちらも EmployeeGuard、案B は AdminOnly）→ staging デプロイ連携。コミット単位ではビルドが壊れない並べ方（T10 の作業中のみ）。
+- **計画で決めた細部**: alphadb の導入は T10（入れた時点で Repository・OAuth が壊れるため T0 は存在確認のみ）。起動者の null チェックはランナーで行い Service の引数は string。D2 のテストのため `employee.guard.ts` の `ADMIN_ONLY_KEY` を export に変える（4_7_1 のファイルを1か所変更）。`EMPLOYEE_CSV_IMPORT` は必要な製品なし。
+- **前提**: T10 の `npm install alphadb@^0.2.7` で CodeArtifact トークンの再取得が要る（ユーザー承認）。alphasystem-6b に SendMessage が届かないため、alphasystem 直下の `INBOX_FROM_ALPHAEXAPI.md` で方式案を共有する。
+
+## 2026-10-23 MF ユーザー単位 OAuth: D2 は案 B（ADMIN 限定）に決定、取引先同期は PUT も含める
+
+- **経緯**: alphasystem から `INBOX_FROM_ALPHASYSTEM.md` で申し送り（読了・取込後に削除）。決定の一次記録は alphasystem `docs/conversations/2026-10-23.md`（Draft PR #117）。
+- **決定（ユーザー）**: D2 は **案 B**。MF クラウドの API を呼ぶ操作（送信・取込・rerun・取引先候補の一覧）を ADMIN 限定にする。認可を全社員に開放する案 A は採らない。経理担当者が ADMIN でない場合に MF の操作が使えなくなる点はユーザー承知のうえで、運用で ADMIN を付与する。PR #160 の Task 13 は案 B で実装する（`EmployeeGuard` は両案共通で計画どおり）。
+- **追補（設計者の指示）**: 取引先同期コントローラ（`src/money-forward-customer/money-forward-customer.controller.ts`）は `GET candidates` に加えて **`PUT candidates/:customerNo` も ADMIN 限定**にする。PUT は MF を呼ばず `MfLink` を alphadb に書くだけだが、その設定は次回の同期で MF に反映され、画面（alphasys `/sales/customer/mf-sync`）も ADMIN 限定になるため、PUT だけ全社員が直接叩ける状態を残さない。冒頭の「経理担当者向けの画面であり管理者限定ではないため、@Roles()は付けない」のコメントも更新する。
+- **計画への反映**: 2 本とも ADMIN 限定になるため、メソッド単位ではなくクラスに `@UseGuards(GoogleAuthGuard, EmployeeGuard)` + `@AdminOnly()` を付ける（`RolesGuard` は外す。`EmployeeGuard` は `getAllAndOverride` でクラスのメタデータも読む）。計画 `docs/superpowers/plans/2026-10-22-mf-user-oauth.md` の Task 13 を案 B 採用・案 A 不採用に書き換え、設計書 10.3 D2 に決定を追記した。
+- **変更なし**: D1（起動前の認可チェック、未認可 412・起動者不明 401）、D3（後続ジョブにも `triggeredBy`）、D4（rerun は rerun した人のトークン）、D5（未使用ゲートウェイの削除）は 10/22 の了承のまま。
+- **alphasys 側（alphasystem から連絡済み）**: `/sales/customer/mf-sync` は middleware の ADMIN 判定の対象外だったため、`page.tsx` に `confirmAdmin()` を足して ADMIN 限定にする（サーバーアクションには手を入れず、実効的なガードは alphaexapi の ADMIN 限定で担保する）。`/common`・`/manager` は既に ADMIN 限定。認可の中継（alphasys PR #270、マージ済み）の「ADMIN 以外 401」と認可画面の ADMIN 限定メニューは案 B と整合するためそのまま。
+- **PR #160 の衝突**: PR #159 のマージで `docs/conversations/2026-10-22.md` の末尾追記どうしが衝突していたのを、alphasystem が解消して `origin/feature/mf-user-oauth-impl` に merge コミット（f6487ee）を push 済み。本セッションで `git pull` 済み。
+- **状態**: 実装（Task 0〜14）は未着手。計画は alphasystem の了解済み、D2 も決定したため、着手の可否をユーザーに確認する。

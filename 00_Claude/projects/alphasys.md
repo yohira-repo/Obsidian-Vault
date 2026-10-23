@@ -908,3 +908,50 @@ alphasystem-6b より: alphaexapi の 4_7_1 実装が完了（Draft PR #152。Dr
 4_7_1 の画面3つ（社員本人＋確認メールのリンク先、総務の一覧・詳細＋メニュー「変更依頼」、CSV 連携「従業員情報」タブ＋MF実行状況「従業員情報取込」〔再実行なし〕）の実装がそろい、モック5枚を削除した。契約書第2.2版の差分（UTC→JST 表示、送信中のボタン無効化、503/404、日付の実在・住所 512 文字の事前チェック）も反映。検証: `npx jest` 全体 97スイート・595件（EditProjectInfo の3件が全体実行時にタイムアウトしたが、今回は触っていない画面で、単独実行では19件すべてパス）、テスト以外の型チェックはエラー0、`next build` 成功、変更範囲の ESLint は既存の指摘3件（`MfCsvExportSection.test.tsx`・`src/types/data-table.ts`）のみ。**alphadb の 0.2.6 への更新は、CodeArtifact の認証トークン切れ（E401）で未実施**。ユーザーに CodeArtifact へのログインを依頼する（4_7_1 の画面は alphadb の型を使っていないため、検証には影響なし）。
 
 PR #271 は 2026-10-22 09:01 UTC（モック5枚と会話記録だけの時点）にユーザーがマージ済みだった。push 前のマージ確認を怠り、画面の実装を同じブランチへ push してしまったため、ブランチを `feature/employee-change-request-screens` に改名し、画面の実装（staging に入ったモック5枚の削除を含む）を新しい Draft PR [#274](https://github.com/alphacmc/alphasys/pull/274) として出し直した。#274 は実 API とのつなぎ込みが済むまでマージしない旨を PR 本文に明記。モックの HTML は Next.js の画面として配信されないため、staging の利用者からは見えない。
+
+ユーザーより「PR#274 で conflict が発生しています。解消お願いします」との指示。PR #273（/manager の ADMIN 保護）がマージされ、両 PR がこのファイルに追記していたため競合した。origin/staging を `feature/employee-change-request-screens` にマージし、両方の記録を時系列順（了承 → /manager の保護 → 4_7_1 の画面実装）に並べて解消した。middleware・総務画面・本人画面・メニューのテストがパスすることを確認。
+
+## 2026-10-22 PR ＃274（4_7_1 の画面）マージ完了
+
+ユーザーが PR #274 をマージ（2026-10-22 12:02 UTC）。alphaexapi の PR #152（4_7_1 の API）も 11:50 UTC にマージ済み。staging の alphasys は `EMPLOYEE_CHANGE_API_MOCK` を設定していないため、実 API を呼ぶ。alphaexapi が staging にデプロイされるまでは、画面がエラー表示になる（例外は投げない）。ローカル staging を同期し、マージ済みの `feature/employee-change-request-screens`・`feature/manager-admin-guard` を削除した。alphasystem-6b へマージを連絡しようとしたが、他のセッションが稼働しておらず未送信。次に alphasystem のセッションが起動したら、マージ済みであること・画面の入口（/member/employees、/manager/employee-change-requests、/common/mf-csv の「従業員情報」タブ、/member/employees/mail-confirm）・staging での結合試験に進めることを伝える。残り: alphadb の 0.2.6 への更新（CodeArtifact の認証切れのためユーザーのログイン待ち）、既存の MF 画面のエラー文言を直すかどうか（ユーザー判断待ち）。
+
+## 2026-10-22 alphadb を 0.2.7 に更新（PR ＃277）
+
+ユーザーが CodeArtifact へログイン。ただし本プロジェクトの `.npmrc` はトークンを環境変数 `CODEARTIFACT_AUTH_TOKEN` から読むため、こちらのシェルで `aws codeartifact get-authorization-token` を実行して取得し、インストールした。`^0.2.6` 指定で、CodeArtifact の最新版 0.2.7（MF OAuth のユーザー単位化。staging DB に 20:41 JST に適用済み）が入った。alphasys は `MfOauthToken`・`UserChangeData` を直接使っていないため、staging の DB にそろえて 0.2.7 を採用した（alphasystem の依頼は 0.2.6）。インストール直後は postinstall の `prisma generate` が反映されておらず、`Role` 等の型が見つからなかったため、手動で `prisma generate` を再実行した。テスト以外の型チェック 0、`next build` 成功、jest 598件パス（EditProjectInfo の3件は全体実行時のみタイムアウト、単独ではパス）。staging から `feature/alphadb-0.2.6` を作成し、Draft PR [#277](https://github.com/alphacmc/alphasys/pull/277)。
+注意（alphadb の記録より）: staging の DB が 0.2.7 になったため、現行（製品単位前提）の alphaexapi は MF トークンの保存に失敗する見込み。PR #270（MF 認可の中継）の staging での通し確認は、alphaexapi のユーザー単位 OAuth（alphaexapi #155）が staging にデプロイされてから行う必要がある。
+
+## 2026-10-23 MF連携D2「案B」を前提としたmf-sync ADMIN限定化を保留
+
+alphasystemセッション（`alphasystem-b8`）から「MF連携D2（誰がMFトークンを持つか）は案B（MF API操作はADMIN限定）に決定」とのクロスセッション連絡を受け、`/sales/customer/mf-sync`画面に既存の`confirmAdmin()`パターンを適用する修正を提案・ユーザー承認のうえ実装し、ブランチ`feature/mf-sync-admin-only`へコミット・pushまで完了していた（Draft PR未作成）。
+
+その直後、ユーザーより「まだ実施状況、計画をヒアリングしている段階」との指摘があり、alphasystem側が「決定済み」として伝えてきた前提自体がこの時点では確定していない可能性が判明。
+
+- **対応（保留の決定）**: Draft PR作成を見送り、一旦停止。ブランチへのコミット・pushのみ（誰にも影響なし）の状態で、ユーザーからの続報待ちとする
+- 次のアクション: ユーザーからD2の決定状況について続報があり次第、(1) このmf-sync対応をDraft PRまで進めるか、(2) 決定自体が未確定のため取り下げる/保留するか、の判断を仰ぐ
+
+## 2026-10-23 mf-sync ADMIN限定化（保留分）の継続を承認、Draft PR作成（PR ＃279）
+
+ユーザーより「本件は継続してもらってかまいません」との回答があり、上記で保留していたmf-sync ADMIN限定化対応の続行を承認。ブランチ`feature/mf-sync-admin-only`からDraft PR #279を作成（base: staging）。
+
+あわせて、課題表（alphasys課題）の全体状況を棚卸しして報告。**3_1_12「MFC請求書、MFC債務支払ボタンの実装」がPR#「多数」・確認「OK」と記載されている**ことを発見し、今回のmf-sync ADMIN限定化対応との関係（同一の対応を指すのか、既に別途完了済みなのか）をユーザーに確認依頼中（回答待ち）。
+
+## 2026-10-23 PR ＃279マージ完了。3_1_12の状況確認は引き続き回答待ち
+
+ユーザーよりPR #279（mf-syncのADMIN限定化）のマージ完了報告。staging最新をローカルへ反映し、マージ済みブランチ`feature/mf-sync-admin-only`を削除済み。
+
+あわせて、3_1_12の状況確認について質問の趣旨を再説明。**今回マージしたPR #279はMFC請求書・MFC債務支払ボタン本体の実装ではなく、その操作をADMIN限定にするガード追加のみ**であり、課題表の3_1_12「PR#:多数／確認:OK」がボタン本体実装の完了を指すのか、それとも別件の記入なのかは未確認のまま。ユーザーからの回答待ち。
+
+## 2026-10-23 3_1_12はalphaexapiの別機能と判明、API側ガード未実装の懸念をalphasystemへ連携
+
+ユーザーより「3_1_12を実装しているとしたらalphaexapiですので、問い合わせてください」との指示。alphaexapiセッションは起動していなかったため、ローカルの`alphaexapi`リポジトリ（コード・git log・`gh pr view`）をExploreエージェントで直接調査（設計判断を伴わない閉じた調査のため、セッション起動なしで対応）。
+
+- **判明事実1**: 課題表3_1_12「MFC請求書、MFC債務支払ボタンの実装」は`money-forward-job.controller.ts`のCSVエクスポート/インポート・月次送信/取込ジョブを指し、**既に実装済み・`@Roles('ADMIN')`も付与済み**。今回のmf-sync ADMIN限定化（PR #279）とは無関係の別機能であり、課題表の「PR#:多数／確認:OK」の記載は正しいと判断
+- **判明事実2（新たな懸念）**: mf-sync画面が呼ぶ`money-forward-customer.controller.ts`（candidates GET/PUT）には**現状`@Roles()`が付与されていない**（コード内コメントに「経理担当者向け画面であり管理者限定ではないため付けない」と明記されたまま）。また、alphasystemが言及していたPR#160（MFクラウド連動のユーザー単位OAuth、AdminOnly付与予定）は**OPEN・未実装**（実装計画のみ）。すなわちalphasys側（PR #279）は画面レベルでADMIN限定にしたが、**alphaexapi側のAPIは現時点で一般社員が直接叩いても通る状態**
+- **承認**: 上記の調査結果・懸念をalphasystemセッションへ連携してよいとの指示を受け、`SendMessage`で`alphasystem-b8`へ共有済み。案Bの実効性確保にはalphaexapi側（PR#160または同等の実装）が別途必要との認識確認を依頼中、回答待ち
+
+alphasystemより回答あり、以下の訂正・結論が確定した:
+
+- **訂正**: 「案Bの実効性確保にPR#160の完成を待つ必要がある」という認識は誤り。mf-syncのAPI2本（candidates GET/PUT）への`@Roles('ADMIN')`付与は、PR#160（トークンのユーザー単位化・D1起動前認可・送信/取込/rerunへのAdminOnly付与）とは**独立した小さな対応**で先に塞げる
+- **確定**: 3_1_12（`money-forward-job.controller.ts`のCSV・送信/取込ジョブ）は実装済み・ADMIN限定済みで確定。課題表の記載は正しい
+- **確定**: PR #279は後退ではない。画面もAPIも元々全社員アクセス可能だった状態から、#279は画面側を先に閉じただけ。API側の穴（`money-forward-customer.controller.ts`に`@Roles()`無し）は新規発生ではなく元からあったもの
+- **確定（alphasys側の対応完了）**: mf-syncのAPI側ガード（2本への`@Roles('ADMIN')`付与、独立PRにするか#160に含めるか）は、alphaexapi側のセッションが無いためalphasystem側で段取り・ユーザー確認を行う。**alphasys側に追加作業は無し**

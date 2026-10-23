@@ -84,3 +84,34 @@
   - S1：今のメジャーのまま lock を更新し、Next を 13.5.11 に上げ、turbo を 2.11.10 に固定する。
   - S2（C の前倒し）：NestJS 9 → 11、Next 13 → 15（App Router は React 19 が前提。Mantine 5 が対応しているかを先に調べる）、Prisma を 6 系にそろえる、sharp を 0.34 以降に。
   - prd 反映は「Node 24 + S1」を 1.5.1 として stg で確認してから出す。S2 はその後すぐに着手。
+
+## 2026-10-23 フレームワーク更新の方針の承認（S1 → S2）
+
+- **決定（ユーザー承認）**: 10/22 に提案した S1 → S2 の 2 段階で進める。最新世代（Next 16 / NestJS 12 / Prisma 7）は今回は見送り、次の定期更新で上げる。
+  1. **S1**：今のメジャーのまま lock を更新、Next を 13.5.11 に、turbo を 2.11.10 に固定。1.5.1 として stg で確認してから prd に反映する。
+  2. **S2-backend**（1 PR）：NestJS 9 → 11.2.7、Prisma を 6.19.3 に。Nest 11 は Express 5 になるので、ルートのワイルドカードの書き方の変更を確認する。
+  3. **S2-frontend**（1 PR）：Next 13 → 15.5.28、React 18.3.1（19 にはしない）、Prisma 6.19.3、sharp 0.34 以降。Mantine 5・react-datepicker 4 はそのまま使う。
+  4. 次の定期更新で Next 16 / Nest 12 / Prisma 7 にする。
+- **10/22 の記録の訂正**: 「frontend は App Router（React 19 が前提）」は誤り。画面はすべて Pages Router（`src/pages/`）で、`src/app/` には layout.tsx・globals.css・favicon.ico が残っているだけで画面は無い。Next 15・16 とも React 18.2 以上で動く（peerDependencies で確認）ため、Mantine 5（React >=16.8）と react-datepicker 4（React 18 まで）はそのまま使える。
+- **理由**: NestJS 12 は 2026-08 に出たばかりで、周辺パッケージ（passport・jwt・config など）の対応が追いついていない可能性がある。Prisma 7 は設定ファイル・接続方法の変更が大きい。Next 16 まで一気に上げると、stg での問題の切り分けが難しくなる。
+
+## 2026-10-23 S1 の実施（PR ＃112、1.5.1）
+
+- ブランチ `feature/deps-update-s1`、Draft PR https://github.com/alphacmc/coopcdeweb/pull/112（base main）。
+- 実施した内容: `npm audit fix`（`--force` なし）、Next 13.4.7 → 13.5.11、turbo を 2.11.10 に固定（root の package.json と Dockerfile の global install）、turbo.json を `pipeline` → `tasks` に、バージョンを 1.5.1 に。
+- `npm audit --omit=dev`: 59 件 → 32 件（critical 4 → 1、high 29 → 20）。10/22 の試算（37 件）より少ない。
+- 見つかったこと: これまで Docker 内では prune が全体インストールの最新版 turbo（2 系）、build が lock の 1.10.6 と、2 つのバージョンが混ざって動いていた。今回 2.11.10 にそろえた。
+- ローカルでの確認: LF の clone から docker compose build を実行し、成功。backend は `JWT_SECRET_KEY` にダミー値を渡して起動を確認。frontend は `/web/api/healthCheck` と `/web/admin/login` が 200。
+  - 手元の PC では、社内プロキシの証明書のせいで `prisma generate`（エンジンのダウンロード）が失敗するため、ビルドの確認は Docker で行う。
+  - frontend の basePath は `/web`。
+- **次にやること**: 1.5.1 を stg に反映して確認 → prd に反映。そのあと S2-backend に着手する。
+
+## 2026-10-23 Next の critical 脆弱性への暫定対策と、S2 の順番の変更
+
+- PR #112 はユーザーがマージ済み（e194a10）。
+- **見つかったこと**: S1 の後に残った critical 1 件は Next.js の「画像最適化 API（`/_next/image`）を通して、認証なしでリモートからコードを実行される」脆弱性（AVIF・SVG。SVG のものは 15.5.27 以前すべてが対象）。13.5.11 では直らず、15.5.28 で直る。frontend は `next/image` を `CustomImage`（`src/utils/image-utile.tsx`）経由で 3 画面（ログイン、会員画面、エラー画面）で使っている。`public/` には参照されていない SVG（`next.svg`・`vercel.svg`。作成時のひな形の残り）がある。
+- **決定（ユーザー承認）**:
+  - stg への反映は OK（前回と同じ手順）。
+  - S2 の順番を入れ替え、**S2-frontend（Next 15.5.28）を先**にし、S2-backend（NestJS 11）はその次にする。
+  - **つなぎの対策**を 1.5.1 に加えて stg で確認する：`next.config.js` に `images.unoptimized: true` を入れて画像最適化 API を止める（画像は元のファイルがそのまま返る）。使っていない `public/next.svg`・`public/vercel.svg` を削除する。Next 15.5.28 にしたら `unoptimized` は外す。
+- **訂正**: 前回の報告で「社内プロキシの証明書のせいで `prisma generate` が失敗する」と書いたが、プロキシは無い（10/22 の記録にも「プロキシは無い」とある）。ユーザーの指摘を受けて原因を調べ直す。

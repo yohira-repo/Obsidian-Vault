@@ -3302,3 +3302,43 @@ alphaofficesystemの現行CSV連携は、仕様書4.3章（請求書、38列）�
 - **連絡（alphadb-b1）**: `alphadb@0.2.7` を正式に publish し、staging の DB にも適用（ユーザーの実行、2026-10-22 20:41 JST）。CodeArtifact で 0.2.7 が latest。適用したマイグレーションは `20261022120000_mf_oauth_token_per_user`。`alp_mf_oauth_token` の既存 2 行が削除された。当初の「staging への適用は alphaexapi のデプロイに合わせる」より先に適用された形。alphaexapi-aa には、#155 で `^0.2.7` を直接指定するよう連絡済み（試験版 `0.2.7-oauth.0` は使わない）。
 - **影響**: staging で今動いている alphaexapi は MF のトークンを保存できない見込み（MF の API を呼ぶ操作が動かない）。staging の MF 認可は alphasys の中継が未実装でもともと通せない状態だったので、実害は小さい。CSV 経路（請求書・債務支払・給与）はトークンを使わないので影響なし。4_7_1（alphaexapi #152、`alphadb@0.2.6` でビルド）も、MF のトークンを使わないため、0.2.7 の DB でも動く見込み。
 - **次**: alphaexapi の MF ユーザー単位 OAuth の実装（#155）と、staging へのデプロイ。D2（誰が MF のトークンを持つか）はユーザーの回答待ち。デプロイ後に、各自で MF を再認可する（alphasys の中継 #270 のマージ・デプロイが前提）。
+
+## 2026-10-23 課題の棚卸しと、未マージ PR 3 本のマージ（＃159・＃115・＃104）
+
+- **棚卸し（alphasystem-b8）**: セッション再開にあたり、配下プロジェクトの未マージ PR・申し送り・記録の穴を横断確認した。
+- **判明**: alphaexapi の通勤費削除は、同名の PR #157 が記録のコミットだけでマージされていたため、**実コードが staging に入っていなかった**（`git grep commut origin/staging -- src/employee-info` が 10 ファイルにヒット）。出し直しの PR #159 が未マージのままだった。
+- **マージ（ユーザー、2026-10-23）**: alphaexapi #159（通勤費削除の実コード）、alphasystem #115（10/22 夜の会話記録 6 コミット）、alphadb #104（staging→main 3 コミット）。
+- **残っている課題**: 4_7_1 の設計書が第 5 版のままで通勤費削除が未反映（3 章・4 章・6 章・10 章 #8b・11 章・追補）。「実装依頼は保留中」の記述も 10/22 に解除済みで古い。結合試験の手順書（設計書 10 章の 12 項目）は未作成。alphasyscdk は会話記録が 1 件も git 管理されておらず、10/22 の SES インフラ構築（#105）の記録が残っていない。
+
+## 2026-10-23 MF ユーザー単位 OAuth の D2 は案 B に決定（MF を呼ぶ操作を ADMIN 限定にする）
+
+- **決定（ユーザー）**: D2「誰が MF のトークンを持つか」は **案 B**。**MF クラウドの API を呼ぶ操作を ADMIN 限定にする。** 認可を全社員に開放する案 A は採らない。
+- **受け入れた副作用**: 経理担当者が ADMIN 権限を持たない場合、MF を呼ぶ操作（送信・取込・rerun・取引先候補の一覧）は使えなくなる。運用で ADMIN を付与するか、担当者を ADMIN にする前提。
+- **alphaexapi の作業（PR #160、計画の T13）**: 送信・取込・rerun・取引先候補のエンドポイントに `AdminOnly` を付ける。`EmployeeGuard` は案 A・案 B 共通。D1（起動前の認可チェック、未認可 412・起動者不明 401）、D3（チェーンの 2 つ目以降にも `triggeredBy`）、D4（rerun は rerun した人のトークン）、D5（未使用ゲートウェイ削除）は 10/22 に了承済みのまま変更なし。
+- **alphasys の作業（新規）**: **`/sales/customer/mf-sync`（MF 取引先照合・設定）を ADMIN 限定にする。** この画面は `getMfCustomerSyncCandidatesAction` で MF API を直接呼ぶが、`/sales` 配下のため middleware の ADMIN 判定の対象外になっている。案 B では一般社員が開くと alphaexapi 側で拒否されるため、画面側でも合わせる。`/common`（MF 実行状況・認可・CSV 連携）と `/manager` は既に middleware で ADMIN 限定のため変更不要。
+- **変更しないもの**: alphasys の認可の中継（PR #270、マージ済み）の「ADMIN 以外 401」と、認可画面の ADMIN 限定メニューは案 B と整合するため**そのまま**。
+- **連絡（実施済み、2026-10-23）**: alphaexapi はセッション未起動のため、直下に未追跡の `INBOX_FROM_ALPHASYSTEM.md` を置いて申し送った（D2 の決定と、#160 の衝突を alphasystem 側で解消したこと）。alphasys は稼働中のため SendMessage で依頼した。
+- **あわせて伝えた既存の課題（alphasys）**: `src/config/menu.ts` にロールの出し分けの仕組みが無く、`/common`・`/manager` も全員のメニューに表示されている（開くと middleware で拒否される）。既存の挙動のため今回は変更せず、`mf-sync` の対応に合わせて見てもらうよう依頼した。
+
+## 2026-10-23 alphaexapi PR ＃160 の衝突を alphasystem 側で解消
+
+- **衝突**: PR #159 のマージで、`docs/conversations/2026-10-22.md` の**末尾追記どうし**が衝突（1 か所）。staging 側は通勤費の節への箇条書きの追記、ブランチ側は「MF ユーザー単位 OAuth の実装計画」という新しい節の追加だった。
+- **解消（alphasystem-b8）**: alphaexapi のセッションが起動していないため、設計判断を含まない機械的な衝突として alphasystem 側で対応した。staging 側の箇条書きを通勤費の節に残し、その後ろにブランチ側の新しい節を置いて両方を残した。`origin/feature/mf-user-oauth-impl` に merge コミットを push し、PR #160 は MERGEABLE / CLEAN になった。
+- **補足**: #160 はまだ実装計画のコミット 1 本だけで、コードの変更は入っていない。
+
+## 2026-10-23 案 B の適用範囲を補強: 取引先同期は PUT も ADMIN 限定にする（設計者判断）
+
+- **alphasys の方式案（alphasys-aa）**: `/sales/customer/mf-sync` は `page.tsx` に `confirmAdmin()` を1行足す（`src/lib/confirm-admin.ts` は `/sales/bill`・`/division` 等で使われている既存パターン）。2つのサーバーアクションにはロールチェックを入れない（既存方針の踏襲）。`menu.ts` のロール出し分けは別件。
+- **了承（設計者）**: `page.tsx` への `confirmAdmin()` と、`menu.ts` を別件にする判断は妥当。
+- **補強した点**: サーバーアクションに手を入れない結論は変えないが、理由を「既存方針の踏襲」から「実効的なガードは alphaexapi 側」に置き換えた。Next.js のサーバーアクションは独立して呼べるため、`page.tsx` のガードだけでは素通りする。
+- **判明（alphaexapi `src/money-forward-customer/money-forward-customer.controller.ts`）**: `GET candidates` は MF をライブで呼ぶので案 B の対象だが、**`PUT candidates/:customerNo` は MF を呼ばず `MfLink` を alphadb に書くだけ**で、案 B の「MF を呼ぶ操作」という文言からは漏れる。GET だけを ADMIN 限定にすると、画面は ADMIN 限定なのに **PUT だけ全社員が直接叩ける状態が残る**。
+- **決定（設計者）**: **`PUT candidates/:customerNo` も ADMIN 限定に含める。** 同コントローラ冒頭の「経理担当者向けの画面であり管理者限定ではないため、@Roles()は付けない」というコメントも案 B で覆るため更新する。`INBOX_FROM_ALPHASYSTEM.md` の「4. 追補」に追記して申し送った。
+
+## 2026-10-23 alphasys PR ＃279 マージ、alphaexapi 側の API ガードが未実装であることを確認
+
+- **マージ（ユーザー、2026-10-23 09:00 JST）**: alphasys PR #279「MF取引先照合・設定画面をADMIN限定にする」。`page.tsx` に `confirmAdmin()` を追加。
+- **alphasys-aa の調査**: 課題表の 3_1_12「MFC請求書、MFC債務支払ボタンの実装」は `money-forward-job.controller.ts` の CSV エクスポート/インポート・月次送信/取込を指しており、**実装済みかつ `@Roles('ADMIN')` 付与済み**（5 か所で確認）。案 B の mf-sync 対応とは別の既存機能。
+- **確認した事実（alphaexapi `origin/staging` = 019a119）**: `money-forward-customer.controller.ts` には **`@Roles()` が付いていない**。コメントも「経理担当者向けの画面であり管理者限定ではないため付けない」のまま。認証済みの社員なら誰でも GET/PUT を叩ける。
+- **位置づけ**: この穴は **#279 で生じたものではなく元からある**。これまで画面も API も全社員が触れる状態で、#279 は画面だけを閉じた。API の状態は #279 の前後で変わっていない。
+- **範囲の訂正**: 「案 B を実効性のあるものにするには #160 が必要」は mf-sync には当てはまらない。**mf-sync の2本は `@Roles('ADMIN')` を2行足してコメントを直すだけで閉じられ、#160 の他のタスク（トークンのユーザー単位化、D1 の起動前の認可チェック、送信・取込・rerun への AdminOnly）とは独立している。**
+- **未決（ユーザー確認中）**: mf-sync の2本を #160 と切り離した小さな PR で先に塞ぐか、#160 に含めるか。alphaexapi のセッションは未起動のため、どちらにせよ alphasystem が段取りする。alphasys 側の追加作業はない。
