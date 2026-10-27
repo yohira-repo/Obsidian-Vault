@@ -955,3 +955,161 @@ alphasystemより回答あり、以下の訂正・結論が確定した:
 - **確定**: 3_1_12（`money-forward-job.controller.ts`のCSV・送信/取込ジョブ）は実装済み・ADMIN限定済みで確定。課題表の記載は正しい
 - **確定**: PR #279は後退ではない。画面もAPIも元々全社員アクセス可能だった状態から、#279は画面側を先に閉じただけ。API側の穴（`money-forward-customer.controller.ts`に`@Roles()`無し）は新規発生ではなく元からあったもの
 - **確定（alphasys側の対応完了）**: mf-syncのAPI側ガード（2本への`@Roles('ADMIN')`付与、独立PRにするか#160に含めるか）は、alphaexapi側のセッションが無いためalphasystem側で段取り・ユーザー確認を行う。**alphasys側に追加作業は無し**
+
+## 2026-10-23 alphasys課題表対応、PR ＃281マージ確認後に新規提示された11項目を調査・実行
+
+ユーザーがPR #281をマージ。その後、前バッチで「スコープ外」として洗い出していた新規項目11件（1_3_1, 2_1_4/3_1_13, 2_4_2[前者], 3_2_3, 4_1_2, 4_6_1/4_6_2, 5_1_3, 5_3_2, 5_5_3/5_5_4, 6_3_1[後者]）について実行を指示された。あわせて、2_1_4と3_1_13は同内容ではなく、2_1_4は契約ベースの受発注対応表、3_1_13は金額入り・取引先別/部門別の受発注採算表である旨の訂正を受けた。
+
+実行前に11項目を調査し、着手可否を判定。「調査してから判断したいもの」の扱いとして、複雑な設計判断が要る項目はユーザーに個別確認:
+
+- **4_6_1/4_6_2**（業務経歴書シートの資格情報表示）: 調査の結果、現行コード（`create-sheet.action.ts`）は既に資格情報を最大5セルに分割して書き込んでおり、課題表の「1セルに全て格納」という記述と矛盾。テンプレート自体はalphasys外（Google Drive）にあり実際の出力を見ないと判断できないため、**今回はスキップ**とユーザーが回答。
+- **2_1_4/3_1_13**（受発注対応表・受発注採算表のGoogle Sheets化）: alphaofficesystemのExcel/POI出力を参考にした新機能で、テンプレート設計・外部create-sheet APIの機能拡張が絡む規模の大きい作業。ユーザーは**「設計から着手する（推奨）」を選択** → 次のアクションとしてbrainstormingスキルでの設計セッションに進む（本バッチでは未着手）。
+- **5_3_2**（DC管理CSVインポート）: 課題表に「ボタン配置は今後検討」と明記されている通り、ユーザーも**「今は決まっていない、スキップしてよい」**と回答。今回未着手。
+- **5_5_3/5_5_4**（AWSインスタンス作成のデフォルトユーザー作成・AMI直接指定）: 前回「alphacdkのインフラ変更が必須なため実装は保留」と決定済みだったが、今回ユーザーは**「はい、alphacdk側の変更を含めて進めてほしい」と保留を解除**。次のアクションとして別途設計検討に進む（本バッチでは未着手）。
+- **3_2_3**（請求情報画面の文書ファイル事前表示・最大化ポップアップ）: 今回の調査スコープには含めたが、実行バッチの対象外として後回し（未着手、理由: 他の確定事項の処理を優先したため）。
+
+調査の結果、残り5項目は設計判断不要・既存パターンの直接適用で対応可能と判断し、実行:
+
+1. **1_3_1** 取引先管理/技術者要員登録一覧の末尾に編集・削除メニューを追加。編集は既存の遷移先を流用、削除は新規Server Action（`members.repository.ts`の`deleteMember`を利用） → PR [#283](https://github.com/alphacmc/alphasys/pull/283)
+2. **2_4_2**（前者）契約情報画面に埋め込まれた請求一覧（`BillList.tsx`）の末尾に編集・削除メニューを追加。`/sales/bill/`一覧で既に使われている`BillRowActions`をそのまま再利用 → PR [#284](https://github.com/alphacmc/alphasys/pull/284)
+3. **4_1_2** 技術者経歴一覧の操作列を、単一の「業務経歴書 出力」ボタンから3項目メニュー（基本情報編集/業務経歴編集/業務経歴出力）に変更。削除は行わない（退職処理で一覧から消えるため不要） → PR [#285](https://github.com/alphacmc/alphasys/pull/285)
+4. **5_1_3** 社員一覧の末尾に編集・退職メニューを追加。退職は社員個人情報画面と同じ退職年月日入力ダイアログを一覧から直接開けるようにし、新規Server Action（一覧向けにrevalidatePathで完結、既存のredirect前提アクションは非破壊のため別経路として追加）で処理 → PR [#286](https://github.com/alphacmc/alphasys/pull/286)
+5. **6_3_1**（後者）部門メンバー一覧に「前月コピー」ボタンを新設。選択中年月の前月のBelongレコード（priority/allocType/ratio含む）を複製し、既存の（scode, divId）組はスキップ → PR [#287](https://github.com/alphacmc/alphasys/pull/287)
+
+**実装上の発見（恒久修正）**: 2_4_2対応で`BillRowActions`（既存コンポーネント、ジェストのフォーカスループ対策が未適用だった）を`BillList.tsx`から再利用した際、`revalidatePath`（next/cache）の実体を読み込むとNext.jsのサーバーランタイム内部まで辿り、jsdom環境に無い`TextEncoder`/`Request`等への参照でテストスイートが丸ごと落ちる問題を発見（`BillList`が`ContractBillsModal`経由で他画面からも間接的にレンダーされており、それらの既存テストがこの経路をモックしていなかったため顕在化）。`next/navigation`/`next/image`と同様に`jest.setup.js`へ`next/cache`のグローバルモックを追加し恒久対応（以降の行末メニュー系PR全てに波及）。
+
+各PRにテスト追加済み、`npx jest`全体（100〜101スイート、通算610〜611件）でリグレッション無しを確認済み。課題表のPR#列（E12, E29, E56, E79, E106）にも記入済み。
+
+**新たに気づいた課題表の変化（本バッチでは未対応）**: 2_4_2の2件目が「2_4_3」に採番し直され、新規項目**2_4_4**「現在表示中の情報が受注契約か発注契約かわからないので、わかるようにする。」が追加されているのを確認。内容未確認・対応は次回以降。
+
+**今後の2トラック**: (1) 2_1_4/3_1_13のGoogle Sheets出力設計をbrainstormingスキルで開始、(2) 5_5_3/5_5_4のalphacdk変更を含む実装方針の設計検討を開始。いずれも本バッチ完了後、引き続き同セッションで着手予定。
+
+## 2026-10-23 2_1_4（受発注対応表）の設計をbrainstormingスキルで開始、主要方針を決定
+
+2_1_4/3_1_13のGoogle Sheets出力設計について、superpowers:brainstormingスキルを使って着手。まず2機能の関係を整理し、以下を決定:
+
+- **設計の分割**: 2_1_4と3_1_13は独立した2つのspecとして順番に設計する（2_1_4を先に設計・実装してから3_1_13に拡張する方針、ユーザー承認）。
+- **2_1_4の出力範囲**: 旧システム（alphaofficesystemのContCompare系、月次バッチで全プロジェクト一括出力）と同様、全プロジェクトを一括で1回の出力にする（ユーザー承認）。
+- **対象月の決め方**: 新たに月選択ダイアログを設けず、ボタンを設置する画面（プロジェクト一覧）の既存の検索年月（`searchParams.month`、`ProjectsToolbar.tsx`）をそのまま使う（ユーザー指示で確定）。
+- **出力形式**: 2案を提示し、**Approach B（旧Excelと同様のセル結合・グルーピング表示）を選択**（ユーザー決定）。これにより、既存の外部create-sheet API（alphaexapi）のフラットなrepeatData方式では対応できず、セル結合（mergeCells）を伴う新しい「グループ単位の繰り返し」機能をalphaexapi側に追加する必要があることが判明。この部分は**alphaexapiリポジトリ側の変更が必要で、alphasysセッション単独では完結しない**。
+
+データ取得については、`Contract.orderContract`フィールド（null=受注契約、親受注契約のcontractNoが入っている=その発注契約）で受注/発注の親子関係が取得可能であることを確認済み。
+
+設計案（アーキテクチャ・データ取得・Sheet出力レイアウト・外部API拡張・エラーハンドリング・テスト方針）をユーザーに提示し、特にalphaexapi側の変更をどう進めるか（別セッションでの対応が必要）について回答待ち。
+
+## 2026-10-23 課題2_1_4設計の承認、仕様書作成、alphaexapiへAPI拡張を申し送り
+
+ユーザーが2_1_4（受発注対応表）の設計案を承認（「OK」）。仕様書を`docs/superpowers/specs/2026-10-23-受発注対応表-sheets出力-design.md`として作成・staging直コミット（commit 6038f1c）。
+
+ユーザーの指示「alphaexapiへ申し送りしてください」を受け、ListAgentsで稼働中のalphaexapiセッション（`alphaexapi-a9`）を確認し、SendMessageで以下を申し送り:
+- 背景（課題2_1_4の受発注対応表Google Sheets出力、既存の`repeatData`では対応できないセル結合グルーピング表示が必要）
+- 具体的なAPI拡張案（`groupedRepeatData`/`groupedRepeatDataInputColumns`という新規パラメータ、既存の`repeatData`とは後方互換で併存させる設計）
+- 依頼事項（alphaexapi側での実現可能性検討・spec化・実装、契約確定後にalphasys側へ連絡してもらう）
+
+alphasys側の次の作業（Server Action・データ取得クエリの実装）は、alphaexapi側のAPI契約確定後に着手する前提で、現在はalphaexapiからの返信待ち。並行して、ユーザーに仕様書の確認を依頼中（回答後、問題なければwriting-plansで実装計画を作成する段取り）。
+
+## 2026-10-23 alphaexapi PR＃163マージ確認、課題2_1_4のalphasys側実装計画を作成
+
+ユーザーが「alphaexapiのPR #163のマージが完了しました。実装計画に進んでください」と指示。ローカルのalphaexapiクローンが1コミット遅れていたためfetch/pullし、`groupedRepeatData`/`groupedRepeatDataInputColumns`の実装（`create-sheet.service.ts`・`google-spread-sheet.service.ts`・`create-sheet.dto.ts`）とAPI契約が確定済みであることを確認した。
+
+writing-plansスキルで実装計画を作成し、`docs/superpowers/plans/2026-10-23-受発注対応表-sheets出力-plan.md`としてstaging直コミット（commit 55f14a1）。
+
+**重要な発見**: `src/app/sales/project/page.tsx`の`ProjectLayout`内に、本課題のための空の仮リンク（`<Link href="" ...>受発注対応表</Link>`）が既に置かれていることが判明。計画ではこれを本物のボタン（`OrderMatchingSheetButton`）に置き換える構成に変更した（当初案の`projects-toolbar.tsx`への追加から変更）。
+
+計画は4タスク構成: (1)受発注データ取得・グルーピング(リポジトリ)、(2)Sheet出力Server Action、(3)出力ボタン・画面組み込み(仮リンク置き換え)、(4)Google Sheetテンプレートの手動作成(コードではなくユーザー側の運用作業、環境変数`ORDER_MATCHING_TEMPLATE_SHEET_ID`の設定含む)。
+
+実行方式（Subagent-Driven／Inline Execution）についてユーザーに選択を依頼中、回答待ち。
+
+## 2026-10-23 課題2_1_4をSubagent-Driven DevelopmentでPR化（PR ＃288）
+
+ユーザーの指示「Subagent-Drivenで実装をお願いします。」を受け、superpowers:subagent-driven-developmentスキルで実装計画（docs/superpowers/plans/2026-10-23-受発注対応表-sheets出力-plan.md）を実行。
+
+- Task 1（データ取得・グルーピング）・Task 2（Sheet出力Server Action）・Task 3（出力ボタン・画面組み込み）をそれぞれフレッシュなサブエージェントに割り当て、各タスク後にタスクレビュー（仕様適合性+コード品質）を実施。3タスクとも1回で承認（修正ラウンド無し）。
+- 最終的な全体レビュー（opus）で、各タスク単体のレビューでは見えなかったクロスタスクの問題をImportant 3件発見: (1) `window.open`がサーバーアクションのawait後に呼ばれるため、ポップアップブロック時に無言で失敗する、(2) DB/グルーピング処理の例外がServer Actionの`try/catch`外に漏れる、(3) リポジトリ側のグループ/行キー名とServer Action側の列マッピングの対応関係が型で保証されていない（将来のキー名変更が無言のSheetデータ欠損につながる）。
+- 1件の修正サブエージェントで3件まとめて対応（ポップアップブロック検知+フォールバックトースト、try/catchの範囲拡大、リテラルユニオン型によるキー名のコンパイル時保証）。再レビューで全て解消済みと確認、「Ready to merge: Yes」。
+
+ブランチ`feature/order-matching-sheet`からDraft PR [#288](https://github.com/alphacmc/alphasys/pull/288)を作成（base: staging）。全体テストスイート101 suites/615 tests（2 skipped）でリグレッション無し、tsc --noEmitもエラー無しを確認済み。課題表のPR#列（E18）にも「288（マージ後、Google Sheetsテンプレート作成等の手動作業が別途必要）」と記入済み。
+
+**重要**: このPRはマージされても即座には使えない。計画のTask 4（Google Sheetテンプレートの手動作成、列構成・モデル行の設定、共有設定、環境変数`ORDER_MATCHING_TEMPLATE_SHEET_ID`の設定）がユーザー側の作業として残っている。PR本文にも手順を明記済み。
+
+## 2026-10-23 課題2_1_4 PR＃288マージ確認、Task 4（Google Sheetテンプレート作成）を実施
+
+ユーザーがPR #288をマージ。マージ済みローカルブランチ6本を削除。
+
+ユーザーの指示「Task 4（テンプレート作成）を先に完了させてから、3_1_13の設計に着手してください」を受け着手。当初計画ではTask 4は人間が行う手動作業としていたが、このセッションにGoogle Drive/Sheetsツールが利用可能であることが判明したため、ユーザーに確認:「このセッションのGoogle Driveツールで作成を試みてほしい」か「ユーザー自身で作成する（当初計画通り）」か。ユーザーは「共有設定は不要。本人が見ることができればOK」と回答（＝セッション側での作成を許可）。
+
+- `mcp__claude_ai_Google_Drive__create_file`でスプレッドシート「受発注対応表_テンプレート」を新規作成（ID: `1KBREddvkJTiAAk9ELmRKEv16pkU-knNRldNztMMJhFY`）。作成時点で既にowner=yohira@alphacmc.co.jpだったため、追加の共有設定は不要と確認。
+- ヘッダー行（A1:G1 = 取引先名/プロジェクト名/受注契約名/受注契約期間/発注先名/発注契約名/発注契約期間）を設定。2行目はモデル行として標準書式（結合なし、新規作成時のデフォルトのまま）。
+
+残作業（ユーザー側）: デプロイ環境・ローカル`.env`への`ORDER_MATCHING_TEMPLATE_SHEET_ID=1KBREddvkJTiAAk9ELmRKEv16pkU-knNRldNztMMJhFY`設定と、実際のボタン押下による出力レイアウトの目視確認。
+
+この後、3_1_13（受発注採算表、金額入り・取引先別/部門別）の設計（brainstorming）に着手する。
+
+## 2026-10-23 課題3_1_13の設計セッション、主要方針を決定
+
+2_1_4のパターン（groupedRepeatData）を土台に、brainstormingスキルで3_1_13（受発注採算表、金額入り・取引先別/部門別）の設計に着手。alphaofficesystemの実データ（BillProfitRepository.xml、BillProfitSheetExcelView.java）を調査し、以下を決定:
+
+- **グルーピング階層**: 旧Excelは取引先→プロジェクト→受注契約の3階層セル結合だが、2_1_4と同じ「受注契約単位の1レベルのみ」に簡略化する（ユーザー承認）。ユーザーから補足: 発注契約は独自の「発注プロジェクト」を持たず、受注プロジェクトの下にぶら下がる形で良い（2_1_4で既にそういう構造になっている）。
+- **合計行の実装方式**: 旧Excelは実際のSUM関数（セル値変更で自動更新）。現行のalphaexapi APIはRAWでしか値を書けず文字列になってしまうため、**実際のSUM関数を書き込めるようalphaexapiを拡張する**方針で確定（ユーザー承認、推奨案を選択）。
+- **2シート構成**: 取引先別（シート1）・部門別（シート2）を**1つのスプレッドシート内の2タブ**にする方針で確定（ユーザー承認、推奨案を選択）。現行のalphaexapi APIは常に1番目のシートのみ対象のため、対象シート（インデックス/名）を指定できるパラメータの追加が別途必要と判明。
+
+データ取得の判定基準も2_1_4と異なることを確認: 3_1_13は「対象月に請求書（BillRecipt.billDate）が発行された契約」が基準（契約期間の重複ではない）。金額はBillRecipt.amountExTaxのSUM。部門はProject.divId（Belongテーブルではない）。
+
+トリガー画面は`/sales/bill`（請求一覧）に既に置かれている空の仮リンク（`<Link href="/sales/bill">受発注採算表</Link>`、自己参照で無効）を置き換える形で確定。
+
+設計案をユーザーに提示し、承認待ち。承認後、設計書を`docs/superpowers/specs/`に作成し、alphaexapi側への申し送り（SUM数式対応・複数シート対応の2点）を行う予定。
+
+## 2026-10-26 課題3_1_13設計を承認、仕様書作成、alphaexapiへ正式申し送り
+
+ユーザーが3_1_13（受発注採算表）の設計案を承認（「承認します」）。仕様書を`docs/superpowers/specs/2026-10-26-受発注採算表-sheets出力-design.md`として作成・staging直コミット（commit 3d2aa5d）。
+
+ユーザーの指示「alphaexapiへの申し送り事項があれば、連携お願いします」を受け、alphaexapiセッション（`alphaexapi-a9`、事前FYI済みの相手）へSendMessageで正式申し送り:
+- 背景（課題3_1_13の受発注採算表Google Sheets出力、合計行のSUM数式と2タブ構成が新たに必要）
+- 具体的なAPI拡張案2点（`totalRow`パラメータによるUSER_ENTERED数式書き込み、`sheets`配列による複数シート指定。いずれも既存パラメータとの後方互換を維持する設計）
+- 依頼事項（alphaexapi側での実現可能性検討・spec化・実装、パラメータ名・形状の変更は任せる、契約確定後にalphasys側へ連絡してもらう）
+
+alphasys側の次の作業（Server Action・データ取得クエリの実装）は、alphaexapi側のAPI契約確定後に着手する前提で、現在はalphaexapiからの返信待ち。
+
+## 2026-10-26 alphaexapi PR＃165マージ確認、実装計画作成中に金額セルの型の懸念を発見
+
+ユーザーが「alphaexapi PR #165のマージが完了しました。実装計画をお願いします」と指示。ローカルのalphaexapiクローンをfetch/pullし、`totalRow`/`sheets`の実装（`create-sheet.service.ts`の`buildSectionWrites`）を確認。
+
+実装計画を詰める過程で、**新たな技術的懸念**を発見: 受注金額・発注金額のセルは既存の`groupedRepeatData`経由（`valueInputOption: 'RAW'`）で書き込むことになるが、RAWは値を文字列としてそのまま格納するため、`totalRow`のSUM数式が正しく集計できない（文字列セルを無視する）可能性がある。
+
+ユーザーに対応方針を確認: 「alphaexapiにさらに確認・必要なら拡張を依頼（推奨）」を選択。alphaexapiセッションへ、(1)RAWで書いた数値文字列がGoogle Sheets上でSUMにより正しく集計されるか、(2)文字列になってしまう場合は特定フィールドをUSER_ENTEREDで書き込めるようにする拡張が可能か、の2点を確認依頼。
+
+回答待ちのため、実装計画の作成はこの確認結果を踏まえてから行う。
+
+## 2026-10-26 alphaexapiより金額セル型の懸念が正しいと確認、追加設計が必要と判明
+
+alphaexapiセッションから回答: RAW書き込みされた金額セルは文字列型になり、SUM()が正しく合算しない懸念は正しいと確認（ドキュメント上の挙動、実機未検証だが確信度は高いとのこと）。対応方針として「既存のRAW書き込み全体をUSER_ENTEREDに変えるのは危険（意図しない型変換のリスク）なため、特定フィールドだけ数値として書き込める仕組みを新たに設計する」との方針が示された。alphaexapi側でbrainstorming→設計書→実装計画のプロセスを踏み、ユーザーへの状況報告・着手確認を経てから対応するとのこと。
+
+alphasys側は現状、alphaexapi側の設計完了・正式な申し送りを待つのみ。
+
+## 2026-10-26 課題3_1_13をSubagent-Driven DevelopmentでPR化（PR ＃290）
+
+alphaexapi PR #167マージ確認後、実装計画（docs/superpowers/plans/2026-10-26-受発注採算表-sheets出力-plan.md）をSubagent-Driven Developmentで実行。
+
+- Task 1（データ取得・グルーピング）・Task 2（Sheet出力Server Action、2タブ・合計行）・Task 3（出力ボタン・画面組み込み）を各フレッシュなサブエージェントに割り当て。Task 2は1回の修正ラウンド（plan-mandatedなテストカバレッジの穴、リクエストボディのトップレベルフィールド漏れを検知するアサーション追加）、Task 3はDONE_WITH_CONCERNS（実装中に既存の`invoices-container.test.tsx`が間接的にnext-auth/ESMを引き込んで壊れる回帰を発見・修正、レビューで正当性確認）。
+- 最終的な全体レビュー（opus）でImportant 4件発見:
+  1. デプロイ環境の環境変数許可リスト（alphasyscdkの`ecs.ts`/`REQUIRED_ENV_VARS`）に`BILL_PROFIT_TEMPLATE_SHEET_ID`が無く、**既にマージ済みの2_1_4用`ORDER_MATCHING_TEMPLATE_SHEET_ID`も同様に無い**ことが判明（両機能とも本番/staging環境では現状動作しない可能性）
+  2. 部門別タブ（シート2）が実際には部門順になっておらず、シート1と同じ取引先順データに部門名列を足しただけだった（設計/仕様の意図確認が必要な項目としてレビューが提起）
+  3. リポジトリ側のキー名とServer Action側の列マッピングの対応関係が型で保証されていない（2_1_4で対応済みの既知の問題パターンが今回は未対応だった）
+  4. 対象月が空文字列の場合に不親切なDBエラーになる
+
+ユーザーに1・2について判断を仰ぎ: (1)alphasyscdkセッションが稼働していなかったため今回は見送り、別途対応が必要と確認。(2)部門順にソートする方針で確定（ユーザー承認）。3・4はそのまま修正。
+
+修正1ラウンド目（2・3・4対応）の再レビューで、部門名ソートが`localeCompare()`のロケール依存（環境依存の並び順）という新たな問題が見つかり、2ラウンド目の修正（"ja"ロケール固定）で解消。「Ready to merge: Yes」の判定を得た。
+
+ブランチ`feature/bill-profit-sheet`からDraft PR [#290](https://github.com/alphacmc/alphasys/pull/290)を作成（base: staging）。全体テストスイート112 suites/654 tests（2 skipped）でリグレッション無し、tsc --noEmitもエラー無しを確認済み。課題表のPR#列（E46）にも記入済み。
+
+**重要（未対応事項）**: alphasyscdkの環境変数許可リスト対応（2_1_4・3_1_13の両方に影響）は本PRのスコープ外として見送り。別途、alphasyscdkセッションとの連携または単独での対応が必要。
+
+## 2026-10-27 テンプレートシートID環境変数の追加をalphasyscdkへ連携
+
+ユーザーの指示「まず環境変数の件を alphasyscdk のセッションに連携お願いします」を受け、alphasyscdkセッション（`alphasyscdk-85`）へSendMessageで依頼。
+
+- 依頼内容: `ORDER_MATCHING_TEMPLATE_SHEET_ID`（2_1_4、PR #288）と`BILL_PROFIT_TEMPLATE_SHEET_ID`（3_1_13、PR #290）を、`SKILL_TEMPLATE_SHEET_ID`と同じ扱いで追加すること。追加先は`bin/app.ts`の必須変数リスト、`lib/constructs/ecs.ts`のコンテナ環境変数、`.env.example`、構築手順書など。方式案をユーザーに確認してから着手する
+- 必須にするか任意にするかの判断はalphasyscdkに任せた（alphasys側の想定は「必須」）
+- 値: `ORDER_MATCHING_TEMPLATE_SHEET_ID=1KBREddvkJTiAAk9ELmRKEv16pkU-knNRldNztMMJhFY`。`BILL_PROFIT_TEMPLATE_SHEET_ID`はalphasys側の記録に値が無いため、ユーザーに確認してもらう。stagingと本番で同じテンプレートを使うかどうかも確認してもらう
+- alphasys側のコード変更は不要の見込み。PR作成・完了時にalphasys-d3へ結果を連絡してもらう

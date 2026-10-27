@@ -1,0 +1,24 @@
+{
+  "id": "conv-1793053841333-kfim8q98e",
+  "providerId": "claude",
+  "title": "Daily sync meetingこのターンを振り返りました。\n\n**記録対象なし**\n\nこ...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1793053841355,
+  "lastActivityAt": 1793053916325,
+  "sessionId": "0397e501-03a6-4c4a-b17e-4fb36dba0e16",
+  "selectedModel": "opus",
+  "providerState": {
+    "providerSessionId": "0397e501-03a6-4c4a-b17e-4fb36dba0e16"
+  },
+  "linkedContentPath": "01_Daily/2026-10-27.md",
+  "usage": {
+    "model": "opus",
+    "inputTokens": 2,
+    "cacheCreationInputTokens": 956,
+    "cacheReadInputTokens": 34929,
+    "contextWindow": 1000000,
+    "contextTokens": 35887,
+    "percentage": 4,
+    "contextWindowIsAuthoritative": true
+  }
+}

@@ -134,3 +134,14 @@
 - **補足**: Windows の aws CLI で日本語を含む JSON を `file://` で読ませるときは、`AWS_CLI_FILE_ENCODING=UTF-8` が要る（無いと、ファイルを解釈できないエラーになる）。
 - **確認待ち**: 受信箱（迷惑メールフォルダを含む）に届いたか。ヘッダーの SPF・DKIM・DMARC の判定は、ユーザーが確認する。
 - **注意**: 今回は個人の CLI 権限で送ったので、ECS タスクロール（alphaexapi からの送信）の権限までは確かめていない。そこは alphaexapi の結合試験で確認する。
+
+## 2026-10-27 alphasys-d3 から依頼: Google Sheets テンプレートID 2変数の ECS 注入
+
+- **依頼**（alphasys-d3 から）: alphasys でマージ済みの2機能が読む環境変数を、ECS タスク（フロントのコンテナ）に注入してほしい。
+  - `ORDER_MATCHING_TEMPLATE_SHEET_ID`（課題2_1_4 受発注対応表、alphasys PR #288）。値は `1KBREddvkJTiAAk9ELmRKEv16pkU-knNRldNztMMJhFY`（2026-10-23 作成の「受発注対応表_テンプレート」）。
+  - `BILL_PROFIT_TEMPLATE_SHEET_ID`（課題3_1_13 受発注採算表、alphasys PR #290）。値は alphasys 側の記録に無いので、ユーザーに確認する。
+  - いまは `SKILL_TEMPLATE_SHEET_ID` だけが注入されているため、デプロイ環境ではこの2機能のテンプレートIDが未定義になり、動かない見込み。
+- **調査**: `SKILL_TEMPLATE_SHEET_ID` は、`bin/app.ts` の必須変数リスト、`lib/constructs/ecs.ts` のフロントコンテナの `environment`、`.env.example`、`docs/構築・メンテナンス手順.md` の4か所で扱っている。値は共通の `.env` に置いているので、staging と本番で同じテンプレートを使う前提になっている。alphasyscdk に、関連する対応済みの PR は無い。
+- **方式案**: 2変数を `SKILL_TEMPLATE_SHEET_ID` と同じ4か所に追加し、必須変数にする（未設定ならデプロイ前に止まる）。値を置く場所は、staging と本番で同じなら `.env`、別なら `.env.staging` / `.env.prod`（`.example` も同じ扱い）。
+- **ユーザーに確認すること**: (1) `BILL_PROFIT_TEMPLATE_SHEET_ID` の値、(2) staging と本番で同じテンプレートを使うか、(3) 必須変数にしてよいか。
+- **その他**: 2026-10-22 の記録の追記分（SES のデプロイ・検証・テスト送信）が、staging 上で stash されたままになっていた。これを戻した（今回のブランチでまとめてコミットする）。

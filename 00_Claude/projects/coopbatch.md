@@ -427,3 +427,256 @@ coop で、alphasystem 配下で決まった運用規則を coop 系にも適用
 - `conversations/README.md`（coop のひな形に準拠）と本ファイルを作成。
 - 既存の `conversations.md` は coop と同様に無変更のままアーカイブとして残す（以降は追記しない。README に明記）。
 - 取り込み後、`INBOX_FROM_COOP.md` を削除。
+
+## 2026-10-23 Node.js・Prisma 等のバージョンアップ方針（承認済み）
+
+### 背景
+ユーザーから「Node.js・Nest.js・Prisma などのバージョンアップを行いたい」と依頼。
+
+### 調査結果
+- **coopbatch は Nest.js を使っていない**。Nest.js を使っているのは coopcdebatch（Nest 9 / Prisma 4 / Node 18）・coopcdealert（Nest 9）・coopcdeinput（Nest 10 / Prisma 5 / Node 18）。
+- coopbatch は Node 20（`Dockerfile` の `node:20-alpine`）で、**2026-04 に EOL 済み**。
+- coop の `conversations/2026-10-22.md` では、統一先は「おそらく Node 24、最終決定は coop」、coopbatch はインターネット非公開のため「後日対応」、定期的なバージョンアップのスケジュールは coop で組む（未定）とされている。
+- 依存ライブラリ（`npm outdated`、2026-10-23 時点）:
+  - Prisma 5.22 → 最新 7.10。7 は DB 接続方式が変わる大きな変更（schema の url を `prisma.config.ts` へ移し、`@prisma/adapter-pg` を導入）。6 は小さな変更で済む。
+  - AWS SDK / pino / pino-pretty / prettier / iconv-lite は互換性を壊さない範囲の更新のみ。
+  - ssh2-sftp-client 10 → 12（Node >=18.20.4）、dotenv 17 → 18、TypeScript 5.9 → 7（Go 版）。
+  - dotenv-expand 13 → **1000.0.0**（2026-07 に突然出た不自然な番号）。中身を確認するまでは上げない。
+  - `npm audit --omit=dev`: csv-parse に moderate が1件（GHSA-8cw4-87c7-c6xx）。ただし **csv-parse はコードから使われていない**（使っているのは csv-parser）。
+
+### 決定事項（ユーザー承認）
+1. **対象は coopbatch のみ**。Nest.js を使う側（coopcdebatch 等）は今回扱わない。
+2. **Node は 24 で今すぐ進める**（coopcdeweb と同じ `node:24-alpine3.24`）。coop での正式決定前だが先行して対応し、coop には事後に申し送る。
+3. **Prisma は 6 に上げ、7 は別 PR** に切り出す。
+
+### 実施方針
+- ブランチ `feature/upgrade-node24-prisma6`、Draft PR #30（base は main）。
+- コミットを分ける: (a) Node 24 化（Dockerfile、@types/node 24 系）と互換性を壊さない更新、使っていない csv-parse の削除 (b) Prisma 6 化。
+- 今回見送るもの: Prisma 7、TypeScript 7、dotenv-expand 1000.0.0。ssh2-sftp-client 12・dotenv 18 は変更内容を確認してから判断する。
+- 確認: `npm run build`、ローカル DB・floci での動作確認、Docker イメージのビルド。その後、stg での確認はユーザーが実施。
+
+### 実施結果
+- コミット (a) `29bd9d3`: Dockerfile を `node:24-alpine3.24` へ、@types/node を 24 系へ、未使用の csv-parse を削除、`npm update` で互換範囲の更新。
+- コミット (b): Prisma / @prisma/client を 5.22.0 → 6.19.3。schema に Bytes 型・多対多リレーション・予約語のモデル名が無いことを確認しており、Prisma 6 の互換性を壊す変更の影響は無い。
+- 据え置いたもの:
+  - ssh2-sftp-client は 10 系のまま。12.0.0 で接続失敗時の自動リトライが削除されており（v10 は既定で再接続あり）、異常時の挙動が変わるため。
+  - dotenv は 17 系のまま。dotenv-expand 13 が dotenv ^17 を前提にしているため。
+- 確認したこと（2026-10-23、ローカル）:
+  - `npm run build` 成功。`docker build` 成功（イメージ内は Node v24.22.1、@prisma/client 6.19.3、エンジンは `linux-musl-openssl-3.0.x` を同梱）。
+  - ローカル DB（`local/db`、Postgres 16）に対し、イメージ内から Prisma 6 で Contract の create / update / findUnique / `$transaction` 経由の delete を実行し、Decimal・DateTime も含めて正常に動くことを確認。
+- 残っている注意点:
+  - Prisma 6 の CLI が依存する deepmerge-ts に high の脆弱性（GHSA-ggr8-5vv4-36mx）。prisma CLI は @prisma/client の任意の peer 依存として `npm ci --omit=dev` でも本番イメージに入る（main の Prisma 5 でも同じ構造）。CLI の設定処理でしか使われないため実行時の影響は無い。Prisma 7.10.1 で解消されるので、Prisma 7 の PR で対応する。
+  - `prisma/migrations` には `users` テーブルを作る `20240101000000_init` しか無く、今の schema（contract 等）と食い違っている（今回の変更とは無関係の既存の問題）。動作確認では、ローカル DB にだけ `prisma db push` で今の schema を反映した。
+- 未実施: SFTP・floci を含めたバッチ全体の実行、stg での確認（ユーザーが実施）。
+
+## 2026-10-23 PR ＃30 の残課題への回答と、stg 確認の段取り
+
+### 決定事項（ユーザー回答）
+1. **deepmerge-ts の脆弱性（prisma CLI 経由）は Prisma 7 の PR で対応する** → OK（承認）。PR #30 では対応しない。
+2. **`prisma/migrations` と schema の食い違いは考えなくてよい**（対応しない）。
+3. **次の作業は stg での確認**。coop への申し送り（Node 24 化）と Prisma 7 の PR はその後。
+
+### stg 反映前の注意（調査結果）
+- ECR リポジトリ `coop-batch` は stg・prd で共用（`cf/ecr-cf.yaml` はアカウントに1回だけデプロイ）で、`ImageTagMutability: MUTABLE`。
+- buildspec はイメージタグを package.json の version から決める。PR #30 時点の version は 1.0.2（prd で稼働中のタグ）。
+- **version を上げずにビルドすると prd の `coop-batch:1.0.2` が Node 24 版で上書きされ、stg 確認前に prd の次回実行が新イメージで動いてしまう**。stg 用のビルド前に必ず version を上げる。
+- **version は 1.1.0 にして PR #30 に含める**（ユーザー承認）。実行環境が変わる（Node 24・Prisma 6）ためマイナーを上げる。stg のイメージタグは `coop-batch:1.1.0` になり、prd の 1.0.2 は上書きされない。
+
+### stg 確認の段取り（実行順。日時は未定、実施はユーザー）
+1. stg の CodeBuild（`coopcde-stg-batch-codebuild`）を実行する。既定では main を取ってくるので、マージ前に試すなら `--source-version feature/upgrade-node24-prisma6` を付ける。ログの `Resolved IMAGE_TAG ... -> 1.1.0` と ECR の `coop-batch:1.1.0` を確認する。
+2. stg の ecs-batch stack を ImageTag `1.1.0` で更新する（prd の stack は 1.0.2 のまま）。
+3. ecs-batch-ondemand か定期実行でバッチを動かす。
+4. CloudWatch Logs で確認する: Prisma エンジンの読み込みエラー（libssl / openssl）が無いこと、`SFTP connected to ...` からダウンロードまで進むこと、S3・SQS・DB の処理がこれまでどおり終わること、終了コード 0。
+
+## 2026-10-23 PR ＃30（Node 24 / Prisma 6、version 1.1.0）マージ
+
+- PR #30 をユーザーがマージ（2026-10-23 15:58 JST、マージコミット `8d486fb`）。main の version は 1.1.0。
+- stg の CodeBuild は main を取ってくるので、`--source-version` の指定は不要になった。以降は「stg 確認の段取り」の 1〜4 をユーザーが実施する（日時は未定）。
+- stg 確認の後に残っている作業: coop への申し送り（coopbatch を Node 24 に先行して更新したこと）、Prisma 7 の PR（deepmerge-ts の脆弱性の解消を含む）、prd への反映。
+
+## 2026-10-23 coopcdeweb から共有: Prisma 6 のサポート終了と Prisma 7 対応のノウハウ
+
+- **受信**: coopcdeweb のセッション（coopcdeweb-0b）から `SendMessage` で共有（ユーザーの依頼による）。詳細は coopcdeweb の `conversations/2026-10-22.md`・`2026-10-23.md`。coopcdeweb は Prisma 7 対応を 1.8.0 として着手中で、終わったら結果を追送してくれる。
+- **Prisma 6 は 2026-11-19 でサポート終了**（公式 https://www.prisma.io/docs/orm/release-status）。coopbatch は PR #30 で 6.19.3 にしたばかりなので、**Prisma 7 対応が必要**。時期・進め方は下の「Prisma 7 対応の進め方」のとおり承認済み。
+
+### Prisma 7 で必要になること（coopcdeweb が公式の upgrade ガイドと手元での生成で確認）
+- Node 20.19 以上、**TypeScript 5.4 以上**。coopbatch は実体が 5.9.3 で満たしているが、package.json の範囲が `^5.3.0` なので `^5.4` 以上に上げる。
+- generator は `prisma-client-js`（非推奨）から `provider = "prisma-client"` へ。**`output` が必須**（node_modules の外に生成）で、import 先を生成先に変える。
+- **`moduleFormat = "cjs"` で CommonJS のまま生成できる**（ESM 化は必須ではない）。生成物は client.ts / browser.ts / enums.ts / models/ などの TS ソース。
+- `prisma generate --generator <名前>`・`--config <path>` が使える（1 つのスキーマに複数の generator を書いて、選んで生成できる）。
+- **ドライバーアダプターが必須**: `@prisma/adapter-pg` の `PrismaPg` を `new PrismaClient({ adapter })` に渡す。コンストラクタ引数の `datasources` / `datasourceUrl` は廃止。
+- **接続タイムアウトの既定が変わる**（v6 は 5 秒、pg は既定で無制限）。`connectionTimeoutMillis` を明示する。
+- スキーマの `datasource.url` は非推奨で、`prisma.config.ts`（`defineConfig`）へ移す。**`.env` は自動で読まれない**（coopbatch は `src/config.ts` で dotenv を読んでいるが、CLI 用に prisma.config.ts 側でも読み込みが必要）。
+- CLI: `db push` / `migrate dev` の `--skip-generate` は廃止、`migrate dev` は自動で seed しない、`db execute` の `--schema` / `--url` は廃止。
+- Rust のエンジンが無くなるので、**`binaryTargets` と Dockerfile の `apk add openssl`（OpenSSL 判定の回避策）は不要になる**。
+- 廃止: `$use`（middleware）は `$extends` へ。metrics も廃止。
+
+### SSL（重要）
+- stg の Aurora（15.15、`rds.force_ssl=0`）で `pg_stat_ssl` を見たところ、**Prisma 6（Rust エンジン）の接続は TLS 1.3 で暗号化されていた**（証明書の検証はしていない見込み）。
+- **pg ドライバーは指定しないと暗号化しない**ので、そのまま Prisma 7 にすると平文に下がる。coopcdeweb では RDS の CA 証明書を入れて、検証付きで暗号化する方針。**Aurora の CA は `rds-ca-ecc384-g1`**（stg・prd とも）。
+- coopbatch の `src/` には SSL の指定が無い（2026-10-23 に grep で確認）。今は Rust エンジンの既定に任せて暗号化されている状態とみられる。DB は coopcdebatch・coopinf と共用（`cf/ecs-batch-cf.yaml` のコメント）なので、同じ Aurora の CA が使える見込み。
+
+### Node 24 / npm 11 まわり（coopcdeweb で踏んだもの）
+- Node 24 に同梱の **npm 11 は、インストール時のスクリプト（postinstall 等）を既定で実行しない**。そのため `@prisma/client` の postinstall による自動生成が起きない。`prisma generate` は明示的に実行する必要がある（coopbatch の Dockerfile は明示済みなので問題ない）。
+  - coopbatch でも PR #30 の作業中に `npm warn allow-scripts` が出ており、ssh2・cpu-features のネイティブビルドも実行されていない。どちらも任意のネイティブ高速化で、無くても JS 実装で動く。Docker イメージでの DB 接続・CRUD は確認済み。SFTP は stg で確認する。
+- push 前に **node:24 のコンテナで CI と同じ手順（install → generate → lint → build → test）を流す**と、Docker ビルドだけでは見つからない失敗を事前に拾える（coopbatch には lint / test が無いので、generate → build が該当）。
+- `eslint-plugin-prettier` 4 は prettier 3 で動かない（`resolveConfig.sync` が無い）ので 5 系にする（coopbatch は ESLint 未導入なので該当なし）。
+- `npm audit fix` が依存の下に別のメジャーを入れて、二重に読み込まれることがある（coopcdeweb では @typescript-eslint の v5 と v8 が二重になり ESLint が停止）。
+- CloudFormation で ECS サービスのスタックを更新すると、タスク数がテンプレートのパラメータ値に戻る（coopbatch は EventBridge からの RunTask で常駐サービスではないので、直接は該当しない）。
+
+### Prisma 7 対応の進め方（Claude の提案 → ユーザー承認済み）
+- 順序: stg で 1.1.0（Node 24 / Prisma 6）の確認が終わってから着手し、2026-11-19（Prisma 6 のサポート終了）より前に prd へ反映する。
+- 中身: `moduleFormat = "cjs"` で CommonJS のまま生成、`@prisma/adapter-pg` で接続、SSL は Aurora の CA（`rds-ca-ecc384-g1`）で検証付きの暗号化、`connectionTimeoutMillis` を明示、`binaryTargets` と `apk add openssl` を削除、typescript の範囲を `^5.4` 以上へ。
+- 着手は、coopcdeweb からの Prisma 7 対応結果の追送を待ってからにする案。
+- **2026-10-23 ユーザー承認**（「進め方問題ありません」）。この順序と中身で進める。次の起点は、stg での 1.1.0 確認の結果と、coopcdeweb からの Prisma 7 対応結果の追送。
+
+## 2026-10-26 coopcdeweb から追送: Prisma 7 対応の結果（stg で確認済み）
+
+- **受信**: coopcdeweb のセッション（coopcdeweb-0b）から `SendMessage` で追送（2026-10-23 のノウハウ共有の続き）。詳細は coopcdeweb の `conversations/2026-10-24.md`、PR alphacmc/coopcdeweb#125。
+- **coopcdeweb の状況**: Prisma 7 対応（1.8.0、prisma / @prisma/client / @prisma/adapter-pg 7.10.1）を stg で動作確認まで完了。
+- 承認済みの進め方（2026-10-23）では、この追送を待って coopbatch の Prisma 7 対応に着手する。残る前提は、stg での 1.1.0（Node 24 / Prisma 6）の確認（実施はユーザー）。
+
+### 構成
+- generator `prisma-client` を 2 つ（1 つのスキーマから frontend 用と backend 用を生成）。backend 用は `moduleFormat = "cjs"` で CommonJS のまま（NestJS は書き換え不要）。`prisma generate --config <prisma.config.ts> --generator <名前>` で個別に生成。
+- 生成物は TS ソース（`src/generated/prisma` 配下）。アプリのビルド（tsc）で dist に入るので、**実行用イメージでの `prisma generate` も `apk add openssl` も不要**になった（エンジンが無いため）。生成物は .gitignore に入れ、lint の対象からも外す（`ignorePatterns`）。
+- `prisma.config.ts` の `datasource.url` は `process.env.DATABASE_URL ?? ''` にしておくと、DB に接続しない generate でも落ちない。
+
+### DB 接続（PrismaPg）
+- `new PrismaClient({ adapter: new PrismaPg({ host, port, user, password, database, connectionTimeoutMillis: 5000, ssl }) })`。項目ごとに渡せば、パスワードの URL エスケープは不要。
+- **SSL**: stg・prd は `ssl: { ca: <RDS の CA 証明書束>, rejectUnauthorized: true }`、local は `false`。CA 束は https://truststore.pki.rds.amazonaws.com/ap-northeast-1/ap-northeast-1-bundle.pem（Root CA ECC384 G1 を含み、Aurora の `rds-ca-ecc384-g1` に対応）。coopcdeweb では `.gitignore` の `*.pem` に例外を足す必要があった。
+- stg で `pg_stat_ssl` を確認し、1.8.0 の接続は TLS 1.3（`ssl=t`）。SSL に対応していない DB には「The server does not support SSL connections」で接続を拒み、平文に落ちないことも手元で確認済み。
+- pg の Pool は、使っていない接続を既定 10 秒で閉じる。`pg_stat_ssl` で確認するときは、処理を流しながら見ないと接続が見えない。
+
+### つまずいた点
+- adapter なしの `new PrismaClient()` は Prisma 7 では作れない（coopcdeweb では、使っていない provider に残っていたので削除）。
+- `Decimal` は `@prisma/client/runtime/library` からではなく、生成物の `Prisma.Decimal` を使う。
+- Next.js（Turbopack）で生成物を読むと `import './enums.js'` が解決できないため、generator に `importFileExtension = ""` を指定（バッチは Next を使わないので関係ない見込み）。
+- TypeScript は 5.4 以上が必須（coopcdeweb は 5.9.3）。
+- `prisma db push` の `--skip-generate` は廃止（付けるとエラーになる）。
+- 参考: 停止した旧タスク（Prisma 6 のエンジン）の接続が DB 側に idle で残っていた（いずれ切れる見込み）。
+
+### coopbatch に当てはめた場合（2026-10-26 に確認）
+- `src/db.ts:10-11` が `new PrismaClient({ datasources: { db: { url: config.database.url } } })`。**`datasources` は Prisma 7 で廃止**なので、PrismaPg の adapter に置き換える。`src/config.ts` は `DB_HOST` 等の個別の値を持っているので、項目ごとに渡す方式にできる。
+- `Prisma.Decimal` は `src/batch/master-data-cache.ts` で生成物の `Prisma` 経由で使っており、`runtime/library` からの import は無い。import 先を生成物に変えるだけで済む見込み。
+- `.gitignore` に `*.pem` は無いので、CA 束を置いても除外されない（例外の追加は不要）。
+- `$use`・`--skip-generate` の使用は無い（`src`・`package.json`・`Dockerfile`・`README.md`・`local` を grep）。
+- generator は 1 つ（バッチ用）で足りる。生成物の置き場所は `src/generated/prisma` にそろえ、.gitignore に追加する。Dockerfile の実行ステージから `apk add openssl` と `.prisma` の COPY を外せる。
+
+## 2026-10-26 coopcdeweb から情報連携: 電気の単価表示の修正（1.8.1）と、denki_bill のデータの形
+
+- **受信**: coopcdeweb のセッション（coopcdeweb-0b）から `SendMessage` で共有（ユーザーの依頼による）。詳細は coopcdeweb の `conversations/2026-10-26.md`、PR alphacmc/coopcdeweb#129（単価の修正）。
+
+### coopcdeweb の現状
+- prd: 1.7.0（Node 24、Next 16、NestJS 11、Prisma 6）。
+- stg: 1.8.1（1.8.0 の Prisma 7 ＋ 単価の修正）。1.8.0 は prd に出さない決定。1.8.1 の prd 反映時期は未定（改定後の単価は 2027-01 請求から表示されるので、12 月中が目安。1.8.1 を出せば Prisma 6 のサポート終了〔2026-11-19〕も解消する）。
+- GitHub に 1.4.0〜1.8.0 のタグを付けた（1.4.1 以降は CodeBuild が実際にビルドしたコミット）。
+
+### 単価の修正（coopcdeweb 1.8.1）
+- 単価（電気単価 1・2・3、再エネ賦課金）は **web の表示だけ**の値（coopcdeweb の `apps/backend/src/members/members.const.ts` の表）。DB・CSV に単価の項目は無く、**coopbatch の取り込みには影響しない**（coopbatch の対応は不要）。
+- 新単価: 2026-11-01 実施の料金改定（https://energy.coopdeli.coop/mirai/denki_news/4100/ ）。12 月検針分・2027-01 請求から、第 1 段階 29.90→29.95、第 2 段階 36.50→36.55、第 3 段階 40.19→40.24 円/kWh。
+- バグ: 「11 月中に解約した場合は、12 月検針分（1 月請求）でも見直し前の単価」への配慮が無かった。単価を「請求年月 − 1」で選んでいたため。→ **使用期間の終了日（usage_end_date）の年月**で選ぶように変更した。再エネ賦課金（5 月検針分から切り替え）で 4 月中に廃止したケースも同様に直った。
+
+### denki_bill のデータの形（stg、約 232 万件、2023-11〜2026-10 請求を読み取りのみで集計）
+- **meter_read_date ＝ usage_end_date ＋ 1 日**（全件、例外なし）。
+- 請求年月 − 検針年月 ＝ 1 が 99.8%。ずれる行（約 4,800 件）は、大半が**契約の最後の請求（廃止）**で、使用日数が短く月の途中で終わる。
+- **検針日が 1 日の請求（1,178 件）はすべて最後の請求**（月末の廃止。usage_end_date が月末、meter_read_date が翌月 1 日）。通常の請求で検針日が 1 日のものは無い。
+- 請求年月 − 使用終了月 ≥ 2 で、その後にも請求が続く行が 57 件（遅れて請求されたもの）。
+- CSV の「料金年月」列は取り込んでいない（web の画面の月は請求年月 − 1）。coopbatch の `denki_bill` には `usage_end_date`・`meter_read_date`（どちらも VarChar(8)）があり、上の判定に使える。
+
+### 調査で踏んだこと（stg の DB を調べるとき）
+- stg の DB へは coop-stg-manage から SSM で、`PGOPTIONS="-c default_transaction_read_only=on"` を付けて読み取りのみで接続（一時ビューの作成も拒否される）。
+- 契約ごとに「後の請求があるか」を相関サブクエリで数えると、232 万件で 9 分以上かかった。SSM を取り消し、DB 側も `pg_cancel_backend` で取り消した。ウィンドウ関数（`max(...) over (partition by member_code, contract_number)`）で書き直すと数十秒。
+- SSM の AWS-RunShellScript では、SQL の `$re$` などのドル記号がシェルに展開される。SQL を base64 で送ってファイルにし、`psql -f` で実行する。
+
+## 2026-10-26 stg での 1.1.0（Node 24 / Prisma 6）の確認
+
+### 状態（AWS で読み取りのみで確認）
+- ECR `coop-batch:1.1.0` は 2026-10-23 16:26 JST に push 済み。`coop-ecs-batch-stg` は 2026-10-23 16:28 JST に ImageTag 1.1.0 で更新済み（タスク定義 `coop-stg-batch:4`）。prd（`coop-ecs-batch-prd`）は 1.0.2 のまま。
+- stg の定期実行 `coop-stg-batch-schedule` は DISABLED。最後の実行は 2026-10-11（1.0.2）で、**1.1.0 はまだ一度も実行されていない**。
+- stg の Aurora `coopcde-stg-db-cluster` は available。
+
+### 決定（ユーザー承認）
+- **Claude がオンデマンドの Step Functions `coop-stg-batch-ondemand` を起動して確認する**。順序は (1) `{"sftpCheckOnly": "true"}` で SFTP の接続と一覧だけを確認（ダウンロード・DB・S3 には触れない）→ (2) 問題が無ければ通常の実行（stg の SFTP のファイルを stg の DB・S3 に取り込む）。結果は CloudWatch Logs `/ecs/logs/coop-stg-batch-loggroup` で確認する。
+- その後、Prisma 7 の変更案をまとめてユーザーに提示する（着手は了承を得てから）。
+- (1) の `sftpCheckOnly` 実行を 2026-10-26 16:56 JST に起動（実行名 `b461399c-baf9-474c-a09f-ac0e1b468c65`）。結果は確認後に追記する。
+- (1) の結果: **SUCCEEDED**（16:56:58〜16:56:59 UTC+9）。ログに `Version: 1.1.0`、`SFTP connected to 10.16.20.94:50022`、一覧は `/OUT/AGREEMENT` に `IF-P046_2026100307001801.csv` が 1 件、`/OUT/INVOICE`・`/OUT/EARLY` は 0 件、`completed successfully`。Node 24 での起動と、ssh2（npm 11 でネイティブ部品が未ビルド）での SFTP 接続に問題なし。
+- (2) の通常の実行を 2026-10-26 16:57 JST に起動（実行名 `e9723540-bc3f-4ca9-8cf5-c8c58d27a0ee`）。結果は確認後に追記する。
+- (2) の結果: **SUCCEEDED**（16:58:10〜16:59:04 JST、約 54 秒）。`Database connected successfully`（Prisma 6 で stg の Aurora に接続）、SFTP から `IF-P046_2026100307001801.csv` をダウンロードして S3 `untreated/` へ、契約マスタ 107,778 件を読み込み、**EARLY_BILL を Read 3,737 / Write 3,737 / Errors 0** で登録・更新、ファイルを `treated/` へ移動、`Total Errors: 0`、`Main Batch Job (one-shot) completed successfully`。WARN 以上のログは 0 件。
+- **stg での 1.1.0（Node 24 / Prisma 6）の確認は完了**（問題なし）。prd への反映（`coop-ecs-batch-prd` の ImageTag を 1.0.2 → 1.1.0）はユーザーが判断・実施する。
+
+## 2026-10-26 Prisma 7 対応の変更案（version 1.2.0）を承認
+
+### 決定（ユーザー承認）
+- 以下の変更案で着手する。**SSL は A 案**（既定で CA 証明書による検証付きの暗号化。ローカルだけ `.env` に `DB_SSL=false` で外す。CloudFormation の変更は不要）。B 案（既定は無効、stg・prd の CloudFormation に `DB_SSL=true`）は、書き忘れると平文の接続が黙って通るので採らない。
+
+### 変更案
+- package.json: prisma / @prisma/client を 7.10.1、@prisma/adapter-pg 7.10.1 を追加、typescript を `^5.9.0`。version を 1.2.0。
+- prisma/schema.prisma: generator を `prisma-client`（`output = "../src/generated/prisma"`、`moduleFormat = "cjs"`）。`binaryTargets` と datasource の `url` を削除。
+- prisma.config.ts（新規）: `import 'dotenv/config'`、`datasource.url` は `process.env.DATABASE_URL ?? ''`。
+- src/db.ts: `datasources` をやめて `new PrismaPg({...})` を adapter に渡す。`connectionTimeoutMillis: 5000`（Prisma 6 の既定と同じ）。
+- src/config.ts: 接続先を項目のまま持つ（パスワードの URL エスケープが不要になる）。ローカルで `DATABASE_URL` を指定したときはそれを使う。SSL の設定を追加。
+- `Prisma` を import している 8 ファイル: import 先を生成物（`generated/prisma/client`）へ。
+- certs/（新規）: RDS の CA 証明書束（ap-northeast-1-bundle.pem）。
+- Dockerfile: ビルドステージで generate → build。実行ステージから `apk add openssl` と `.prisma` の COPY を外し、CA 証明書をコピー。
+- .gitignore: `src/generated/` を追加。
+
+### 確認方法
+- ローカル: Docker イメージのビルド、ローカル DB での CRUD。SSL を有効にしたまま SSL 非対応のローカル DB に接続し、平文に落ちずに拒否されることを確認。
+- stg: `sftpCheckOnly` → 通常の実行。`pg_stat_ssl` で暗号化を確認（coop-stg-manage から読み取りのみ）。
+- 期限: Prisma 6 のサポート終了（2026-11-19）より前に prd に出せるようにする。
+
+### 実施（ブランチ `feature/upgrade-prisma7`）
+- 変更案のとおり実装。version 1.2.0。CA 証明書束は https://truststore.pki.rds.amazonaws.com/ap-northeast-1/ap-northeast-1-bundle.pem から取得して `certs/rds-ap-northeast-1-bundle.pem` に置いた（Root CA RSA2048 / RSA4096 / ECC384 G1 の 3 つ。stg・prd の DB インスタンスはすべて `rds-ca-ecc384-g1` であることを AWS で確認）。
+- **変更案からの追加（挙動を保つため）**: ドライバーアダプター経由では `$connect()` の時点で DB に接続しないため、接続できなくても `Database connected successfully` が出てしまう。Prisma 6 と同じく `connect()` の時点で接続の失敗を検知するよう、`src/db.ts` の `connect()` で `SELECT 1` を実行するようにした。
+- `.env.example` は権限設定（`.env` 系のファイルの読み書き拒否）で編集できないため、`DB_SSL=false` の説明は `local/db/README.md` に書いた。**`.env.example` への `DB_SSL=false` の追記と、各自のルートの `.env` への追記はユーザー側で必要**。
+- `.dockerignore` に `src/generated` を追加（ビルドステージで生成し直すため）。
+
+### ローカルでの確認（2026-10-26）
+- `npm run build`・`docker build` 成功。
+- イメージ内のアプリ本体（`dist/db.js`）でローカル DB に接続し、Contract の create / interactive `$transaction` 内の update / findUnique / delete を確認（Decimal・DateTime も正しい）。項目ごとの接続（ECS と同じ）と `DATABASE_URL` の両方で確認。
+- SSL が既定で有効なまま SSL 非対応のローカル DB に接続すると、`connect()` で「The server does not support SSL connections」により `Database connection failed`、終了コード 1（平文に落ちない）。
+- 届かない接続先では約 5 秒で「Connection terminated due to connection timeout」（Prisma 6 と同じ 5 秒）。
+- 未実施: SFTP・floci を含めたバッチ全体の実行（stg で確認する）。
+- Draft PR #33（base は main。PR #32 から切っているので、#32 を先にマージすると差分はコードの変更だけになる）。
+- stg 確認の段取り（実行順。日時は未定）: (1) 1.2.0 のイメージを stg の CodeBuild でビルドして ECR へ、stg の stack を ImageTag 1.2.0 に更新（ユーザー。マージ後に行うか、ブランチを指定してマージ前に行うかは確認中）→ (2) Claude が `coop-stg-batch-ondemand` で `sftpCheckOnly` → 通常の実行 → (3) `pg_stat_ssl` で暗号化を確認（coop-stg-manage から読み取りのみ）。
+
+## 2026-10-26 PR ＃32・＃33 マージと、stg での 1.2.0（Prisma 7）の確認
+
+- PR #32（記録）・#33（Prisma 7、1.2.0）をユーザーがマージ（2026-10-26 17:28 JST、マージコミット `c962bd3`）。
+- **依頼（ユーザー）**: ビルド・実行・暗号化の確認を Claude が行う。段取り: (1) stg の CodeBuild `coop-stg-batch-codebuild`（※当初 `coopcde-stg-batch-codebuild` と誤記。下記参照）で 1.2.0 をビルド → stg の stack `coop-ecs-batch-stg` を ImageTag 1.2.0 に更新（他のパラメータは前回の値のまま）→ (2) `coop-stg-batch-ondemand` で `sftpCheckOnly` → 通常の実行 → (3) coop-stg-manage から読み取りのみで `pg_stat_ssl` を確認。
+- (1) **誤って旧システムの CodeBuild を起動した**（下記「CodeBuild の取り違え」）。
+- (3) の方法: バッチの接続は実行中しか見えないため、(2) の通常の実行の最中に coop-stg-manage（`i-0e951ca7200c41680`）へ SSM（AWS-RunShellScript）で送り、10 秒おきに 6 回 `pg_stat_ssl` × `pg_stat_activity` を見る。接続情報は coopinf の手順どおり stg の secret（`coopcde-stg-aurora`・`coopcde-stg-dbsecret`）から読み、`PGOPTIONS="-c default_transaction_read_only=on"`。スクリプトは base64 で送る（`$` の展開を避ける）。バッチのタスクの IP で接続を見分ける。
+
+### CodeBuild の取り違え（Claude のミス）
+- 2026-10-26 17:31 JST、Claude が coopbatch 用ではなく**旧 coopcdebatch 用の CodeBuild `coopcde-stg-batch-codebuild`**（取得元 alphacmc/coopcdebatch、ECR `coopcde-batch`）を起動した。原因: 10/23 の記録に書いたプロジェクト名（誤り）をそのまま使い、cf の命名（`${SystemName}-${Environment}-batch-codebuild` → `coop-stg-batch-codebuild`）と照合しなかった。coopbatch の正しいプロジェクトは **`coop-stg-batch-codebuild`**（取得元 alphacmc/coopbatch、ECR `coop-batch`）。
+- 影響: coopcdebatch の main（`b44f1090`、2026-08-31、version 1.4.4）がビルドされ、**ECR `coopcde-batch:1.4.4` が新しいイメージ（digest `sha256:2ffc6a36…`）に付け替わった**。元の 1.4.4（2026-08-31 10:12 push、digest `sha256:eb61f919…`）はタグが外れて残っている。ソースは同じコミット。`coopcde-batch:1.4.4` を参照するのは旧 stg のタスク定義 `coopcde-stg-batch:21` のみで、旧 stg の定期実行 `coopcde-stg-batch-schedule` は DISABLED。prd（`coopcde-prd-batch:14`）は 1.4.3 で影響なし。
+- 元に戻す方法: 元のイメージ（`sha256:eb61f919…`）に 1.4.4 のタグを付け直す（ユーザーの判断待ち）。
+- 再発防止: CodeBuild を起動する前に、プロジェクトの `source.location` と `IMAGE_REPO_NAME` を確認する。
+
+### (1) 以降の経過
+- 17:34 JST、正しい `coop-stg-batch-codebuild` でビルド（`efafe206-a735-4490-928b-7619cb36f43f`、コミット `c962bd3`）→ SUCCEEDED。`coop-batch:1.2.0` を 17:36 に push。
+- 17:36 JST、`coop-ecs-batch-stg` を ImageTag 1.2.0 に更新（`--use-previous-template`、他のパラメータは前回の値のまま）→ UPDATE_COMPLETE。定期実行は DISABLED のまま。
+- (2) `sftpCheckOnly`（17:37 JST）→ **SUCCEEDED**。`Version: 1.2.0`、SFTP 接続と一覧（`/OUT/AGREEMENT` に `IF-P046_2026100307001801.csv`、他は 0 件）に問題なし。
+- (2) 通常の実行（17:39 JST、`8fd4c9ba-f2a9-43a9-b26a-5b7b32a4e983`）→ **SUCCEEDED**。`Version: 1.2.0`、`Database connected successfully`（Prisma 7 + PrismaPg、検証付き SSL で stg の Aurora に接続。`connect()` の `SELECT 1` も成功）、SFTP 接続も問題なし。SFTP のファイルは前回取り込み済みのため「No files required processing」で以降のステップはスキップ（想定どおり）。WARN 以上 0 件。
+- (3) `pg_stat_ssl`: 外から見る方法（SSM で 2 秒おきに 90 秒）では、バッチの DB 接続が 08:39:36〜37 JST の 1 秒足らずで終わったため捉えられなかった（行は 0 件）。
+- そこで、1.2.0 のタスク定義（`coop-stg-batch:5`）でワンショットのタスクを起動し（17:41 JST、コマンドを上書き）、**アプリ本体の接続（`dist/db.js`）から自分自身の接続の `pg_stat_ssl` を SELECT**（`pid = pg_backend_pid()`、読み取りのみ）。結果: **`ssl=true`、`TLSv1.3`、`TLS_AES_256_GCM_SHA384`、256 bit**、終了コード 0。`rejectUnauthorized: true` のまま接続できたので、同梱の CA 証明書束で Aurora の証明書を検証できている。
+- **stg での 1.2.0（Prisma 7）の確認は完了**（問題なし）。Prisma 6 の接続（TLS 1.3、検証なし）から、検証付きの TLS 1.3 になった。
+- 残り（ユーザーの判断待ち）: prd への反映（`coop-ecs-batch-prd` の ImageTag を 1.0.2 → 1.2.0。1.1.0 は飛ばしてよい。2026-11-19 の Prisma 6 サポート終了は 1.2.0 なら関係ない）、`coopcde-batch:1.4.4` のタグを元のイメージ（`sha256:eb61f919…`）に戻すか、`.env.example` への `DB_SSL=false` の追記。
+
+## 2026-10-26 stg 確認後の残課題への回答
+
+### 決定（ユーザー回答）
+1. **prd へは 1.1.0 を飛ばして 1.2.0 を反映する** → OK。
+2. **`coopcde-batch:1.4.4` のタグは元に戻さない**（戻す必要はない）。旧 stg 用のタグは、同じコミット（`b44f1090`）から作り直したイメージのままにする。
+3. `.env.example` への `DB_SSL=false` の追記は、ユーザーが main に直接 push 済み（`691826d`「DB SSL設定追加」）。
+
+### prd 反映の注意（2026-10-26 17:49 JST に確認）
+- prd の定期実行 `coop-prd-batch-schedule`（`cron(30 0 * * ? *)` = 毎日 09:30 JST）は **ENABLED** だが、stack `coop-ecs-batch-prd` のパラメータ `ScheduleState` は **DISABLED**（ImageTag は 1.0.2）。手作業で有効にした状態と stack の値がずれている。
+- ImageTag だけを変えるつもりで、他のパラメータを前回の値のまま（UsePreviousValue）にして stack を更新すると、**prd の定期実行が DISABLED に戻る**。更新するときは `ScheduleState=ENABLED` を明示する。
+- **反映は Claude が今すぐ行う**（ユーザー回答）。
+
+### prd への 1.2.0 の反映（Claude が実施）
+- 事前確認: prd のクラスタ `coop-prd-batch-cluster` に実行中のタスク無し。`coop-batch:1.2.0`（digest `sha256:c61dc2cb…`、2026-10-26 17:36 push）は stg で確認したものと同じ。
+- 2026-10-26 17:50 JST、`coop-ecs-batch-prd` を `--use-previous-template` で更新（`ImageTag=1.2.0`、**`ScheduleState=ENABLED` を明示**、他は前回の値）→ UPDATE_COMPLETE（17:50:30 JST）。
+- 更新後: stack のパラメータは ImageTag 1.2.0 / ScheduleState ENABLED（ずれも解消）。`coop-prd-batch-schedule` は ENABLED、`cron(30 0 * * ? *)`。対象のタスク定義は `coop-prd-batch:4`（`coop-batch:1.2.0`）。
+- **次の定期実行は 2026-10-27 09:30 JST で、これが prd での 1.2.0 の初回**。実行後に CloudWatch Logs（prd のロググループ）で `Version: 1.2.0`・`Database connected successfully`・エラーの有無を確認する。
