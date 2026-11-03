@@ -1020,3 +1020,292 @@ alphasys-f6へ、確定したAPI契約(`numericFields`のフィールド形状)�
 **ユーザーに確認中**:
 - 案Aの方向で、alphasyscdkのセッションに設計を依頼してよいか(インフラの設計判断なのでalphasyscdkで決める。alphasyscdkの2変数追加の検討もこの案で置き換わる)
 - 受発注の2機能について、二段構え(いったん手作業で`04_resource`に置き`.env`方式で動かし、後で案Aに移す)で先に動かすか、案Aができるまで待つか
+
+**案Aの承認・alphasystemへの申し送り(ユーザー指示)**: 「A> お願いします。これはalphasystemに戻して、alphasystemからalphasyscdkへ依頼してください」との指示を受けた。alphaexapiから直接alphasyscdkへは依頼せず、alphasystem-27へ`SendMessage`で申し送った。内容は、背景(3テンプレートの所在と共有設定、alphasyscdk-85で検討中の`.env`方式による2変数追加)、ユーザー方針、案Aの構成・採らない案・事前に試作で確認すること。受発注2機能の二段構えの扱いは未決のため、alphasyscdkへ依頼する際にユーザーへ確認するよう添えた。あわせて、alphasystem直下に2026-10-22の`INBOX_FROM_ALPHAEXAPI.md`(送信元alphaexapi-dc)が未処理のまま残っていることを伝え、取り込み済みか確認を依頼した。
+
+## 2026-10-27 alphasyscdk-85から受発注採算表テンプレートの作成依頼(ユーザーの公開可否の確認待ち)
+
+alphasyscdk-85から、ユーザーの指示として、受発注採算表(3_1_13、`BILL_PROFIT_TEMPLATE_SHEET_ID`)のテンプレート作成の依頼を受けた。依頼に含まれていたユーザーの決定(二段構え):
+- 1段目: `.env`方式(alphasyscdk PR #107)。必須変数なので、値が無いとstagingにデプロイできない。
+- 2段目: 案A(alphasyscdk PR #108)。git管理の定義から`04_resource/templates/{env}/`に配置する。
+
+依頼内容:
+1. alphasysの`create-bill-profit-sheet.action.ts`が前提にしているレイアウトに合わせてテンプレートを作る。alphasys-d3に前提を確認しながら進める。
+2. 置き場所は共有ドライブ`04_resource`。利用者の権限でコピーするので、ドメイン全員が閲覧できるようにする。図形・画像・Apps Scriptは使わない(案Aで`templates:export`により書き出すため)。
+3. 作ったら、スプレッドシートIDをalphasyscdk-85とalphasystem-27に連絡する。
+
+受発注対応表のテンプレート(現在yohiraのマイドライブにあり本人のみ共有)を`04_resource`へ移す件を扱うかは、ユーザーに確認するよう添えられていた。
+
+**action.tsから確認した前提**: `MODEL_ROW=2`、`PIXEL_SIZE=21`。合計行は`MODEL_ROW+totalRows`の行で、テンプレート3行目が行挿入でその位置に下がる。
+- タブ1(取引先別): A〜I列。受注金額E、発注金額I。合計ラベルはD/H列。
+- タブ2(部門別): 先頭に部門名を足したA〜J列。受注金額F、発注金額J。合計ラベルはE/I列。
+- 金額の列は`numericFields`でUSER_ENTERED書き込み。
+
+`04_resource`フォルダ自体はドメイン全員には公開されていない(業務経歴書のテンプレートは、ファイル単体にドメイン閲覧権限が付いている)。そのため、新しいテンプレートにもファイル単位でドメイン全員の閲覧権限を付ける必要がある。
+
+社内全員への公開を伴うので、peerからの依頼だけでは着手せず、ユーザーに確認中:
+1. 受発注採算表のテンプレートを`04_resource/billprofit/`(案)に作り、ドメイン全員に閲覧権限を付けてよいか
+2. 受発注対応表のテンプレートの`04_resource`への移動を、ユーザー自身にやってもらえるか(移動ならIDは変わらない。こちらのDrive用ツールには移動の操作が無く、コピーすると新しいIDになるため)
+
+**ユーザー回答**: (1) 受発注採算表のテンプレートを`04_resource`配下に作り、ドメイン全員に閲覧権限を付けることは「OK」。(2) 受発注対応表のテンプレートは、ユーザーが`04_resource`直下に移動した(ID`1KBREddvkJTiAAk9ELmRKEv16pkU-knNRldNztMMJhFY`は変わらない)。移動後の権限は、`04_resource`を継承した管理者4者(yohira・googledrivemanager・account@・user@)のみで、ドメイン全員の閲覧権限はまだ無い。あわせて「`04_resource`配下のフォルダ構成(prod/stagingなど)を提案してほしい」との依頼を受けた。
+
+**フォルダ構成の提案(回答待ち)**: alphasyscdkの案A(PR #108、Draft、`feature/sheet-templates`)の設計書・`templates/README.md`の想定(作業用`04_resource/templates/work/`、配置先`04_resource/templates/{env}/`)に合わせる。
+- `04_resource/templates/work/`: 人がSheetsの画面で編集する原本で、`templates:export`の元。業務経歴書・受発注対応表・受発注採算表の3つを置く。1段目(`.env`方式)の間は、staging・prod共通でここのIDを使う。
+- `04_resource/templates/staging/`・`prod/`: deployだけが作る(手で編集しない)。各環境のECSが`template-ids.{env}.json`経由で参照する。案Aのdeploy時に作る。
+- `04_resource/skillsheet/`: 既存。案A移行後に整理するか決める。
+- 共有ドライブでは、`staging/`・`prod/`を権限でdeploy専用に制限できない(管理者は全員編集できる)ので、手で編集しないのは運用ルールで守る。
+
+段取り(了解後に実施):
+1. `templates/`と`templates/work/`を作る。
+2. alphasys-d3にレイアウトの前提を確認してから`templates/work/受発注採算表_テンプレート`を作り、ドメイン全員の閲覧権限を付ける。
+3. 受発注対応表にもドメイン全員の閲覧権限を付ける(要確認)。
+4. スプレッドシートIDとフォルダ構成を、alphasyscdk-85とalphasystem-27に連絡する。PR #108の`drive-folders.json`に入れてもらう。
+
+業務経歴書・受発注対応表の`templates/work/`への移動は、こちらのDrive用ツールに移動の操作が無いので、ユーザーに依頼する(移動ならIDは変わらない)。
+
+**フォルダ構成・ドメイン公開の了承(ユーザー)**: 「このフォルダ構成でよいか OK」「ドメイン全員の閲覧権限 OK」。
+
+**実施内容**:
+- フォルダを作成した: `04_resource/templates/`(ID `1AeJvvw_srUO-ixh6zRzp1oaWTv_Q-mHl`)、`04_resource/templates/work/`(ID `1SPm-XQU6of-_83oEBVyXQVFNLCi37_EV`)。`staging/`・`prod/`は案Aのdeploy時に作るので、まだ作らない。
+- alphasys-d3にレイアウトの前提を確認し、「ご提示のとおりで合っている」との回答を得た。補足は次のとおり: タブ名は参照せずsheetIndexで指定するので、並び順は0=取引先別、1=部門別を守る。列幅は自由。モデル行は21pxのままにする。出力して目で確かめる作業(Task 4のStep 4)は、`.env`に値が入った後にalphasys-d3が行う。
+- `04_resource/templates/work/受発注採算表_テンプレート`を作成した(**`BILL_PROFIT_TEMPLATE_SHEET_ID = 111RNAg4624G2X1v_6GrkUkZzfaoRLAAz_54A1-c5R60`**)。
+  - タブ0「取引先別」(A〜I列)、タブ1「部門別」(A〜J列)。
+  - 1行目の見出しは太字・背景色・固定。2行目のモデル行は結合なし。3行目の合計行の置き場所は、上に二重罫線、太字。1〜3行目の高さは21px。
+  - 金額列(タブ0はE・I、タブ1はF・J)の2〜3行目に`#,##0`。タイムゾーンはAsia/Tokyo。
+  - Sheets APIで読み直して確認した。
+  - 1回目のbatchUpdateは、`fields`の括弧記法がMCPで受け付けられずエラーになった(何も反映されていない)。フルパスのカンマ区切りに直して適用した。
+- IDとフォルダ構成を、alphasyscdk-85・alphasystem-27・alphasys-d3に連絡した。
+
+**未完了(ユーザー作業)**:
+1. 受発注採算表・受発注対応表のテンプレートに、ドメイン全員の閲覧権限を付ける。了承は得ているが、Google DriveのMCP(`share_file`)はメールアドレスかチャットスペースへの共有しかできず、ドメイン単位の権限は付けられない。Driveの画面で「一般的なアクセス」を「株式会社アルファ・コミュニケーションズ: 閲覧者」にしてもらう必要がある。
+2. スキルシート_原本と受発注対応表のテンプレートを、`templates/work/`へ移す(移動ならIDは変わらない)。
+
+## 2026-10-27 staging の alphaexapi が4_7_1の結合試験の前提を満たしていることを確認(alphasystem-27からの依頼)
+
+alphasystem-27から、2026-10-27 19:22 JSTのstagingデプロイ(タスク定義`staging-alphasys-unified:81`)について、4_7_1の結合試験の前に読み取りだけで確認してほしいと依頼された。手順書の草案はalphasystem PR #120。結果をalphasystem-27へ回答した。
+
+- **イメージ**: `alphasys-backend:0.1.0`(digest `sha256:a028841b…e335`)。ECRへのpushは10/26 18:50:12で、CodeBuildの`841e027`のビルドに一致する。staging先頭の`5d1dbe3`(PR #169)はdocsのみなので、イメージは更新されていない(コードとしてはstagingの最新)。#159(`019a119`)・#160(`bc93a5e`)とも含まれる。起動ログのルート一覧にも、通勤費の`requests/commuting`は無い。
+- **起動**: ロググループ`staging-alphasys-backend`のストリーム`ecs/alphaexapi/4b2f405d6f174a4baef020bef9b17fd4`に、10:23:58Zの`Nest application successfully started`がある。ERROR/WARNは0件。
+  - `MAIL_DRIVER=ses`・`MAIL_FROM`・`ALPHASYS_BASE_URL`はタスク定義にある。sesで値が欠けると起動時に例外で止まる作りなので、起動完了をもって値が入っていると判断した(読み込みのログ行は無い)。
+  - `GOOGLE_CREDENTIALS_JSON`はParameter Store `/alpha/staging/alphaexapi/GOOGLE_CREDENTIALS_JSON`(10/27 16:54作成)から注入されている。値を表示せずに、service_accountのJSON(googledrivemanager、private_keyあり)であることを確認した。
+- **結合試験で要る準備(回答内容)**:
+  - 試験用の社員は、alp_usersのデータ(email=ログインのGoogleアドレス、retirementが空か今日以降、ADMINの要否)で決まる。alphaexapi側の設定は不要。却下メールの宛先は`rejectRecipients`(mm_adderがあれば[mm_adder, email])。
+  - ログは`staging-alphasys-backend`で、Logs Insightsの例を添えた。各ログの文言は、宛先・個人情報を出さない作り。CSV取込の結果はログではなくジョブの結果に残る。
+- 手順書1章の#1と、#4の「alphaexapiが起動しているか」は確認済みにしてよい、と伝えた。
+- 補足(手順): Git BashではAWS CLIの`/alpha/...`のような引数が自動でWindowsパスに変換され、`ParameterNotFound`になった。`MSYS_NO_PATHCONV=1`で回避した。
+
+## 2026-10-27 PR ＃171のマージ確認・worktree alphaexapi-wt-commuting の削除(ユーザー承認)
+
+- ユーザーがPR #171(staging確認の記録)をマージした。
+- ユーザーが「worktree alphaexapi-wt-commuting 削除お願いします」と承認した(冒頭の「判断待ち」が解消)。
+- 削除前の確認: 未コミット変更なし、`feature/employee-info-remove-commuting-2`は`origin/staging`の祖先(マージ済み)。
+- 実施: `git worktree remove`でworktreeを削除(フォルダが無いことも確認)、ローカルブランチ`feature/employee-info-remove-commuting-2`と`feature/record-staging-check-1027`(PR #171マージ済み)を削除。
+
+## 2026-10-27 templates/work配下のテンプレートはドメイン公開しない(方針変更・ユーザー承認)
+
+- 確認結果(Driveの権限): 受発注採算表_テンプレート、受発注対応表_テンプレート、スキルシート_原本の3ファイルとも`04_resource/templates/work`(`1SPm-XQU6of-_83oEBVyXQVFNLCi37_EV`)に移動済み、`inheritedPermissionsDisabled: false`。ドメインの閲覧権限が付いていたのはスキルシート_原本だけだった。
+- 経緯: 先に了承した「ドメイン全員に閲覧権限を付ける」は、共有ドライブのグループに誰が入っているかを考慮しない判断だった。create-sheet APIには`@Roles`が無く、alphasysの`/member/skills`と`/sales/*`もロールで絞っていないため、テンプレートを読める必要があるのはalphasysにログインする全社員。
+- ユーザー回答: alphasysを使う社員は全員、共有ドライブのメンバーに入っている。
+- 決定(ユーザー承認):
+  - templates/work配下のテンプレートはドメイン公開しない。共有ドライブのメンバーとして、継承した権限で読む前提とする(先の「ドメイン全員の閲覧」の了承を取り消す)。
+  - スキルシート_原本に付いているドメインの閲覧権限は外す(ユーザー作業)。
+  - alphasyscdkのdeployでドメインの閲覧権限を付ける処理は不要(alphasyscdk-85に伝える)。
+- 未決: 受発注対応表_テンプレートのexecutive@と、スキルシート_原本のmanage@が「編集」になっている点を閲覧にするか。user@が共有ドライブの管理者で全社員がテンプレートを編集できる点は、変更管理はGit側、Driveで直接直したものは次のdeployで上書きされる扱いとして、今回は判断しない。
+
+## 2026-10-28 スキルシート_原本の権限を閲覧者に変更(ユーザー確認)・ドメイン閲覧はそのまま
+
+- 確認結果(Driveの権限、スキルシート_原本 `1KT2uYILCfPeHiLiRb0OwgAKXVAWiu7GDzQ4GCM_sjzw`): 管理者はyohiraとgoogledrivemanagerだけ。account@・user@・manage@・executive@は閲覧者。ドメイン(株式会社アルファ・コミュニケーションズ)の閲覧が残っている。
+- ユーザー確認: account@・user@・manage@が閲覧者になっているのは意図どおり。このため、2026-10-27に未決とした「編集権限を閲覧に変えるか」はスキルシート_原本について解消した(受発注の2ファイルは2026-10-27時点の設定のまま)。
+- ドメインの閲覧: 社員は全員が共有ドライブのメンバーで、残しても外しても開ける人は変わらない。alphaexapi側からは「このままで問題なし、作業不要」と伝えた(ユーザーの明示的な決定はまだ無い)。
+
+## 2026-10-28 スキルシート_原本のドメイン閲覧を外す(ユーザー決定)
+
+- ユーザー決定: 他の2ファイルと設定が異なるのは嫌なので、スキルシート_原本のドメイン(株式会社アルファ・コミュニケーションズ)の閲覧を外す。上の「作業不要と伝えた」は取り下げ。
+- Drive MCPには権限を削除する機能が無いため、ユーザー作業とした。手順: ファイルを開く →「共有」→「一般的なアクセス」の「株式会社アルファ・コミュニケーションズ」の▼ →「制限付き」→「完了」。
+- 作業後、alphaexapiがget_file_permissionsでdomainの行が消えたことを確認して記録する。
+
+## 2026-10-28 templates/work配下3ファイルの共有設定がそろったことを確認
+
+- ユーザーがスキルシート_原本の「一般的なアクセス」を「制限付き」にした(左側の▼から選択。右側の▼は役割の選択なので「制限付き」は出ない)。PR #175はマージ済み。
+- 確認結果(get_file_permissions): 受発注採算表_テンプレート、受発注対応表_テンプレート、スキルシート_原本の3ファイルとも同じ権限になった。管理者はyohiraとgoogledrivemanager、閲覧者はaccount@・user@・manage@・executive@で、ドメインの権限は無い。親のtemplates・workフォルダも同じ構成。
+- 2026-10-27に未決とした「executive@・manage@の編集権限を閲覧にするか」は、3ファイルとも閲覧者になったため解消した。
+
+## 2026-10-29 alphasystemからの申し送り(課題表6件の設計)を取り込み・作業を整理
+
+### 申し送り(INBOX_FROM_ALPHASYSTEM.md、2026-10-28付、取り込み後に削除)
+
+設計全体は alphasystem `docs/design/2026-10-28-alphasys課題表6件-設計.md`(PR #122、マージ済み)。設計の質問はalphasystemへ、実装計画は各プロジェクトのセッションで立てる。依存順: alphadb → alphacdk / alphasyscdk → alphaexapi → alphasys。
+
+alphaexapiの担当:
+1. **create-sheetにサプレスを追加(2_1_9 / 3_1_17)**: 指定した列で前と同じ値のセルは、値は残して白文字にし、上罫線を消す。グループ列(取引先名・プロジェクト名、採算表の部門別タブは部門名も)は直前のグループと同じとき、行の列(発注先・発注契約名・発注期間)は同じグループ内の前の行と同じとき。受注契約名・受注期間・金額は従来どおりグループ単位の結合で対象外。罫線が消えなければ前の行の下罫線も消し、それでもだめなら白文字のみ(要実機確認)。罫線はテンプレートのモデル行に付ける(alphasyscdk)。
+2. **インスタンス作成(5_5_3 / 5_5_4)**:
+   - 5_5_3(Windowsのみ): デフォルトユーザー名(省略時はインスタンス名から`client-`を除いた部分)を受け取り、初期パスワードを自動生成し、`WindowsNewUserNameParam` / `WindowsNewUserPasswordParam`(NoEcho)としてCloudFormationに渡す。`<ユーザー名>@alphacmc.co.jp`へ既存のSESで初期パスワードを送る。送るのは作成リクエストが通った時点で、本文に「作成中、完了後にログインできる」と書く。SESの本番アクセスはユーザーが申請する。
+   - 5_5_4: AMI ID(任意、ADMINのみ、他アカウントのAMIも可)を受け取り、形式と`DescribeImages`で存在・アーキテクチャを検証して`ImageIdParam`として渡す(`ec2:DescribeImages`の権限はalphasyscdkと調整)。OSの種別はAMIとは別に選ぶ。
+3. **定時起動・停止(5_4_3)**: alphaexapi内に1分ごとのスケジューラを入れる(新しいインフラなし)。冪等、実行履歴あり、直近数分の取りこぼしを補う。DBはalphadbのテーブル。起動は月〜金8:45がデフォルトで対象インスタンス名(タグ)を複数選択、祝日は起動しない。停止は20:00がデフォルトで複数設定可、対象は`client-*` / `server-*`全体。延長申請(`alp_extension_request.stopTime`)の時刻にも停止し、延長申請済みのインスタンスは定時停止ではなく延長の時刻で止める(ユーザー承認済み)。stopTimeの形式と実行後の延長申請の扱いをalphaexapiで確認してalphasystemへ知らせる。スケジュールの設定API(取得・登録・更新・削除)も作る。
+
+### ユーザー指示: alphacdk / alphasyscdk / alphadbが絡む部分は後回し
+
+これにより、後回しにするもの:
+- 5_5_4 全体(alphacdkの`ImageIdParam`、alphasyscdkの`ec2:DescribeImages`権限が前提)。
+- 5_4_3 のスケジューラと設定API(alphadb PR #105のテーブルが前提。PR #105は2026-10-29時点でOPEN)。
+- サプレスの実機確認のうち、罫線付きテンプレート(alphasyscdk)での確認。
+- 5_5_3 の初回ログイン時のパスワード変更の強制(alphacdkのUserData)。
+
+### 確認結果(2026-10-29)
+
+- 5_5_3: alphacdkの`ec2-native-template-stack.ts:87-88`に`WindowsNewUserNameParam` / `WindowsNewUserPasswordParam`(NoEcho)はすでにある。alphaexapiの`instance-create.service.ts`が値を渡していないだけなので、alphaexapi側はalphacdkの変更なしで実装できる。
+- 5_4_3の延長申請: `alp_extension_request.stopTime`は`String`で、`22:00`形式(HH:mm)。日付を持たない。`instanceId`がユニーク。削除は、ADMINの`POST delete-extensionRequest`による手動だけ。stopTimeで自動停止する処理は、alphaexapiにもalphasyscdkにも無い(alphasyscdkはECSタスクロールに`ec2:StopInstances`を付けているだけ)。
+- 既存のスケジューラ: `@nestjs/schedule`導入済みで、`sales-mail/mail-polling.job.ts`と`polling-lock.service.ts`(複数タスク対策のロック)がある。5_4_3で同じ形を使える。
+
+## 2026-10-29 alphasys-7fから、Drive削除APIでファイルが無いとき404を返す依頼(4_4_2)
+
+- 依頼(alphasys側でユーザー承認済み): `DELETE /google-drive-write/delete`で、Driveにファイルが無いときは500ではなく404を返す。alphasysの追加シート削除は、Driveのファイルを消してからDBのレコードを消すが、ファイルが既に無いと500になり、DBからも消せない(課題表4_4_2)。alphasysは「404ならDBだけ削除」をalphasys PR #298に追加する予定。PRを作ったら、PR番号と404のレスポンスの形をalphasys-7fに知らせる。
+- alphaexapiの方針案(ユーザー確認待ち): `deleteFile`だけを直し、Driveの404は`404 { statusCode: 404, message: 'ファイルが見つかりません' }`、それ以外は従来どおり500。`deleteMyDriveFile`はalphasysから呼ばれていないので直さない。ユニットテストを追加する。ブランチは`feature/drive-delete-404`。
+- 影響: alphasysで同じAPIを呼ぶのは追加シートの削除・`edit-bill`・`edit-contract`の3か所で、どれも`!res.ok`で失敗扱いにするだけなので、今の動きは変わらない。
+- 注意(alphasys-7fにも伝えた): Drive APIは、サービスアカウントに権限が無いときも404を返す。「404ならDBだけ削除」にすると、権限の問題でファイルが残ったままDBだけ消える可能性がある。
+
+## 2026-10-29 Drive削除APIの404化・申し送り作業の順番を承認
+
+- ユーザー承認: Drive削除APIでファイルが無いとき404を返す方針案(上記)で進める。
+- ユーザー承認: 申し送りの作業は、(1) stopTimeの形式と延長後の扱いをalphasystemへ回答 → (2) create-sheetのサプレス → (3) 5_5_3のalphaexapi側、の順に進める。404化は依頼元が待っているので、この3件より先に行う。
+- ユーザー回答: PR #178はマージする(マージはユーザーが行う)。
+
+## 2026-10-29 申し送り3件を実施(ユーザー指示「終わったらalphasys/alphasystemに連携」)
+
+- ユーザー指示: PR #178・#179マージ。stopTimeの回答 → サプレス → 5_5_3 を実施し、終わったらalphasys・alphasystemに連携する。
+- **サプレス(2_1_9 / 3_1_17)**: Draft PR #181。新しい項目`suppressFields`(トップレベルと`sheets[]`の各要素)。前と同じ値のセルを白文字にし、上罫線と上の行の下罫線を消す。
+  - 設計書に無い点を決めた: 比べ方は**階層的**(`suppressFields`の順に比べ、上位が違えば下位はサプレスしない)。空の値はサプレスしない。alphasystemに確認を依頼した。
+  - 実機確認: 一時スプレッドシート`1vgwn5la6s3zcwlFOWFub3rwbwju1duq1rkcda80J3_4`(マイドライブ)で、格子罫線＋結合セルにリクエストを送り、反映を読み戻しで確認。画面での確認をユーザーに依頼中で、確認後にゴミ箱へ移す。罫線付きテンプレート(alphasyscdk)での確認は後回し。
+- **5_5_3**: Draft PR #182。`defaultUserName`(任意)を追加し、Windowsのとき初期パスワードを生成して`WindowsNewUserNameParam` / `WindowsNewUserPasswordParam`で渡し、作成リクエストが通った時点でメール。メール失敗時は作成を取り消さず、`initialPasswordMailSent: false`を返す。
+  - 気づいた点(alphasystemへ申し送り): 既存のUserDataは`Fn::Sub`でパスワードを埋め込むため、`ec2:DescribeInstanceAttribute`の権限があれば初期パスワードが読める。
+- **stopTimeの回答**: alphasystemのセッションが動いていなかったため、alphasystem直下に`INBOX_FROM_ALPHAEXAPI.md`(未追跡)を置いて申し送った。延長申請は日付を持たないため、停止後の扱いを決める必要がある(推奨: 止めたら削除＝その日だけ有効。日付をまたぐstopTimeの扱いも要決定)。
+- **alphasys-7f**: SendMessageで、`suppressFields`と`defaultUserName` / `initialPasswordMailSent`の使い方を連絡した。
+- 全テスト: `npx jest -w 2`で573件パス(並列数を既定のままにすると、Windowsでは一部のスイートが負荷で失敗する。単体では全て通る)。
+
+## 2026-10-29 alphasys-7fから、インスタンスタイプの直接指定が効かない件(5_5_5)の依頼
+
+- PR #181・#182・#183はマージ済み(確認済み)。
+- 依頼(alphasys側でユーザー承認済み): alphasys #268の作成画面で「カスタム指定」を選ぶと、`instanceType`にEC2のタイプ文字列(例 `t3.large`)を送るが、`instance-create.service.ts`が`small`以外をすべて`CDK_INSTANCE_TYPE_BIG`に変換するため効かない。`small`/`big`は従来どおり、それ以外はそのまま`InstanceTypeParam`として渡してほしい。alphacdkの`InstanceTypeParam`は許可値の制限がない(確認済み)。
+- alphaexapiの方針案(ユーザー確認待ち): DTOに`@Matches(/^(small|big|[a-z0-9-]+\.[a-z0-9]+)$/)`(alphasysと同じ形式)を付け、不正なら400。形式が正しくても実在しないタイプはCloudFormationの段階で失敗する(確認しない)。正常時のレスポンスは変わらない。ブランチは`feature/instance-type-custom`。PRを作ったらalphasys-7fにPR番号を知らせる。
+
+## 2026-10-29 5_5_5の方針案を承認・サプレス検証用シートを削除
+
+- ユーザー承認: 5_5_5(インスタンスタイプの直接指定)の方針案(上記)で進める。PR #185はマージ済み。
+- ユーザー確認: サプレス検証用の一時スプレッドシートは画面で見て問題なし。ゴミ箱に移した(`1vgwn5la6s3zcwlFOWFub3rwbwju1duq1rkcda80J3_4`)。
+- 実施: `feature/instance-type-custom`で修正。`small`/`big`は従来どおり環境変数に変換し、それ以外はそのまま`InstanceTypeParam`に渡す。DTOの`@Matches`で形式チェック(不正なら400)。
+
+## 2026-10-30 alphadbからの申し送り(5_4_3のテーブル)を取り込み・次作業を整理
+
+### 申し送り(INBOX_FROM_ALPHADB.md、2026-10-28付、取り込み後に削除)
+
+5_4_3(定時起動・定時停止)のテーブルがalphadb PR #105で確定した。経緯はalphadbの`conversations.md`「2026-10-28 5_4_3テーブル設計を提示・ユーザー承認、Draft PR作成」。テーブル設計の質問はalphadbへ、実装計画はalphaexapiのセッションで立てる。
+
+- `alp_instance_schedule`(`InstanceSchedule`): `scheduleType`(enum `InstanceScheduleType`: `START`/`STOP`)、`time`(`VARCHAR(5)`、`08:45`形式)、`daysOfWeek`(`DayOfWeek[]`、`MON`〜`SUN`)、`targetInstanceNames`(`String[]`、既定は空。STARTのみ使用。STOPは`client-*`/`server-*`全体で固定のため常に空)、`enabled`(既定true)。
+- `alp_instance_schedule_run`(`InstanceScheduleRun`): 実行履歴ヘッダ。`scheduleId`(任意FK。延長申請による停止は`null`)、`trigger`(enum `InstanceScheduleTrigger`: `SCHEDULE`/`EXTENSION_REQUEST`)、`scheduleType`、`targetTime`(対象だった時刻)、`executedAt`(実際に処理した時刻)。
+- `alp_instance_schedule_run_detail`(`InstanceScheduleRunDetail`): インスタンス単位の結果。`runId`(FK、`onDelete: Cascade`)、`instanceName`、`result`(enum `InstanceScheduleRunResult`: `OK`/`SKIP`/`ERROR`)、`message`。
+- `alp_extension_request`は変更なし。
+
+### 確認結果(2026-10-30)
+
+- alphadb PR #105はマージ済み。0.2.8のpublishとマイグレーションも完了(alphadbの記録「5_4_3(0.2.8)のpublish・マイグレーション完了」)。alphaexapiの`package.json`はまだ`alphadb ^0.2.6`。
+- alphasyscdkのECSタスクロールには、`ec2:StartInstances`・`ec2:StopInstances`・`ec2:DescribeInstances`・`ec2:DescribeImages`が既にある。5_4_3でインフラの変更は不要。5_5_4の`DescribeImages`の権限も、すでにある(残りはalphacdkの`ImageIdParam`だけ)。
+- alphasystemへの申し送り`INBOX_FROM_ALPHAEXAPI.md`(2026-10-29)は未処理のまま。延長申請の停止後の扱い(stopTimeに日付が無い件)の決定は、まだ出ていない。
+
+## 2026-10-30 alphasystem-4eから回答: 延長申請の停止後は案A(設計者決定)
+
+alphasystemが`INBOX_FROM_ALPHAEXAPI.md`(2026-10-29)を取り込んだ(alphasystem Draft PR #127)。
+
+1. **5_4_3 延長申請(設計者として決定、案A)**: スケジューラは「次にその時刻(stopTime)になったとき」に停止し、止めたら(インスタンスが既に停止中でも)延長申請を削除する。その日だけ有効で、翌日以降は定時停止に戻る。日付は持たせない(alphadbの変更なし)。01:00のような日付またぎも、次にその時刻になったときに止まる。延長申請があるインスタンスは、その間、定時停止から外す。
+2. **サプレスの「階層的」な比べ方(PR #181)**: alphasystemがユーザーに確認中。実装はそのままでよい。
+3. **5_5_3(PR #182)**: 了解。初回ログイン時の変更の強制と、UserDataのパスワード露出(`ec2:DescribeInstanceAttribute`)は、alphasystemの設計ドキュメントの「未確認」に追記(alphacdkの対応のときに検討)。
+4. **4_4_2(PR #179)**: 了解。
+
+5_4_3の着手可否と祝日の判定方法は、ユーザーの回答待ち。
+
+## 2026-10-30 サプレスの階層的な比べ方はユーザー承認済み(alphasystem経由)
+
+- alphasystem-4eから: PR #181の「階層的」な比べ方は、ユーザー承認済み(取引先が違うのにプロジェクト名が同じことは、そもそもあり得ない)。そのまま進めてよい。対応不要。
+
+## 2026-10-30 alphasystem-4eから: 5_4_3とサプレス実機確認の前提が整った
+
+- alphadb: 5_4_3のテーブル(PR #105)をマージ、0.2.8をpublish、マイグレーションまで完了(PR #107・#109)。5_4_3のスケジューラと設定APIに着手できる(延長申請は案A)。
+- alphasyscdk: 担当分完了(PR #117〜#119)。受発注対応表のテンプレートにモデル行の罫線を追加してstagingにデプロイ済み。受発注採算表のテンプレートは元から罫線あり。IAM(`ec2:DescribeImages`)とSESは既存の権限で足りる。**罫線付きテンプレートでサプレス(PR #181)の実機確認ができる。**
+- alphacdk: 未着手(初回ログイン時のパスワード変更の強制、`ImageIdParam`)。5_5_4のAMI指定はalphacdk待ち。
+
+## 2026-10-30 alphacdk-dcから: テンプレートの差し替え依頼(5_5_3 / 5_5_4)
+
+alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native`で生成した`Ec2NativeTemplateStack.template.json`を`cdk.template/`に差し替えてほしい、という依頼。
+
+1. `ImageIdParam`(新規、5_5_4): 既定は空。空ならLaunch TemplateのAMIを使う。AllowedPatternは`^(ami-[0-9a-f]{8,17})?$`。alphaexapiの形式チェックもこれに合わせる。OSの種別は従来どおり`OsParam`。
+2. 5_5_3: `WindowsNewUserNameParam` / `WindowsNewUserPasswordParam`でユーザーが作られるようになった(同梱版はスクリプトの不具合で作られていなかった)。初回ログイン時のパスワード変更も必須になる(stagingで確認済み)。
+3. `SubnetIdParam` / `SecurityGroupIdsParam` / `IamInstanceProfileArnParam`の既定は空で、空ならLaunch Templateから継承する。alphaexapiのコメント「importValueで解決」は誤りで、実際は「Launch Templateから継承」。
+4. `WindowsRdpPortParam`は3389のまま。渡さなくてよい。
+5. `LinuxUserSshPublicKeyParam`は不要になった(互換のため残っている)。
+6. インスタンスの`ManagedBy`タグが`alphasys`から`alphacmc`に変わる → alphaexapiはこのタグで検索していない(`tag:Name`だけ)ことを確認した。
+- UserDataに初期パスワードが平文で入る件は、初回変更を強制するので当面は許容する(ユーザー承認済み、alphacdkで記録)。
+
+対応方針はユーザーの回答待ち。
+
+## 2026-11-01 alphacdk-75から: テンプレートの再取り込み依頼(5_5_3、WindowsのUserData変更)
+
+- `userdata/windows-user-setup.ps1`に処理が追加された。研修ユーザーが初めてログオンするまでは、RDPの`SecurityLayer=0`・`UserAuthentication=0`にしておく。ログオン時に動くタスク`RestoreRdpSecurity`(SYSTEM)が元の値に戻す。これで、標準のリモートデスクトップ接続でも、初回にパスワード変更画面が出る。
+- 変わったのはWindowsのUserDataだけ。パラメータ・条件・出力・LinuxのUserDataは、10/30の依頼(`docs/conversations/2026-10-30.md`)から変わらない。alphaexapiのコードの変更は不要の見込み。
+- stagingで確認済み(cdktest-557-win: 変更画面 → 設定が元に戻る → 2回目の接続)。
+- **取り込みのタイミング**: alphacdkのPR #27(Draft、11/01時点で未マージ)をユーザーがマージした後に、stagingで`npm run synth:native` → `validate-template` → `cdk.template/`へ差し替える。10/30の差し替え依頼(A)と一緒に1回で取り込む案を提示し、ユーザーの回答待ち(未承認)。
+- 取り込みが終わったら、alphacdkにPRのリンクと結果を連絡する。
+
+## 2026-11-01 alphacdk PR ＃27 マージ済み(テンプレート取り込みの前提が整った)
+
+- alphacdk-75から: PR #27がマージされた(stagingのマージコミット 1eb4c61)。取り込み手順は前回と同じ。着手はalphaexapiのユーザーの承認後。
+- alphaexapiの着手(A/Bの進め方)は、引き続きユーザーの回答待ち。
+
+## 2026-11-01 テンプレート差し替えとAMI指定の進め方を決定
+
+- alphacdk PR #27・alphaexapi PR #189はユーザーがマージ済み。
+- **PRは分ける**: A(テンプレートの差し替え、5_5_3の仕上げ)とB(AMIの指定、5_5_4)は別々のPRにする。
+- **AMIの確認範囲**: Bでは、指定されたAMIが存在して使える状態(`DescribeImages`)かだけを確かめる。CPUの種類(アーキテクチャ)とインスタンスタイプの組み合わせは確かめない(`ec2:DescribeInstanceTypes`の権限が要るため)。
+- **5_4_3の祝日判定**: `@holiday-jp/holiday_jp`を使う。
+- A/Bと「サプレスの実機確認・5_4_3」のどちらを先にやるかは、ユーザーの回答待ち。
+
+## 2026-11-01 作業順を決定(ユーザー承認)
+
+① テンプレートの差し替え(A) → ② AMIの指定(B、5_5_4) → ③ サプレスの実機確認 → ④ 5_4_3(設定API → スケジューラ)の順に進める。
+①を先にするのは、同梱の古いテンプレートではWindowsのユーザーが作られず、メールで届く初期パスワードでログインできないため。
+
+## 2026-11-01 ①②のPR作成とマージ順
+
+- ① テンプレートの差し替え: PR #192(alphacdk stagingの004498fから生成、validate-template済み)。
+- ② AMIの指定(5_5_4): PR #193。
+- **マージ順は #192 → #193**(古いテンプレートには`ImageIdParam`が無く、AMIを指定した作成がCloudFormationで失敗するため)。
+- マージ・stagingデプロイの後に実機確認する: Windowsを作成して届いた初期パスワードでログイン → パスワード変更画面、AMIを指定した作成。
+- alphasysへの`imageId`追加の連絡は、alphasysのセッションが無いためalphasystem-73経由で依頼した。
+- 次は③サプレスの実機確認。
+
+## 2026-11-02 alphasys-4eから: 同名スタックがあるときの作成エラーを400にしてほしい
+
+- 経緯: 11/2 14:59 JSTにstagingでインスタンス作成が2回失敗した(CloudWatch `staging-alphasys-backend`に`AlreadyExistsException: Stack [client-yohira-stack] already exists`)。10/30 16:47にEC2だけが`TerminateInstances`で直接削除され、スタックが`CREATE_COMPLETE`のまま残っていた(スタックはユーザー承認のうえalphasysで削除済み)。
+- 今は`instance-create.service.ts`のcatchでそのまま再throwしているので500になり、画面には理由が出ない。
+- ユーザーの方針(alphasys経由、11/02承認): スタックだけ残るケースは実際には起きないので、特別扱い(自動削除など)は不要。エラーメッセージで理由が分かればよい。
+- 依頼内容: `CreateStackCommand`が`AlreadyExistsException`で失敗したら`BadRequestException`(400)にする。文言例「同じ名前のインスタンス({instanceName})が既に存在します。別の名前を指定してください」。alphasysは#316で400のmessageをそのまま表示する実装済み。
+- PR #191・#192・#193はマージ済み。
+- 対応方針はalphaexapiのユーザーの回答待ち。
+
+## 2026-11-02 同名スタックの400化はユーザー承認、実装
+
+- 方式(ユーザー承認): `CreateStackCommand`が`AlreadyExistsException`で失敗したときだけ`BadRequestException`(400)にする。文言は「同じ名前のインスタンス({instanceName})が既に存在します。別の名前を指定してください」。それ以外のエラーは従来どおり500。スタックは作られないので、初期パスワードのメールも送らない。残ったスタックの自動削除などの特別扱いはしない。
+- PR #195で実装。テスト2件を追加した。
+- 次は③サプレスの実機確認(11/01に決めた作業順のとおり)。
+
+## 2026-11-02 サプレスの実機確認(受発注対応表)はユーザー目視OK、タイトル行の罫線なし
+
+- PR #195はマージ済み。
+- 方法: stagingの受発注対応表テンプレート(`13k890mASzd4Pmwv2ESHm3bAICsRO7S4YP6tXLFtOGdY`)をマイドライブに一時コピーした。alphasysと同じ列・サプレス項目でcreate-sheetの実コードを動かし、Googleへ送るリクエストだけを記録した(44件)。記録したリクエストを、そのままコピーに適用した。テンプレート本体は変えていない。確認後、コピーはゴミ箱に移した。
+- 読み戻しと、ユーザーの目視で確認した: グループ内の行・グループをまたぐ行の白文字と罫線の削除、階層的な比べ方(取引先が違えば同じプロジェクト名でもサプレスしない)、値が残っていること。
+- **指摘: タイトル行(1行目)に罫線が無い。** テンプレート本体の1行目に罫線が無いのが原因(2行目のモデル行にはある)。サプレスのコードの問題ではない。テンプレートはalphasyscdkの管理(`templates/`)なので、alphasystem経由でalphasyscdkに連絡する。
+- 受発注採算表のテンプレートでの確認は、まだしていない。
+
+## 2026-11-02 alphasyscdk-c8から: 受発注対応表のタイトル行に罫線を付けた
+
+- alphasyscdk #121(マージ済み): `templates/order-matching.json`のA1:G1に格子罫線(SOLID・幅1・黒)を付けた。受発注採算表のタイトル行と同じ書式。stagingのテンプレート(`13k890mASzd4Pmwv2ESHm3bAICsRO7S4YP6tXLFtOGdY`、IDは変わらない)に反映済みで、ユーザーが確認済み。本番は初回deployで反映される。
+- 受発注採算表のタイトル行は、もともと罫線がある(変更なし)。
+- alphaexapiでも、stagingのテンプレートのA1:G1の上下左右がSOLIDになっていることを読み戻して確かめた。alphaexapiの修正は不要。

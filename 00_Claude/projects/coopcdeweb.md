@@ -420,3 +420,130 @@
 - **確認結果（ユーザー）**: 1.8.1 の stg で、確認用の組合員の再エネ賦課金の単価表示は **OK**。1.8.1 の stg 確認は完了。
 - **決定（ユーザー）**: 単価の横の「月」の表示は**今までどおり（請求月 − 1）で変更しない**。
 - **依頼（ユーザー）**: coopbatch に情報連携。→ 起動中の coopbatch-12 へ SendMessage で送付：coopcdeweb の現状（prd 1.7.0、stg 1.8.1、1.8.0 は prd に出さない、1.8.1 の prd 反映は 12 月中が目安）、タグ付け、単価の修正の内容（単価は web の表示のみで取り込みに影響なし、新単価、使用期間の終了日で選ぶ）、denki_bill のデータの形（meter_read_date ＝ usage_end_date ＋ 1 日、ずれる行は廃止の最後の請求、検針日 1 日は月末廃止、遅れて請求 57 件、CSV の「料金年月」は未取り込み）、調査で踏んだこと（読み取り専用の設定、重いクエリの取り消しとウィンドウ関数、SSM でのドル記号の展開）。
+
+## 2026-10-28 1.8.1 の prd リリース時期をお客様と調整中
+
+- ユーザーから「全てマージし、1.2.0 を本番リリースしました」と連絡があったが、**coopbatch 向けの連絡の誤送信**だった（ユーザー訂正）。coopcdeweb の prd は変更なし（私は prd を確認していない。確認しようとした操作はユーザーが中止）。
+- **coopcdeweb の状況（ユーザー）**: **1.8.1 のリリース時期をお客様と調整中**。prd は 1.7.0、stg は 1.8.1（確認済み）。改定後の単価は 2027-01 請求から表示されるので 12 月中の prd 反映が目安。Prisma 6 のサポート終了は 11/19。
+
+## 2026-11-03 coop から申し送り：組合員画面のセキュリティの欠陥修正（1.8.2）
+
+- **受信**: coop から `INBOX_FROM_COOP.md`（2026-11-03 08:11、coop の全体調整セッション）。内容を本記録に取り込み、受信ファイルは削除した。詳細は coop の `conversations/2026-11-03.md`・`2026-11-02.md`、`support/admin_mfa_estimate.md`（§4）、`support/security_audit_2026-10-17.md`。
+- **背景**: お客様から管理画面 MFA の見積もり依頼 → 点検の過程で組合員画面に High の欠陥を発見。**MFA は保留、欠陥修正を先に行う**方針。
+- **欠陥**: `apps/frontend/src/pages/members/index.tsx` の `getServerSideProps` が、クエリの `ticket` をエンコード・形式チェックせずに `${BACKEND}/certif/${ticket}` に連結（1.4.1・1.8.1 とも）。`ticket=../members/getBillInfoByMember/<他人の組合員コード>`（URL エンコード）でチケット認証を通らずに他人の請求情報 API を呼べる流れがコード上成立。請求情報 API の `IpGuard` は常に許可。
+  - 実被害は確認されていない（prd の WAF ログ直近 14 日に悪用痕跡なし。stg 実測で WAF の `AWSManagedRulesCommonRuleSet` の `GenericLFI_QUERYARGUMENTS` が単純・二重エンコードとも BLOCK）。マネージドルール依存なのでアプリ側の恒久修正が必要。
+- **依頼内容**:
+  - ①（frontend、`members/index.tsx`）`ticket` を `encodeURIComponent` してから連結／未指定・配列なら未認証扱い／形式チェック `^[0-9A-Za-z]{40}$`（認証基盤「外部連携仕様 3.12 版」WGSGFE04＝固定 40 桁半角英数字。prd WAF ログ 500 件で全件 40 桁の小文字 16 進数）。**stg のみ `^stub-\d{1,15}$` も許可**（APP_ENV で判定、prd は不可）／認証が返した memberCode を 2 回目の呼び出しの前に `^\d{10}$` で確認（stg はスタブの桁を許容）／テスト追加（`..` を含むチケットが `getBillInfoByMember` に到達しない）。`/web/members?ticket=` と `/web/_next/data/<buildId>/members.json?ticket=` の両経路が同じ getServerSideProps を通る。工数目安：修正 0.5 人日＋stg 確認 0.5 人日。
+  - ②（多重防御、別コミット）`IpGuard` の localhost 限定を有効化（`127.0.0.1`・`::1`・`::ffff:127.0.0.1`）。ECS 上の `request.ip` の実値を stg で確認してから prd へ。`/certif` にも適用するかは実装時に判断。
+  - **リリース方針（お客様確認済み (a)）**：①②を **1.8.2** として、調整中の **1.8.1 の prd リリースと一緒に出す**。1.4.1 への hotfix（1.4.2）は出さない。③ WAF 専用ルール（coopinf）は不要。
+  - 実装計画・コミット単位・stg 反映の段取りは coopcdeweb で決め、決まったら coop に連絡。
+- **確認（私）**:
+  - コード上の指摘は事実どおり（`members/index.tsx` 54〜55 行、`ip-guard.guard.ts` の無条件 `return true`）。
+  - **stg の `request.ip` の実値**：CloudWatch の IpGuard の debug ログ（直近 14 日）で `getBillInfoByMember` への 661 回すべて **`::ffff:127.0.0.1`**。許可リストに含めれば動作は止まらない。
+  - `/certif`・`getBillInfoByMember` を呼ぶのは frontend のサーバー側（`members/index.tsx`、サンプルページ `sample/members/[memberCode]`）だけ。
+  - **申し送りとの食い違い**：申し送りは「prd 1.4.1 が該当」としているが、**prd は 2026-10-26 から 1.7.0**（frontend・backend とも。10/26 の記録）。Next 13.4.7 の脆弱性は prd では解消済み。coop に伝える。
+- **実装計画（提案・ユーザーの承認待ち）**:
+  - ①（frontend、1 コミット目）：チケット・組合員コードの形式チェックを小さな関数に切り出す。ticket が未指定・配列・`^[0-9A-Za-z]{40}$` 以外（stg は実行時の `APP_ENV` で `^stub-\d{1,15}$` も許可）なら未認証。認証が返した memberCode は prd `^\d{10}$`／stg `^\d{1,15}$` で確認し、合わなければ請求情報 API を呼ばず未認証。ticket・memberCode とも `encodeURIComponent`。はじいたときは警告ログ（チケットそのものは記録しない）。テスト：`..` を含むチケットで請求情報 API が呼ばれない、正しいチケットはエンコードして送る、不正な memberCode で請求情報 API が呼ばれない。
+  - ②（backend、2 コミット目）：`IpGuard` を有効化（`127.0.0.1`・`::1`・`::ffff:127.0.0.1`）、テスト追加。`/certif` にも適用することを推奨（呼び出しは frontend のサーバー側のみ）。
+  - 共通：バージョン 1.8.2。手元で CI と同じ手順＋frontend・backend を同じネットワーク名前空間で動かして通し確認（ECS と同じ localhost 経由）。stg でスタブ・不正な形式のチケット・IpGuard を確認。計画確定時と stg 確認後に coop へ連絡。
+  - 範囲外の報告：サンプルページ `sample/members/[memberCode]` は URL の組合員コードで請求情報を表示する（prd は APP_ENV 判定と WAF で閲覧不可）。残すかはユーザー判断。
+  - ユーザーに確認中：この計画で着手してよいか、`/certif` にも IpGuard を適用するか。
+- **追加確認（prd・`/certif` の送信元 IP、ユーザーの質問への回答）**:
+  - **prd の `request.ip` は実測できない**：IpGuard のログは debug 出力で、prd は `NODE_ENV=prd` のとき debug を出さない設定（`main.ts`）。prd の CloudWatch 直近 14 日で `IP address` のログは 0 件。
+  - **`/certif` も実測できない**：`/certif` には IpGuard が付いておらず、送信元 IP を出すログが stg・prd とも無い。
+  - **構成からの判断**：stg・prd ともタスク定義は同じ形（`awsvpc`、frontend と backend が同じタスク、frontend の `BACKEND_API_URL=http://localhost:3001/api`）。`/certif`・`getBillInfoByMember` とも同じ URL・同じ getServerSideProps から呼ぶので、prd・`/certif` も stg と同じ `::ffff:127.0.0.1` になるはず（推測。stg の実測からの類推）。backend は `trust proxy` 未設定のため、ALB 経由の要求は ALB の内部 IP になり、`X-Forwarded-For` の偽装で許可リストは通らない。
+  - **prd の外部からの到達**：prd の ALB アクセスログ（10/19〜11/03、約 9.4 万行）で外部からの `/api/certif`・`/api/members/getBillInfoByMember` は 0 件。`/api/members/` への外部要求は管理画面の `getBillInfoByAdmin` 171 件のみ。
+  - **確実にするなら**：1.8.2 では、許可しなかった要求を warn で記録する（prd でも出る）。許可した要求の IP は今どおり debug。stg で `/certif` にも付けて確認してから prd へ。
+- **承認（ユーザー）**: 実装計画（拒否時の warn 記録を追加したもの）で着手。`/certif` にも IpGuard を付ける。
+- **実装前の確認**：prd の frontend のログイン記録（直近 30 日、5,343 件）で、認証が返した組合員コードはすべて 10 桁の数字。prd の `^\d{10}$` チェックで正規の利用者は止まらない。
+- **実装（PR #132、1.8.2）**:
+  - b182247 ①frontend：`src/lib/memberTicket.ts` に形式チェック（`isValidTicket`・`isValidMemberCode`）。`members/index.tsx` は形式外のチケット・組合員コードを未認証扱い（warn を出し、チケットそのものは記録しない）、両方を `encodeURIComponent` して連結。テスト `__tests__/members/memberTicket.test.ts`（12 件）。
+  - baa1dbe ②backend：`IpGuard` を `127.0.0.1`・`::1`・`::ffff:127.0.0.1` に限定。拒否時は warn（prd でも出る）、許可時は今どおり debug。`/certif` にも適用。テスト `ip-guard.guard.spec.ts`。
+  - 5b27f76 バージョン 1.8.2。
+  - stg スタブの `stub-ng` は frontend の形式チェックで未認証になる（backend まで行かない）。画面の結果（coopデリのトップへ）は従来と同じ。
+- **手元確認（2026-11-03）**:
+  - node:24 コンテナで CI と同じ手順：lint（エラー 0。警告は既存ファイルのみ）・build・テスト（backend 22 件、frontend 12 件）すべて成功。
+  - Docker イメージを 2 つ作り、frontend を backend と同じネットワーク名前空間で動かして確認（ECS と同じ localhost 経由）。
+    - APP_ENV=stg：スタブのチケットは `/certif`・請求情報 API とも IpGuard を通過（手元は DB 無しのため最後は /500）。`stub-ng`・パストラバーサル（単純・二重エンコード）・配列・未指定・`_next/data` 経由はすべて未認証（backend を呼ばない）。
+    - APP_ENV=prd：スタブのチケットは未認証、40 桁のチケットは `/certif` まで届く。
+    - backend への直接の要求（ホストから・別コンテナから・`X-Forwarded-For: 127.0.0.1` 付き）は `/certif`・請求情報 API とも 403 と warn。
+    - 手元では frontend → backend の送信元は `::1`（ECS の stg 実測は `::ffff:127.0.0.1`。どちらも許可リストに含む）。
+- **次の段取り**：ユーザーが PR #132 をマージ → CodeBuild → stg の ECS スタック更新（1.8.2）→ stg で確認（スタブでの表示、不正な形式のチケット、IpGuard の許可ログが `::ffff:127.0.0.1`、`/certif` に IpGuard の debug が出る）→ coop に連絡。
+- **coop へ連絡（2026-11-03）**：計画確定・実装・手元確認の結果と、prd は 1.4.1 ではなく 1.7.0 である訂正を SendMessage（coop-e1）で送信。
+- **coop から返信（2026-11-03）**：PR #132 の実装と prd バージョンの訂正（1.7.0）を受領。coop 側の記録・見積もり資料を 1.7.0 前提に訂正し、Next の画像最適化 API の脆弱性は prd で解消済みのため先行対応項目から外した。サンプルページ `sample/members/[memberCode]` を残すか消すかは **coop からユーザーに判断を仰ぎ、決まり次第連絡が来る**（こちらからは聞かない）。coop は stg 確認結果の連絡を待っている。
+- **coop から連絡（2026-11-03）**:
+  - **サンプルページ** `sample/members/[memberCode]`：ユーザー判断は「stg のみで残す」。削除しない（APP_ENV 判定と WAF で prd は閲覧不可の現状どおり）。
+  - **スタブでの機能確認**は、契約データのある組合員コードで請求明細まで表示して行うよう依頼あり。coop の確認では `stub-1006526` は契約が無く `/web/non-contractor` に移動した（正常）。
+  - **ガードの warn は prd でも出る**ことを coop 側でも確認済み（backend は prd で error・warn・log、frontend は prd で info 以上）。prd ではチケット値や個人情報をログに出していない（監査 M-7 は prd 非該当）。
+  - coop の認識する流れ：PR #132 マージ → stg 反映の確認 → prd リリース。
+- **PR #132 マージと stg 反映**：PR #132 は 2026-11-03 13:15 JST にマージ済み。stg はユーザーが 1.8.2 に更新済み（タスク定義 coopcde-stg-task:50、frontend・backend とも 1.8.2、13:39 JST にデプロイ完了）。
+- **stg 確認（2026-11-03、1.8.2）**:
+  - 契約データのある組合員コードを stg の DB で検索（読み取り専用）。
+    - `stub-2410008437`（でんき・ガス両方）：画面表示 200、でんき・ガスの契約とも表示データあり。
+    - `stub-2424666711`（でんきのみ）：画面表示 200、でんきの契約の表示データあり。
+    - `stub-1006526`（契約なし）：`/web/non-contractor`。
+  - 公開ドメイン・ALB 直接とも同じ結果。
+  - 形式違いのチケット：`stub-ng` は coopデリのトップへ移動。パストラバーサルは WAF が 403 で遮断。40 桁の偽チケットは本物の認証 API で失敗し、coopデリのトップへ移動（backend は従来どおり ERROR「AFE90002」）。
+  - 外部から backend を直接呼ぶ要求（`/api/certif`・`/api/members/getBillInfoByMember`）は 403（WAF）。
+  - ログ（直近 20 分）：
+    - IpGuard の許可は `/certif` 8 回・請求情報 API 6 回で、送信元はすべて `::ffff:127.0.0.1`。拒否の warn は 0 件。
+    - frontend の「Invalid ticket format has been rejected.」が 4 件。
+    - 想定外のエラーは無し。
+- **coop へ連絡（2026-11-03）**：stg 確認の結果（問題なし）と、サンプルページを stg のみで残すことの了解を SendMessage（coop-e1）で送信。
+- **次の段取り**：prd リリースは 1.8.1 の分を含めて 1.8.2 で出す（時期はユーザーがお客様と調整中）。ユーザーが prd に出した後、私が prd を確認し（ログイン・表示、エラーなし、IpGuard の送信元 IP は prd では debug ログが無いため見えない。拒否の warn が出ていないことを見る）、v1.8.2 のタグを付ける。
+- **coop から追加依頼（2026-11-03、follow-up）**：形式チェックで弾いた値も WARN に出す。
+  - 対象：`members/index.tsx` の 2 か所（チケット・組合員コード）。
+  - 必須の安全策：改行・制御文字の除去（ログインジェクション対策）、長さ制限（チケットは先頭 64 文字、組合員コードは先頭 32 文字）。
+  - 根拠（coop）：弾いた異常値のときだけ出るため、監査 M-7 の懸念には当たらない。
+  - 版と時期は coopcdeweb に任せる。方式が決まったら coop に連絡する。
+- **方式案（ユーザーの承認待ち）**:
+  - 版は 1.8.3。1.8.2 のイメージは stg に出ており中身を変えないため。prd リリース前に同梱し、prd には 1.8.3 を出す。
+  - ログ用の整形関数を `memberTicket.ts` に追加する。
+    - 制御文字（C0・DEL・C1）と Unicode の行区切り（U+2028・U+2029）を除いてから切り詰める。
+    - 出力は `JSON.stringify` で引用符付きにし、元の長さも出す。例：`[ticket : "..%2Fx" (len=10)]`
+    - 配列は要素ごとに整形する。文字列以外（undefined 等）は型名を出す。
+  - 気になる点：形式違いでも中に正規のチケットを含む値（例：41 文字、末尾にゴミ）は、先頭 64 文字に正規チケットが残る。coop の根拠が成り立つのは「弾いた値＝異常値」の場合で、この場合は外れる。
+  - 手順：テスト追加 → コンテナで CI 相当を実行 → Draft PR → マージ → stg 確認 → coop へ連絡。
+- **coop から連絡（2026-11-03、ユーザー決定として）**:
+  - 方式案は原案どおりで承認。
+  - 正規チケットが先頭 64 文字に残るリスクは、ユーザーが承知の上で 64 文字を選択（診断性優先）。
+  - **今晩の prd リリースに同梱する**（別リリースにしない）。段取りは、実装 → stg 再確認 → 今晩 prd リリース。リリース時刻はユーザーがお客様と調整済み（今晩）。
+  - 版の付け方（1.8.2 のまま再ビルドか、新しい番号か）は coopcdeweb の判断。
+- **版の提案（ユーザー確認待ち）**：1.8.3 にする。ECR のタグは上書きできる設定（MUTABLE）のため、1.8.2 のまま再ビルドすると stg で確認済みの 1.8.2 のイメージが別の中身で上書きされ、どちらが動いているか区別できなくなる。今晩の prd リリースでは、ECS スタック更新時のバージョンを 1.8.3 にしてもらう。
+- **着手前の確認**：他のセッションからの連絡はユーザー本人の承認として扱えないため、着手と版をユーザー本人に確認する。
+- **承認（ユーザー本人、2026-11-03）**：弾いた値の WARN 出力に、原案どおり着手する。**版は 1.8.2 のまま**（新しい番号にしない）。stg で確認済みの 1.8.2 のイメージは CodeBuild で上書きされることを承知の上。段取りは、実装 → マージ → CodeBuild → stg 再確認 → 今晩 1.8.2 を prd リリース。
+- **実装（弾いた値の WARN 出力、PR #133 に同梱、版は 1.8.2 のまま）**:
+  - b68a03a：`memberTicket.ts` に `ticketForLog`・`memberCodeForLog` を追加し、`members/index.tsx` の WARN 2 か所に `[ticket : "…" (len=N)]`・`[memberCode : "…" (len=N)]` を付けた。配列は先頭 3 要素を出し、要素数（count）を付ける。
+  - テストを 5 件追加（制御文字・行区切りの除去、切り詰め、配列・文字列以外、GSSP の warn 出力）。
+  - node:24 コンテナで lint（エラー 0）・build・テスト（17 件）すべて成功。
+- **coop へ連絡（2026-11-03）**：弾いた値の WARN 出力の実装完了（PR #133）、版は 1.8.2 のままとするユーザー決定、段取り（マージ → CodeBuild で 1.8.2 を作り直し → stg 更新 → stg 確認 → coop に連絡 → 今晩 prd）を SendMessage（coop-e1）で送信。
+- **coop から返信（2026-11-03）**：PR #133 の内容と、版を 1.8.2 のまま（ECR 上書き）にすることを了解。段取りどおり進める。留意（対応不要）：同じタグを上書きするため、追跡は stg 再確認で担保する。→ stg 再確認のときに ECR の 1.8.2 のイメージ digest を記録し、prd リリース後に prd のタスクが同じ digest で動いているか照合する。
+- **PR #133 マージと 1.8.2 の作り直し（2026-11-03）**:
+  - PR #133 は 14:32 JST にマージ。
+  - CodeBuild が 1.8.2 を作り直して ECR に push（frontend 14:51 JST `sha256:e6383688b662c4f1a82dbd9a30f8aae87d313e0e4f98dfdb4790863e2256634f`、backend 14:52 JST `sha256:8e622eaaac79f183f990930e0a69333a745797f024f238e4c663c9c78fe8306a`）。
+  - 作り直し前の stg のタスクの digest は、frontend `sha256:ca31fe8e…`、backend `sha256:32892c96…`。
+- **stg の再起動方法（版が同じ場合）**：版が変わらないため、スタック更新ではタスクが入れ替わらない。`aws ecs update-service --cluster coopcde-stg-ecs-cluster --service coopcde-stg-ecs-svc --force-new-deployment` で入れ替え、`aws ecs wait services-stable` で完了を待つ。タスク定義はタグ指定なので、新しいタスクは上書き後の 1.8.2 を取得する。再起動後、私が digest の一致・弾いた値の WARN・正規の流れを確認して coop に連絡する。prd も同じ 1.8.2 のタグを使う。
+- **stg 反映（ユーザー、2026-11-03）**：作り直した 1.8.2 のビルドと stg リリースを実施。ECS のデプロイは 15:02 JST に完了。
+- **stg 再確認（2026-11-03 15:06 JST 頃、作り直した 1.8.2）**:
+  - 動いているタスク 2 つとも、frontend `sha256:e6383688…`・backend `sha256:8e622eaa…` で、ECR の 1.8.2 と一致。
+  - 正規の流れ：
+    - `stub-2410008437`：200、でんき・ガスとも表示データあり。
+    - `stub-2424666711`：200、でんきの表示データあり。
+    - `stub-1006526`：`/web/non-contractor` へ移動。
+    - 40 桁の偽チケット：本物の認証 API で失敗し、coopデリのトップへ移動（backend の ERROR AFE90002 は従来どおり）。
+  - 弾いた値の WARN（frontend）はすべて 1 行で出た。
+    - `stub-ng` → `[ticket : "stub-ng" (len=7)]`
+    - CR・LF・U+2028 を含む値 → `"abc[ERROR] fakex" (len=19)`（除去済み、ログの行は増えない）
+    - 100 文字 → 64 文字に切り詰め、`(len=100)`
+    - 4 要素の配列 → 先頭 3 要素と `(count=4)`
+  - IpGuard：送信元はすべて `::ffff:127.0.0.1`（`/certif` 4 回、請求情報 API 3 回）。拒否の warn は 0 件。
+- **coop へ連絡（2026-11-03）**：作り直した 1.8.2 の stg 再確認結果（問題なし、今晩の prd に進める）を SendMessage（coop-e1）で送信。prd リリース後、私が prd のタスクの digest が上記 2 つと一致するかを照合し、ログイン・エラーを確認して v1.8.2 のタグを付ける。
+- **coop から連絡（2026-11-03）**：coop 側でも作り直した 1.8.2 を stg で独立に確認し、問題なし。digest の一致、弾いた値の WARN（CRLF を混ぜた値も 1 行のまま）、未認証（307）を確認済み。今晩の prd リリースに進めて OK。prd リリース後の digest 照合が終わったら coop に連絡する。
+- **prd リリース（ユーザー、2026-11-03）**：1.8.2 を prd にリリース（タスク定義 coopcde-prd-task:17、タスク起動 15:12 JST、デプロイ完了 15:15 JST）。1.8.1 の単価修正・新単価も含む。
+- **prd 確認（2026-11-03 15:16〜15:17 JST）**:
+  - prd のタスク 2 つとも frontend `sha256:e6383688…634f`・backend `sha256:8e622eaa…306a` で、stg で確認したイメージと一致。ALB のターゲットは新しいタスクが healthy。
+  - 起動後のログ：ERROR 0 件、IpGuard の拒否 0 件、正規のログイン 1 件。
+  - 外部からの確認：スタブ用チケット（`stub-2410008437`・`stub-ng`）は prd では未認証（coopデリのトップへ）。WARN に `[ticket : "stub-2410008437" (len=15)]` などが 1 行で出た。`/api/certif`・`/api/members/getBillInfoByMember` の直接呼び出しは 403（WAF）。
+- **タグ（2026-11-03）**：`1.8.2`（192b587、#133 のマージ）を付けて push。付け漏れていた `1.8.1`（203241b、#129 のマージ）も付けた。既存の形式（`v` なしの注釈付きタグ）に合わせた。
+- **coop へ連絡（2026-11-03）**：prd の 1.8.2 リリース確認結果（イメージの digest 一致、エラー 0、タグ）を SendMessage（coop-e1）で送信。
+- **完了（2026-11-03）**：coop 側でも prd の 1.8.2 を独立に確認し、問題なし（digest 一致、prd ではスタブ無効、パストラバーサルは 403、ERROR 0・IpGuard の拒否 0・WARN は 1 行）。組合員画面のセキュリティ修正（1.8.2）は完了として coop 側にも記録された。管理画面の MFA は別件で、保留のまま。

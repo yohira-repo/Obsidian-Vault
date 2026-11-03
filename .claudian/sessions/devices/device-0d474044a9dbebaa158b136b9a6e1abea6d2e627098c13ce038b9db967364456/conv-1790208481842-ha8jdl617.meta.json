@@ -4,7 +4,7 @@
   "title": "Daily syncこのターンを確認しました。\n\n**このターンの内容:**\n- `/dail...",
   "titleGenerationStatus": "success",
   "createdAt": 1790208481851,
-  "lastActivityAt": 1791500764642,
+  "lastActivityAt": 1793747696720,
   "sessionId": "8e6ff3ee-c2cc-4297-b3e4-16d94e4a97a6",
   "selectedModel": "opus",
   "providerState": {
@@ -14,10 +14,10 @@
   "usage": {
     "model": "opus",
     "inputTokens": 1,
-    "cacheCreationInputTokens": 674,
-    "cacheReadInputTokens": 161403,
+    "cacheCreationInputTokens": 712,
+    "cacheReadInputTokens": 162991,
     "contextWindow": 1000000,
-    "contextTokens": 162078,
+    "contextTokens": 163704,
     "percentage": 16,
     "contextWindowIsAuthoritative": true
   }
