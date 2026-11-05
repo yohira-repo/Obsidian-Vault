@@ -3704,3 +3704,68 @@ alphaofficesystemの現行CSV連携は、仕様書4.3章（請求書、38列）�
 - **対応**: alphasys #316（AMI ID 入力欄）は、alphaexapi #192 → #193 のあと、11/01 にマージ済み。
 - **私の側の訂正**: 11/02 に送った「読んで取り込んでほしい」の連絡は、不要だった（取り込み済み）。新しい申し送りがあるときは、ファイルを置き直してから連絡する。
 - **PR の切り替え**: PR #129 も、追記の push の前にマージ済みだった。新ブランチ `docs/template-title-border-1102` から Draft PR #131 に切り替えた（11/02 の節は #131 に入る）。`git push` の前の状態確認は、`&&` でつなぐと MERGED でも先に進むため、状態を判定してから push する。
+
+## 2026-11-05 2 週間ぶりの状況確認: 止まっている 3 件を洗い出し
+
+- **確認（alphasystem-1d）**: 未マージ PR は記録用の Draft 2 件のみ（alphadb #112、alphacdk #31）。申し送りファイルの残りなし。課題表 6 件（10/28 設計確定）は、5_4_3 が alphadb@0.2.8 で完了、5_5_3 は staging 確認済み、5_5_4 は alphaexapi #193、サプレスは実機確認 OK で進行中。
+- **止まっている 1: 4_7_1 の結合試験が未実施**。[手順書](../design/2026-10-27-社員情報変更依頼-結合試験手順.md)は草案のままで試験項目は全件未実施。事前確認 1〜4 は確認済み、5 は `yohira@alphacmc.co.jp` のみ、**6（夜間自動移行タイマーの停止）と 7（試験用 CSV の用意）がユーザー作業として未実施**。実装側は揃っており、残りはこの 2 つだけ。
+- **あわせて**: 夜間自動移行は 10/27 19:22 の Bastion 置換から**9 日間止まったまま**。復旧は結合試験の終了後の段取りのため、試験が延びるほど停止期間も延びる。
+- **止まっている 2: MF 取引先同期の API ガードが未実装**（下の節）。
+- **止まっている 3: alphasyscdk の会話記録が git 管理されていない**。10/23 に指摘した時点から変化なし。リポジトリ直下に未追跡の `conversations.md`（10/7 の RDS 記録のみ）があるだけで `docs/conversations/` が無い。10 月末の SES・テンプレート・ECS 鍵注入などの記録が残っていない。
+
+## 2026-11-05 MF 取引先同期の API を ADMIN 限定にする作業に着手（ユーザー指示）
+
+- **判明**: 2026-10-23 に設計者判断として記録した「取引先同期は GET・PUT とも ADMIN 限定」が、**2 週間実装されないまま残っていた**。alphasys は PR #279 で画面を ADMIN 限定にしてマージ済みだが、alphaexapi の `src/money-forward-customer/money-forward-customer.controller.ts` には `@Roles('ADMIN')` が無く、コメントも「経理担当者向けの画面であり管理者限定ではないため付けない」のまま。**画面は閉じているのに API は認証済みの社員なら誰でも叩ける状態。**
+- **経緯**: PR #160 の T13 で対応される想定だったが、#160 は 10/23 00:27 UTC にマージされ、その時点で T13 は入っていなかった。10/23 に出した「小さな PR で先に塞ぐ（案 A）か #160 に含める（案 B）か」の確認も未回答のままだった。
+- **決定（ユーザー、2026-11-05）**: **着手する**（10/23 の案 A に相当。#160 とは切り離した小さな PR で塞ぐ）。
+- **依頼先**: alphaexapi-af（セッションが起動していたため `SendMessage`）。依頼内容は、`listCandidates`（GET candidates）と `updateCandidate`（PUT candidates/:customerNo）の両方に `@Roles('ADMIN')` を付け、コントローラ冒頭のコメントを案 B の前提に書き換えること。`@Roles` の付け方は `money-forward-job.controller.ts`（5 か所）に揃える。staging から新ブランチ、Draft PR（base=staging）で、PR リンクを返信してもらう。
+- **確認を依頼した点**: `money-forward-customer.controller.spec.ts` にロール前提のテストが無さそうに見えたため、ガード追加でテストが落ちないか。alphasys 以外に `customer-sync` の API を呼ぶ箇所があるか。
+- **受け入れた副作用**: ADMIN でない経理担当者はこの画面・API を使えなくなる（案 B 決定時にユーザーが承知のうえでの判断。運用で ADMIN を付与する前提）。
+
+## 2026-11-05 ADMIN 限定の方式を EmployeeGuard + AdminOnly に訂正し、対象に送信・取込・rerun を追加（設計者判断）
+
+alphaexapi-af の指摘を受けて実物を確認し、**2026-10-23 と本日の私の指示の誤りを 2 点訂正した。**
+
+- **訂正 1（方式）**: `@Roles('ADMIN')` は使わない。**`EmployeeGuard` + `AdminOnly()`（DB の role で判定）にする。**
+  - `src/auth/roles.guard.ts` は `request.headers['x-user-role']` を読んでおり（コメントも「フロントから送られたロール」）、**クライアントが詐称できるためセキュリティ上の制御として機能しない**。
+  - `src/employee-info/auth/employee.guard.ts` は「フロントが送る x-user-role ヘッダーは信用せず、ADMIN 判定も DB の role で行う」と明記されている（4_7_1 契約書 1.1）。
+  - 私が「`money-forward-job.controller.ts` に揃えて」と指示したのは、そちらの実効性を確認せず形だけ合わせようとしたもので誤り。
+- **訂正 2（対象範囲）**: customer-sync の 2 本に加えて、**`money-forward-job.controller.ts` の `triggerSend`（POST send）・`triggerImport`（POST import）・`rerun`（POST :jobType/rerun）も対象にする。**
+  - `@Roles('ADMIN')` が付いているのは CSV の 5 本（invoice-export / invoice-import / payable-export / payable-import / payroll-import）だけで、**API 経路の 3 本には何も付いていない**。
+  - 送信・取込・rerun は案 B の「MF を呼ぶ操作」そのもの。範囲の拡大ではなく案 B をそのまま実行するだけ。10/23 に「job controller は対応済み」と判断したのは、CSV の 5 本だけを見て API 経路を見落としたため。
+- **今回の対象（確定）**: `listCandidates`、`updateCandidate`、`triggerSend`、`triggerImport`、`rerun` の 5 本に `EmployeeGuard` + `AdminOnly()`。customer-sync のコントローラ冒頭のコメントも書き換える。ガードの付与を確かめるメタデータのテストを追加する。
+- **調査結果（alphaexapi-af）**: customer-sync の呼び出し元は alphasys の `src/lib/money-forward-api.ts` だけ（alphaexapi 内は Runner が service を直接利用し HTTP を経由しない）。**alphasys 側の追加作業はなし**で確定。controller.spec にロール前提のテストは無く、既存テストは落ちない。
+
+## 2026-11-05 別課題 2 件を切り出し（今回の PR には含めない）
+
+- **別課題 1: PR #160 は実装を含まずマージされていた。** staging の `package.json` は `alphadb: "^0.2.6"` のままで、`mf-partner-gateway.not-implemented.ts`・`not-implemented-job-runner.ts`（D5 で削除予定だったもの）も残っている。**MF ユーザー単位 OAuth の実装（Task 1〜14）は staging に入っていない**で確定。T13 だけでなく D1・D3・D4 も未実装。
+  - **影響（alphaexapi-af の見立て、要確認）**: staging の DB には 0.2.7 のマイグレーション（トークンはユーザー単位）が適用済みのため、**staging の alphaexapi は MF トークンを保存できない可能性が高い**。
+  - #160 の実装をやり直す段取りは別途相談する。
+- **別課題 2: `@Roles('ADMIN')` が全体として実効性を持たない。** ヘッダー依存のため、CSV の 5 本（請求書・債務支払・給与）も名ばかりの ADMIN 限定。`aws-instance`・`corporation`・`google-drive`・`users` にも `@Roles('ADMIN')` があり、alphaexapi 全体に及ぶ。今回のスコープには入れず、ユーザーに報告する。
+
+## 2026-11-05 別課題 2 件の裏取り: staging の MF 連動は停止中、`@Roles` は社員なら誰でも突破できる
+
+「何を判断すればよいか分からない」というユーザーの指摘を受け、判断材料が足りていなかったため裏を取った（**判断を求める前に確かめるべきことだった**）。
+
+- **別課題 1 の確認（見立てではなく事実）**: alphadb の `20261022120000_mf_oauth_token_per_user/migration.sql` は、`DELETE FROM "alp_mf_oauth_token";` のうえで `user_email VARCHAR(256) NOT NULL`（デフォルトなし）を追加している。staging の alphaexapi は 0.2.6 でビルドされており `user_email` を入れないため、**保存は必ず失敗する**。既存トークンも削除済み。**staging の MF 連動（API 経路）は現在停止している。**
+  - **ただし急ぎではない**。4_7_1 の結合試験も MF の CSV 経路もトークンを使わない。止まっているのは**もともと稼働していなかった API 経路だけ**。
+- **別課題 2 の確認（severity）**: alphasyscdk `lib/constructs/alb.ts` は `internetFacing: true` で、`/api/*` をバックエンドの target group に流している。`GoogleAuthGuard` があるため匿名では通らないが、`RolesGuard` は `x-user-role` ヘッダーを読むだけなので、**ログインできる社員なら誰でもヘッダーを 1 つ足すだけで ADMIN 扱いになる**。対象に**給与 CSV の取込・出力**を含む。社内の権限昇格として実害がある。
+- **直す範囲は 3 段階**: ①今回の MF API 経路 5 本（依頼済み）、②`money-forward-job` の CSV 5 本（**同じファイル**のため追加コストが小さい）、③`aws-instance`・`corporation`・`google-drive`・`users` の 11 箇所（別ファイル・別モジュールの配線が要る。別 PR）。
+- **ユーザーに出した推奨（回答待ち）**: ①#160 のやり直しは 4_7_1 の結合試験の後。②CSV の 5 本は今回の PR に含める（先に alphaexapi へ「含めない」と伝えてしまったため、承認が出たら訂正を送る）。
+
+## 2026-11-05 別課題 2 件は「全部、今やる」（ユーザー決定）。alphaexapi へ PR 3 本の体制で依頼
+
+- **決定（ユーザー）**: **「全部、今やってください」**。私が出していた推奨（「CSV の 5 本は今回に含めない」「#160 のやり直しは結合試験の後」）は**どちらも撤回**し、全範囲にいま着手する。
+- **PR 1（進行中のものを拡大）— MF 連動の 10 本**: `listCandidates`・`updateCandidate`・`triggerSend`・`triggerImport`・`rerun` に加え、**`money-forward-job` の CSV 5 本**（`csv/invoice-export`・`csv/invoice-import`・`csv/payable-export`・`csv/payable-import`・`csv/payroll-import`）の既存 `@Roles('ADMIN')` を外して `EmployeeGuard` + `AdminOnly()` に置き換える。同じファイルのため追加コストは小さい。`csv/employee-import` が既にこの方式のため整合も取れる。クラス単位で付けるかはアプリ側の判断に任せた。
+- **PR 2（新規）— 残り 4 コントローラ 13 箇所と `RolesGuard` の始末**: `AllInstance-control`（7）・`instance-create`（2）・`corporation`（1）・`google-drive-folder`（1）・`google-drive-write`（1）・`users`（1）。**全箇所の移行後に `RolesGuard`・`@Roles`・`ROLES_KEY` を削除する**（残すと「付ければ守られる」と誤解されて再発するため）。
+  - **確認を依頼**: `EmployeeGuard` は `alp_users` を email で引き退職日で弾くため、これらの呼び出し元に `alp_users` に居ないもの（バッチ・サービスアカウント・alphasys 以外）が無いか。あれば別扱いの方式案を出してもらい、こちらで判断する。
+- **PR 3（新規）— #160 のやり直し**: MF ユーザー単位 OAuth の実装（Task 1〜14、D1・D3・D4・D5）を staging に入れ直す。設計は 10/22 承認済みで**設計判断は残っていない**。D2 は案 B で確定。`alphadb@^0.2.7` への更新が必要で、**CodeArtifact のトークン再取得はユーザー作業**のため、必要になった時点で alphasystem が取り次ぐ。
+- **共通**: すべて staging から別ブランチ、Draft PR（base=staging）。着手順と PR のさらなる分割はアプリ側の判断に任せた。
+- **私の失敗**: PR #133 がマージ済みなのに気づかず、マージ後のブランチへ push した。新ブランチ `docs/verify-spinoff-issues` に載せ替えて Draft PR #135 を作り直した。push の前に PR の状態を確認する手順を飛ばしていた。
+
+## 2026-11-05 alphaexapi PR 1（＃199）を受領。範囲の拡大は alphaexapi のセッションでユーザーの了解待ち
+
+- **受領（alphaexapi-af）**: [alphaexapi PR #199](https://github.com/alphacmc/alphaexapi/pull/199)（`feature/mf-admin-only-guard`、base=staging、Draft）。**MF を呼ぶ 5 本**（customer-sync の GET・PUT、send・import・rerun）を `EmployeeGuard` + `AdminOnly`（DB の role）に変更。
+- **確認できた点**: **DB の role が USER なら `x-user-role: ADMIN` を送っても 403 になる**ことを、本物の `EmployeeGuard` を通す結合テストで確かめている。今回の肝はここなので、実際に通して確認されたのは有効。全体 92 スイート / 624 件 PASS。設計者として内容に異存なし。Draft 解除とマージはユーザー。
+- **範囲の拡大は保留中**: CSV 5 本の追加・PR 2・PR 3 は、**alphaexapi のセッションでユーザー本人の了解を取ってから着手**する（CLAUDE.md の「コード修正の了解は本人から」に従う判断で、妥当）。alphasystem 側で代わりに承認はしない。
+- **段取り**: ユーザーが alphaexapi のセッションで「全部やる」旨を伝える。alphasystem からは、alphaexapi が待っていることをユーザーへ連絡済み。

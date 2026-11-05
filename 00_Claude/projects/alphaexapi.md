@@ -1309,3 +1309,17 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - alphasyscdk #121(マージ済み): `templates/order-matching.json`のA1:G1に格子罫線(SOLID・幅1・黒)を付けた。受発注採算表のタイトル行と同じ書式。stagingのテンプレート(`13k890mASzd4Pmwv2ESHm3bAICsRO7S4YP6tXLFtOGdY`、IDは変わらない)に反映済みで、ユーザーが確認済み。本番は初回deployで反映される。
 - 受発注採算表のタイトル行は、もともと罫線がある(変更なし)。
 - alphaexapiでも、stagingのテンプレートのA1:G1の上下左右がSOLIDになっていることを読み戻して確かめた。alphaexapiの修正は不要。
+
+## 2026-11-05 MF を呼ぶ操作の ADMIN 限定（案 B）を実装: 取引先同期 2 本＋送信・取込・rerun、DB の role で判定（ユーザー決定）
+
+- **依頼（alphasystem-1d）**: 2026-10-23 に決まった案 B（MF を呼ぶ操作は ADMIN 限定、取引先同期は PUT も含む）が alphaexapi に入っていない。alphasys は `/sales/customer/mf-sync` を PR #279 で ADMIN 限定にしてマージ済みのため、画面は ADMIN 限定なのに API は認証済みの社員なら誰でも叩ける状態だった。当初の依頼は `@Roles('ADMIN')` を customer-sync の 2 本に付けるもの。
+- **調査で分かったこと**:
+  - **PR #160 は実装計画（docs）のコミットだけで 2026-10-23 09:27 JST にマージされており、MF ユーザー単位 OAuth の実装（計画の Task 1〜14）は staging に入っていない**。staging の `package.json` は `alphadb ^0.2.6` のまま、`mf-partner-gateway.not-implemented.ts` も残っている。staging DB には 0.2.7 のマイグレーション（トークンはユーザー単位）が適用済みのため、staging の alphaexapi は MF トークンを保存できない可能性が高い。→ alphasystem が別課題として立て、やり直しの段取りをユーザーと相談する（今回の PR には含めない）。
+  - `money-forward-job.controller.ts` の `POST send`・`POST import`・`POST :jobType/rerun` にも ADMIN 判定が無かった（`@Roles('ADMIN')` は CSV の 5 本だけ）。
+  - `RolesGuard`／`@Roles('ADMIN')` はフロントが送る `x-user-role` ヘッダーで判定するため詐称でき、実効的な制御になっていない。`EmployeeGuard` + `AdminOnly()` は DB の role で判定する。
+  - customer-sync の呼び出し元は alphasys の `src/lib/money-forward-api.ts`（GET・PUT）だけ（~/git 配下を検索）。alphaexapi 内の `CustomerSyncJobRunner` は service を直接使う。alphasys はどちらの方式でも変更不要。
+- **決定（ユーザー）**: 判定は **DB の role（`EmployeeGuard` + `AdminOnly()`）**。範囲は **customer-sync の 2 本（GET candidates・PUT candidates/:customerNo）＋ send・import・rerun**。alphasystem-1d も同じ内容で訂正（`@Roles('ADMIN')` の指示を撤回）。
+- **やらないこと（今回のスコープ外）**: MF ユーザー単位 OAuth の実装（別課題）。CSV の 5 本や aws-instance・corporation・google-drive・users など、`@Roles('ADMIN')`（ヘッダー判定）に頼っている既存のエンドポイント全体の見直し（alphasystem がユーザーに別課題として報告する）。
+- **承認（ユーザー）**: ローカルの `alphadb` が 0.0.1（9/30 時点）のままでテストが型エラーになったため、CodeArtifact のトークンを取り直して `npm ci` することを承認（「取り直して npm ci してよい」）。実施して 0.2.6 に同期した。
+- **実装**: ブランチ `feature/mf-admin-only-guard`（staging から）。customer-sync はクラスに `@UseGuards(GoogleAuthGuard, EmployeeGuard)` + `@AdminOnly()`（`RolesGuard` は外し、冒頭の「管理者限定ではないため付けない」のコメントを書き換え）。job controller は 3 メソッドに `@UseGuards(EmployeeGuard)` + `@AdminOnly()`。テストのため `ADMIN_ONLY_KEY` を export。ガードのメタデータのテストを追加し、実装前に 4 件失敗・実装後に通ることを確認。全体 91 スイート / 613 件 PASS、`tsc` エラーなし。
+- **レビュー（code-reviewer）**: CRITICAL/HIGH なし。指摘はその場で直す方針に従い、MEDIUM（本物の EmployeeGuard で USER が 403・ADMIN が通ることの結合テストが無い）を `money-forward-job.controller.int.spec.ts` への追加と `money-forward-customer.controller.int.spec.ts` の新設で対応（`x-user-role: ADMIN` を送っても USER は 403 になることも確認。ガードを外すと 5 件が失敗することを確認）。LOW のうち、クラスの `GoogleAuthGuard` が前段にあることのテスト追加と、3 メソッドで重複していたコメントの短縮も対応。LOW「`applyDecorators` で合成デコレータにまとめる」は、PR 2（`RolesGuard` の全面置き換え）の範囲が決まってから判断する。全体 92 スイート / 624 件 PASS、`tsc` エラーなし。
