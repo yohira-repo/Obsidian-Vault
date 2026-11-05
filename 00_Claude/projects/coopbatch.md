@@ -483,7 +483,7 @@ coop で、alphasystem 配下で決まった運用規則を coop 系にも適用
 - **version は 1.1.0 にして PR #30 に含める**（ユーザー承認）。実行環境が変わる（Node 24・Prisma 6）ためマイナーを上げる。stg のイメージタグは `coop-batch:1.1.0` になり、prd の 1.0.2 は上書きされない。
 
 ### stg 確認の段取り（実行順。日時は未定、実施はユーザー）
-1. stg の CodeBuild（`coopcde-stg-batch-codebuild`）を実行する。既定では main を取ってくるので、マージ前に試すなら `--source-version feature/upgrade-node24-prisma6` を付ける。ログの `Resolved IMAGE_TAG ... -> 1.1.0` と ECR の `coop-batch:1.1.0` を確認する。
+1. stg の CodeBuild（`coop-stg-batch-codebuild`。※当初 `coopcde-stg-batch-codebuild` と誤記していた。そちらは旧 coopcdebatch 用。2026-10-26 訂正）を実行する。既定では main を取ってくるので、マージ前に試すなら `--source-version feature/upgrade-node24-prisma6` を付ける。ログの `Resolved IMAGE_TAG ... -> 1.1.0` と ECR の `coop-batch:1.1.0` を確認する。
 2. stg の ecs-batch stack を ImageTag `1.1.0` で更新する（prd の stack は 1.0.2 のまま）。
 3. ecs-batch-ondemand か定期実行でバッチを動かす。
 4. CloudWatch Logs で確認する: Prisma エンジンの読み込みエラー（libssl / openssl）が無いこと、`SFTP connected to ...` からダウンロードまで進むこと、S3・SQS・DB の処理がこれまでどおり終わること、終了コード 0。
@@ -680,3 +680,26 @@ coop で、alphasystem 配下で決まった運用規則を coop 系にも適用
 - 2026-10-26 17:50 JST、`coop-ecs-batch-prd` を `--use-previous-template` で更新（`ImageTag=1.2.0`、**`ScheduleState=ENABLED` を明示**、他は前回の値）→ UPDATE_COMPLETE（17:50:30 JST）。
 - 更新後: stack のパラメータは ImageTag 1.2.0 / ScheduleState ENABLED（ずれも解消）。`coop-prd-batch-schedule` は ENABLED、`cron(30 0 * * ? *)`。対象のタスク定義は `coop-prd-batch:4`（`coop-batch:1.2.0`）。
 - **次の定期実行は 2026-10-27 09:30 JST で、これが prd での 1.2.0 の初回**。実行後に CloudWatch Logs（prd のロググループ）で `Version: 1.2.0`・`Database connected successfully`・エラーの有無を確認する。
+
+## 2026-10-28 1.2.0 の本番リリース完了と、prd での初回実行の確認
+
+- **報告（ユーザー）**: 「全てマージし、1.2.0 を本番リリースした」。
+- **prd の状態（AWS で読み取りのみで確認、2026-10-28 06:33 JST）**: `coop-ecs-batch-prd` は ImageTag 1.2.0 / ScheduleState ENABLED（2026-10-26 17:50 JST に Claude が更新したまま）。`coop-prd-batch-schedule` は ENABLED。
+- **prd での 1.2.0 の初回実行（2026-10-27 09:30 JST の定期実行）: 正常終了**。ログ（`/ecs/logs/coop-prd-batch-loggroup`、`coop-prd/coop-prd-batch/112e9839540449129827e99dd3d473ce`）:
+  - `Version: 1.2.0`、`Database connected successfully`（Prisma 7 + 検証付き SSL で prd の Aurora に接続）、SFTP 接続も正常。
+  - SFTP から 3 ファイル（契約 2・速報値 1）を取り込み。契約 Read 56 / Write 56、速報値 Read 3,517 / Write 3,517、`Total Errors: 0`、`Main Batch Job (one-shot) completed successfully`（09:30:39〜09:31:44）。WARN 以上 0 件。
+- これで Node 24 / Prisma 7（1.2.0）への更新は prd まで完了。Prisma 6 のサポート終了（2026-11-19）の影響は無くなった。
+
+### 記録のコミットが main に直接入っていた件（Claude のミス）
+- 2026-10-26 17:49・17:52 JST の記録のコミット 2 件（`4e50a2a`「残課題への回答と prd 反映の注意を記録」・`64e35b2`「prd への 1.2.0 反映を記録」）が、**ブランチではなく main に直接 push されていた**。ユーザーが `.env.example` の追記（`691826d`）を main に push した際に作業ツリーが main に切り替わっており、Claude が現在のブランチを確認せずに commit・push したため。
+- そのため、stg 確認の記録（PR #34 のコミット 5 件）は「全てマージ」の時点で未マージのまま残っていた。2026-10-28 に PR #34 のブランチを main に合わせ直し、`conversations/2026-10-26.md` を時系列どおりにまとめ、10/23 の記録のプロジェクト名の訂正とあわせて 1 コミットで入れ直した。
+- 再発防止: commit の前に `git branch --show-current` で現在のブランチを確認する（ユーザーが同じ作業ツリーで操作することがある）。
+
+## 2026-10-28 coop へ申し送り: Node 24 / Prisma 7（1.2.0）への更新と prd 反映
+
+- **依頼（ユーザー）**: coop への申し送り（2026-10-23 に「事後に申し送る」とした件）。
+- coop のセッションが起動していなかったため（ListAgents で確認）、取り決めどおり coop の直下に未追跡の `INBOX_FROM_COOPBATCH.md` を置いた（coop の記録へ取り込んだら削除してもらう）。
+- 申し送った内容:
+  - coopbatch は Node 24（`node:24-alpine3.24`）/ Prisma 7.10.1 / 検証付き SSL の 1.2.0 になり、prd まで反映済み（2026-10-27 09:30 JST の定期実行で正常終了）。coop の正式決定前に先行して対応した事後報告。Node の統一表で残りは coops3view（22）と coopcdealert（22）。
+  - prd の定期実行の設定ずれ（実体は ENABLED、stack の `ScheduleState` は DISABLED）を、1.2.0 の反映時に解消したこと。
+  - 旧 coopcdebatch の ECR `coopcde-batch:1.4.4` を誤って付け替えた件（ユーザーの判断で戻さない）。

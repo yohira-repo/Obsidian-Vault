@@ -430,3 +430,105 @@
 - alphaexapi-aa 返信: #155 は `"alphadb": "^0.2.7"` を直接指定（設計書 10.4・会話記録も更新済み）。段取り: 実装計画 → alphasystem の了解 →
   実装 → ユーザーがマージ後すぐ staging デプロイ。デプロイの目処が立ったら連絡が来る。現行 alphaexapi がトークンを保存できない状態は
   #155 のデプロイまで続く（alphaexapi-aa からもユーザーへ伝える）。
+
+## 2026-10-28 alphasystemからの申し送り（INBOX_FROM_ALPHASYSTEM.md 取り込み）
+
+- alphasystemで、alphasys課題表のうち設計が必要だった6件の設計がユーザー承認で確定した
+  （設計書: alphasystem `docs/design/2026-10-28-alphasys課題表6件-設計.md`、PR #122。
+  決定の記録: alphasystem `docs/conversations/2026-10-28.md`）。
+- **alphadbの担当は5_4_3（インスタンスの定時起動・定時停止）**: 新しいテーブルを新設する。
+  実行はalphaexapiのスケジューラ（1分ごと）が読む。
+  - スケジュール: 種別（起動／停止）・時刻（HH:mm）・曜日・有効／無効。
+    起動のデフォルトは月〜金8:45、停止のデフォルトは20:00（停止は複数設定可）。
+  - 起動の対象インスタンス: インスタンス名（タグのName。IDは作り直しで変わるため名前で持つ）の
+    一覧（複数選択可）。停止の対象は`client-*`/`server-*`の全インスタンス共通のため、
+    対象の一覧は持たない（設定ごとの対象選択はしない。ユーザー承認済み）。
+  - 祝日は起動しない（祝日の判定はalphaexapi側）。
+  - 実行履歴（直近の取りこぼし補完・重複実行の把握用）を持つ。
+  - 既存の`alp_extension_request`（instanceId・instanceName・stopTime）は、延長申請の
+    停止予定時間にも停止を実行する形でalphaexapiが使う（定時停止ではなく延長の停止予定時間で
+    止める。ユーザー承認済み）。変更の要否はalphaexapiと調整。
+  - 実装の依存順: alphadb（このテーブル）→ alphacdk / alphasyscdk → alphaexapi → alphasys。
+- テーブル設計はalphadbで行い、決まったらalphaexapiへ知らせる。設計の質問はalphasystemへ。
+  実装計画は本セッションで立てる（未着手）。
+- `INBOX_FROM_ALPHASYSTEM.md`は取り込み後に削除する運用（2026-10-20と同様）。
+
+## 2026-10-28 5_4_3テーブル設計を提示・ユーザー承認、Draft PR作成
+
+- 設計案（3テーブル）を提示: `AlpInstanceSchedule`（設定本体）、`AlpInstanceScheduleRun`/
+  `AlpInstanceScheduleRunDetail`（実行履歴ヘッダ+明細、既存`MfJob`/`MfJobDetail`と同形）。
+- ユーザー承認（3点とも私の推奨どおり）:
+  - 曜日（daysOfWeek）は`DayOfWeek[]`（enum配列）で持つ。
+  - 実行履歴はヘッダ+明細の2テーブル構成（1テーブル統合案は不採用）。
+  - 起動対象インスタンス名は`AlpInstanceSchedule.targetInstanceNames`に`String[]`で直接持つ
+    （中間テーブル案は不採用）。
+- `alp_extension_request`自体は変更なしの前提で設計。
+- 実装: `feature/instance-schedule-tables`ブランチで`alp_instance_schedule`・
+  `alp_instance_schedule_run`・`alp_instance_schedule_run_detail`を追加
+  （マイグレーション`20261028113219_add_instance_schedule`）。`prisma validate`・
+  `prisma migrate dev`（ローカルDB適用）・`npm test`・`tsc --noEmit`で確認済み。
+  version 0.2.7→0.2.8。Draft PR #105（base: staging）を作成。
+- 設計が決まったらalphaexapiへ知らせる運用（申し送り原文の指示）。alphaexapi側セッションへの
+  連携はPRマージ後に行う。
+
+## 2026-10-29 5_4_3テーブルのドキュメント作成（レビューはドキュメントベースで実施）
+
+- ユーザー指示: `prisma/doc/tables`配下の新規3テーブル分のドキュメントも作成する。**PR #105の
+  レビューはドキュメントベースで行いたい**（コードではなくドキュメントを見て確認する）。
+- 既存の`alp_mf_job`/`alp_mf_job_detail`・`alp_sales_email`（配列列は`V[]`表記）の形式に合わせ、
+  `alp_instance_schedule.md`・`alp_instance_schedule_run.md`・`alp_instance_schedule_run_detail.md`
+  を作成し、`table_design.md`のテーブル一覧にNo.31〜33として追加。PR #105に追加コミットで反映済み。
+
+## 2026-10-29 PR ＃105マージ完了、package-lock.jsonのversion更新漏れを発見・修正
+
+- ユーザーがPR #105を`staging`へマージ。PR #106（`staging`→`main`）も既にマージ済みで、
+  `staging`/`main`は内容として同期済み（`main`側は過去の`staging`マージコミット群が
+  履歴上余分に見えるだけで、差分なしと確認）。
+- 確認の過程で、`package.json`は0.2.8に上げたが`package-lock.json`側の更新が漏れていたと判明
+  （過去のバージョンアップでは常に両方揃えて更新していた慣行に反する）。`npm ci --dry-run`では
+  この不一致によるエラーは出ないことを確認済み（実害は小さい）が、publish前に揃えるため修正。
+- 対応: `fix/package-lock-version-0.2.8`ブランチで`package-lock.json`のversionを0.2.8に修正し、
+  Draft PR #107（base: staging）を作成。`npm test`・`prisma validate`で確認済み。
+- 次: PR #107マージ後、`alphadb-publish`で0.2.8をpublish、`staging-prisma-merge-project-build`で
+  マイグレーション`20261028113219_add_instance_schedule`をステージングDBに適用（ユーザー実施）。
+
+## 2026-10-29 5_4_3（インスタンス定時起動・停止）alphadb側対応の完了
+
+- `alphadb-publish`と`staging-prisma-merge-project-build`は、どちらもソースブランチが`main`固定
+  （`staging`ではない）と判明（alphasyscdk `PrismaMigrateConstruct`で`targetBranch`既定値`main`と
+  明記。`alphadb-publish`もブランチ指定なしでデフォルトブランチ＝`main`参照）。そのため正しい順序は
+  (1) PR #107を`staging`へマージ → (2) `staging`→`main`の同期PRも作成・マージ → (3) AWSでpublish・
+  migration実行、とユーザーに確認。
+- ユーザーが1〜3を完了。AWS CLIで実施結果を検証:
+  - PR #107マージ・`staging`→`main`同期済み（`main`の`package.json`/`package-lock.json`とも0.2.8で一致）。
+  - CodeArtifact: `alphadb`のdist-tags `latest`が`0.2.8`（2026-10-29 08:46〜08:48 JST、`alphadb-publish`
+    ビルドSUCCEEDED）。
+  - `staging-prisma-merge-project-build`もSUCCEEDED（同時刻、source: main）。マイグレーション
+    `20261028113219_add_instance_schedule`をステージングDBに適用済みと確認。
+- **alphadb側の対応完了**。5_4_3の3テーブル（`alp_instance_schedule`/`_run`/`_run_detail`）は
+  ステージングで利用可能。alphasys/alphaexapiは`alphadb@0.2.8`を指定して取り込む（実装はそれぞれの
+  セッションで実施。alphaexapiへは`~/git/alphaexapi/INBOX_FROM_ALPHADB.md`で申し送り済み・未取り込み）。
+
+## 2026-10-29 夜間DBコピー失敗の原因調査
+
+- ユーザー報告: 夜間DBコピーが失敗。「環境ファイル `/etc/alphadb-migration.env` の読み込みに失敗」。
+- CloudWatch Logs（`/alphasys/staging/nightly-migration`）で確認: 10/25〜10/27は`RESULT: SUCCESS`、
+  10/28・10/29は両日とも`STEP init`で同エラー、`RESULT: FAILED rc=1`。
+- 原因: `nightly_automation.md` §7に既出の**Bastion置換問題**の再発。`alphasyscdk/docs/conversations/
+  2026-10-27.md`（19:36 JST）によると、同日19:22 JSTの`deploy:staging`実行でBastionが置き換わり
+  （新インスタンス`i-08f13fc70ac372bde`）、手動導入済みのPostgreSQL・`/opt/alphadb-migration`一式・
+  `/etc/alphadb-migration.env`・systemdタイマーが消失。復旧手順（§7→§9.3）は記録上**未実施のまま**。
+  AWS CLIで現在のBastionインスタンスIDが上記と同一（起動時刻も2026-10-27 19:22 JST）であることを
+  確認し、以降一度も復旧されていないと判明。
+- SSM経由でBastionに直接コマンドを実行しようとしたが、auto modeの権限で拒否されたため未実施
+  （ファイル内容の詳細確認はできていない）。
+- 対処方針（§7の既存手順どおり）: (1) 手元PCで`deploy.sh`実行 → (2) Bastionで`setup_bastion.sh`実行
+  → (3) `/etc/alphadb-migration.env`を実値で再作成 → (4) `systemctl start alphadb-migration.timer`
+  → (5) 翌朝`RESULT: SUCCESS`確認。ただし4_7_1の結合試験中は意図的にタイマーを止める運用（§9）との
+  関係を要確認。ユーザーに実施可否を確認中（未着手）。
+
+## 2026-10-30 5_4_3のalphadb側対応完了をalphasystemへ報告
+
+- ユーザー指示で、`ListAgents`/`SendMessage`により稼働中のalphasystemセッション（alphasystem-6f）へ
+  直接報告（PR #109完了記録・CodeArtifact/CodeBuild確認結果を踏まえ、conversations.mdのサマリ内容を
+  要約して送信）。alphaexapiへはINBOXファイルで申し送り済み・未取り込みである旨も併せて伝達。

@@ -460,3 +460,71 @@ coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領
 - Draft PR: https://github.com/alphacmc/coopinf/pull/50
 - ユーザー依頼「想定設定値もほしい」を受け、「想定値（最終形）」＝段階投入（Count 観察 → Block）完了後の目標値と解釈し、ルール一覧とパラメータ表に列を追加。AnonymousIpList は Count のまま（coop で Block 化しないと決定済み）、Priority 12〜14 は Block、閾値は現行値（観察で正規利用が当たれば引き上げ）。
 - PR #50 はユーザーがマージ済み（2026-10-21）。
+
+## 2026-10-28 WAF ALARM メール調査と AdminGeoRestrict の Block 切替
+
+### 調査結果（10/22〜10/28 の ALARM 7 件、時刻は JST）
+
+| 日時 | アラーム | 原因 |
+| - | - | - |
+| 10/22 19:22 | prd AdminGeoRestrict | 152.163.187.92（US）`GET /web/admin/login` 1 回のみ（ログイン POST なし） |
+| 10/26 08:10 | prd AdminGeoRestrict | 104.164.216.117（US）同上 1 回のみ |
+| 10/27 10:31 / 11:34 | prd AdminGeoRestrict | 144.91.125.50（FR）の脆弱性スキャン中の `GET /api/admin/` |
+| 10/27 02:48 | prd waf-ALL | 176.126.87.144（FR）の `.env` 探索 1,237 件。AmazonIpReputationList で全件遮断 |
+| 10/25 17:32、10/28 00:45 | stg waf-ALL | 185.250.37.91（FR）同種スキャン 662 / 622 件。AmazonIpReputationList で全件遮断 |
+
+- Count 中の AdminSensitiveRateLimit / ApiRateLimit は 10/18 投入以降、prd・stg ともヒット 0 件。
+- 144.91.125.50 のスキャン（10/27 10:29〜12:37、計 30,424 件）は ALB アクセスログで確認した。ALB の 301（HTTP→HTTPS）11,497 件、WAF 遮断 403 が 7,430 件、アプリの 404 が 11,202 件（全件 8,517 バイトの同一 404 ページ）、アプリの 308（`//` の正規化）が 295 件。**2xx 応答は 0 件で、情報漏えいはない**。WAF ログ件数（ALLOW 22,994 + BLOCK 7,430）と ALB ログ件数が一致。
+
+### 決定
+
+- **AdminGeoRestrict を Block に切り替える（ユーザー承認 2026-10-28）**。基準（海外スキャンのみ）を満たしたため。順序は stg → prd。
+  - stg: 2026-10-28 08:51 JST 適用済み（`aws cloudformation deploy ... --parameter-overrides AdminGeoRestrictAction=Block`、他パラメータは前回値を維持）。Priority 12 が Block になったことを `wafv2 get-web-acl` で確認。
+  - prd: 変更セット作成済み（stg と同じ内容: WebACL のルール変更と、WafAdminGeoRestrictAlarm の監視メトリクスを BlockedRequests に変更）。**実行は auto mode でブロックされたため、ユーザーが手元で実行する**。
+  - prd: ユーザーが変更セットを実行し、2026-10-28 10:03 JST に適用。Priority 12 が Block になり、アラームの監視メトリクスが BlockedRequests に変わったことを確認。
+- AdminSensitiveRateLimit / ApiRateLimit の Block 化は、今回の承認範囲（AdminGeoRestrict のみ）に含めていない。要確認。
+- waf-ALL の閾値は見直し案を提示（→ 同日ユーザー承認。下の節を参照）。提案は「全遮断数 − AmazonIpReputationList 遮断数 ≥ 500」をメトリクス数式で監視する方式。9/2〜10/27 の発報回数は、現行が prd 15 回・stg 15 回、提案方式が prd 2 回・stg 1 回（10/18 以降は 0 回）。閾値を 1000 に上げるだけでは prd 13 回・stg 6 回で効果が小さい。stg の waf-ALL は通知先を外す案も併記した。
+- 段取り: ① ユーザーが prd の変更セットを実行 → ② Claude が prd の Priority 12 が Block になったことを確認 → ③ `cf/waf-settings.md` の稼働値を更新し、feature ブランチで Draft PR を作成。→ ①〜③とも完了（PR #52）。
+
+### メモ
+
+- Windows の AWS CLI で `cf/waf-cf.yaml`（日本語を含む）を deploy すると `'cp932' codec can't decode` で失敗する。`AWS_CLI_FILE_ENCODING=UTF-8` を付けると成功する。
+
+## 2026-10-28 waf-ALL アラームから AmazonIpReputationList の遮断を除外
+
+- **ユーザー承認（2026-10-28）**: waf-ALL は閾値を上げるのではなく「全遮断数 − AmazonIpReputationList 遮断数 ≥ 500」（メトリクス数式 `blockedall - FILL(blockediprep, 0)`）に変更する。閾値 500 と評価期間 5 分は据え置き。
+- stg の waf-ALL の通知先を外す案は採否未定（今回は変更しない）。
+- 実施: `cf/waf-cf.yaml` の `WafBlockedWaveAlarm` を変更。stg は 2026-10-28 10:07 JST に適用し、数式で評価されていること（状態 OK）を確認。prd は変更セットを作成済みで、ユーザーが実行する（変更対象はアラーム 1 つのみで、置き換えなし）。
+- 同時に `cf/waf-settings.md` の稼働値（AdminGeoRestrict = Block）と waf-ALL の条件を更新した。
+- LEARNINGS への追記は、同じ箇所に追記している未マージの Draft PR #51（feature/learnings-waf-alarm-triage）に載せた（別々の PR にするとマージ時に衝突するため）。
+- 段取り（残り）: ① ユーザーが prd の変更セット（waf-ALL）を実行 → ② Claude が prd のアラームが数式で評価されていることを確認し、PR #52 の「適用状況」にチェックを入れる。
+  - → 2026-10-28 10:14 JST にユーザーが prd の変更セットを実行（1 回目は未反映で、再実行で適用）。prd の `coopcde-prd-waf-ALL` が数式・閾値 500 で評価され、状態 OK であることを確認し、PR #52 の適用状況を更新した。
+
+## 2026-10-28 ALB 監視のアラート追加を検討（未決定）
+
+- ユーザーから「ALB ログ監視で alert メールを出すべきか」と質問があった。現状、ALB のアラームは 1 つもない。
+- 提案（採否・範囲は未決定）: アクセスログ（S3）を読む監視は作らず、次の 3 つで対応する。
+  - ① `HTTPCode_Target_5XX_Count` が 5 分で 5 件以上でアラーム
+  - ② `HTTPCode_ELB_5XX_Count` が 5 分で 5 件以上でアラーム。①②は `cf/ecs-alb-cf.yaml` に追加し、通知先はエラー通知 SNS
+  - ③ `.env`・`.git`・`*.save`・`*.zip` などの機微なパスを WAF で遮断（`cf/waf-cf.yaml`、Count で観察してから Block）
+- 根拠（prd の 2026-09-02〜10-27 の 5 分値）: アプリの 5xx は 0 件、ALB 自身の 5xx は計 4 件（5 分で最大 1 件）、2xx は 5 分で最大 236 件。10/27 のスキャンでは 156 件が WAF を通過してアプリまで届いた（応答はすべて 404）。
+- 次: ユーザーが範囲（①②のみか、③まで含めるか）を決めたら、修正案を示してから着手する。
+
+## 2026-10-28 AdminSensitiveRateLimit / ApiRateLimit を Block に切替
+
+- **ユーザー承認（2026-10-28）**: 2 ルールとも Block に切り替える（`cf/waf-settings.md` の想定値どおり）。10/18〜10/28 のヒットは prd・stg とも 0 件。閾値（30 回/5 分、100 回/5 分）は正規利用の最大値（6 回、27 回）の 3 倍以上ある。
+- stg: 2026-10-28 10:18 JST に適用（`--parameter-overrides AdminSensitiveRateLimitAction=Block ApiRateLimitAction=Block`）。Priority 10〜14 がすべて Block になったこと、AdminSensitiveRateLimit アラームの監視メトリクスが BlockedRequests に変わったことを確認。
+- 段取り: ① ユーザーが prd の変更セット（`...1793150372/6c672812...`）を実行 → ② Claude が prd の反映を確認 → ③ `cf/waf-settings.md` の稼働値を更新し、PR #52 に追加する。
+- 切り戻し: 正規利用が遮断された場合は、該当ルールの `<Rule>Action=Count` で再デプロイすると即時解除できる。
+  - → 2026-10-28 10:21 JST にユーザーが prd の変更セットを実行。prd の Priority 9〜14 がすべて Block になり、AdminSensitiveRateLimit アラームの監視メトリクスが BlockedRequests に変わったことを確認した。`cf/waf-settings.md` の稼働値を更新し、PR #52 に追加した。WAF の独自ルールはすべて想定値（最終形）に到達。
+
+## 2026-10-28 ALB 監視: ③（機微なパスの WAF 遮断）まで含めることに決定
+
+- **ユーザー決定（2026-10-28）**: ①② ALB の 5xx アラームに加えて、③ 機微なパスの WAF 遮断まで含める。
+- Claude の具体案（ユーザー確認待ち）:
+  - ③ 新しいルール `coopcde-<env>-SensitivePathBlock`（Priority 8、prd・stg、`SensitivePathBlockAction` で Count/Block を切替、既定は Count）。(a) アプリの入口（`^/web(/|$)`、`^/api/`、`^/$`、favicon、apple-touch-icon、robots.txt）以外を遮断し、(b) 先頭がドットのファイルや、機微な拡張子（env/bak/zip/sql/pem/php など）は `/web`・`/api` の配下でも遮断する。
+  - 根拠: アプリが 2xx を返すのは `/web/*`・`/api/*` だけ（10/26 の ALB ログ）。`/web`・`/api` で正規に使われている拡張子は js/css/json/woff2/ico だけ。遮断条件に当たった日本からの通信はすべてスキャン（prd の直近 30 日）。WAF を通過したスキャンは 30 日で約 3.8 万件。
+  - ①② `coopcde-prd-alb-Target5XX` / `coopcde-prd-alb-ELB5XX`（5 分で 5 件以上、prd のみ）。置き場所は `cf/waf-cf.yaml` を推奨（`ecs-alb-cf.yaml` はリリースのたびにイメージタグを更新するスタックのため）。stg は停止中に 503 が出て誤報になるので作らない。
+  - WCU: 現在 1,577（stg は 1,542）、追加後は約 1,700 の見込み（課金の区切りは 2,000）。
+  - 段取り案: 新しいブランチで別の PR → stg に適用（③ は Count）→ prd の変更セットをユーザーが実行 → 数日観察 → ③ を stg → prd の順で Block に。
+- PR #51・#52 は 2026-10-28 10:26〜10:27 JST にユーザーがマージ。その後、Claude がマージ状況を確認せずに会話記録を push し、`feature/waf-all-alarm-exclude-iprep` がリモートに作り直された。追記した 1 件を新しいブランチ `feature/waf-sensitive-path-alb-alarm` に移して Draft PR #53 を作成した。作り直されたリモートブランチとローカルブランチの削除は auto mode でブロックされたため、ユーザーに削除を依頼した。ALB 監視の実装は、具体案にユーザーの了承を得てから PR #53 に追加する。
