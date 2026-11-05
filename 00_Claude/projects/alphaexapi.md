@@ -1323,3 +1323,45 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - **承認（ユーザー）**: ローカルの `alphadb` が 0.0.1（9/30 時点）のままでテストが型エラーになったため、CodeArtifact のトークンを取り直して `npm ci` することを承認（「取り直して npm ci してよい」）。実施して 0.2.6 に同期した。
 - **実装**: ブランチ `feature/mf-admin-only-guard`（staging から）。customer-sync はクラスに `@UseGuards(GoogleAuthGuard, EmployeeGuard)` + `@AdminOnly()`（`RolesGuard` は外し、冒頭の「管理者限定ではないため付けない」のコメントを書き換え）。job controller は 3 メソッドに `@UseGuards(EmployeeGuard)` + `@AdminOnly()`。テストのため `ADMIN_ONLY_KEY` を export。ガードのメタデータのテストを追加し、実装前に 4 件失敗・実装後に通ることを確認。全体 91 スイート / 613 件 PASS、`tsc` エラーなし。
 - **レビュー（code-reviewer）**: CRITICAL/HIGH なし。指摘はその場で直す方針に従い、MEDIUM（本物の EmployeeGuard で USER が 403・ADMIN が通ることの結合テストが無い）を `money-forward-job.controller.int.spec.ts` への追加と `money-forward-customer.controller.int.spec.ts` の新設で対応（`x-user-role: ADMIN` を送っても USER は 403 になることも確認。ガードを外すと 5 件が失敗することを確認）。LOW のうち、クラスの `GoogleAuthGuard` が前段にあることのテスト追加と、3 メソッドで重複していたコメントの短縮も対応。LOW「`applyDecorators` で合成デコレータにまとめる」は、PR 2（`RolesGuard` の全面置き換え）の範囲が決まってから判断する。全体 92 スイート / 624 件 PASS、`tsc` エラーなし。
+
+## 2026-11-05 ADMIN 判定の移行を全面に広げる（ユーザー承認「全部着手してよい」）: PR 1 に CSV・参照を追加、PR 2・PR 3 に着手
+
+- **経緯**: alphasystem-1d から、alphasystem 側でユーザーが「全部、今やってください」と決めたとの連絡（CSV の 5 本は含めない・#160 は結合試験の後、という alphasystem の推奨は撤回）。他セッション経由のため、本セッションのユーザーに直接確認した。
+- **承認（ユーザー）**: 範囲の拡大に着手することを承認（「全部着手してよい」）。
+  - PR 1（#199）に CSV の 5 本（`csv/invoice-export`・`csv/invoice-import`・`csv/payable-export`・`csv/payable-import`・`csv/payroll-import`）を追加し、`@Roles('ADMIN')` から DB の role の判定に置き換える。
+  - PR 2（新規）: 残りの `@Roles('ADMIN')`（AllInstance-control 7・instance-create 2・corporation 1・google-drive-folder 1・google-drive-write 1・users 1）を移行し、`RolesGuard`・`@Roles`・`ROLES_KEY` を削除する。呼び出し元に `alp_users` にいない利用者（バッチ・サービスアカウント等）がいれば方式案を出してユーザーが判断する。
+  - PR 3（新規）: MF ユーザー単位 OAuth（計画 Task 1〜14、D1・D3・D4・D5）をやり直して staging に入れる。`alphadb@^0.2.7` への更新で CodeArtifact のトークン取り直しが要る時点で、その都度確認する。
+  - 順序: PR 1 の拡大 → PR 2 → PR 3。
+- **背景（alphasystem の裏取り）**: alphasyscdk の ALB は `internetFacing: true` で `/api/*` をバックエンドへ流すため、ログインできる社員なら `x-user-role: ADMIN` を足すだけで ADMIN 扱いになる（給与 CSV の取込・出力を含む）。staging の MF 連動（API 経路）は、alphadb 0.2.7 のマイグレーション（既存トークン削除＋`user_email NOT NULL`）で停止していることが確定。
+- **PR 1 の拡大（実施）**: job コントローラもクラス単位で `@UseGuards(GoogleAuthGuard, EmployeeGuard)` + `@AdminOnly()` に統一し、メソッド単位のガードと `@Roles('ADMIN')`、`@ApiHeader(x-user-role)` を外した。これにより実行状況の一覧（`GET /money-forward/jobs`）と明細（`GET :jobId/details`）も ADMIN 限定になる（呼び出し元は alphasys の `/common/mf-jobs` だけで、middleware で ADMIN 限定済みのため影響なし）。`alphaexapi_api.yaml` は CSV の 5 本から `x-user-role` を手で削除（アプリ起動による再生成は行っていない）。結合テストに CSV の 5 本と一覧・明細の「USER は `x-user-role: ADMIN` を送っても 403、アップロードも残らない」を追加し、変更前のコントローラに戻すと失敗することを確認。全体 92 スイート / 629 件 PASS、`tsc` エラーなし。レビュー承認（LOW 1 件は既存テストのスタブの指摘で対応不要）。
+
+## 2026-11-05 PR 2（RolesGuard の削除）: 呼び出し元の調査結果と、実装で判断したこと
+
+- **調査結果（`alp_users` にいない呼び出し元の有無）**: 対象の API を呼んでいるのは alphasys のサーバー側処理（Server Action・Route Handler）だけで、すべてログインしたユーザーの ID トークンを使う。`X-User-Role` はすべて `session.user.role` から作られ、ADMIN を固定で入れている箇所は無い。セッションの role はログイン時に DB から取得している（alphasys `src/lib/auth.ts` の `/api/get-role`）。alphasyscdk・alphacdk・alphabatch・alphadb・alphasystem からの呼び出しは無い。→ **別扱いの方式案は不要**と判断した。
+- **実装で判断したこと（ユーザーに報告する）**:
+  - PR 2 は PR 1 のブランチ（`feature/mf-admin-only-guard`）から `feature/remove-roles-guard` を切る（MF のコントローラから `RolesGuard` を外す変更が PR 1 にあり、staging から切ると `RolesGuard` を削除できないため）。base は staging。PR 1 のマージ後に差分が PR 2 の分だけになる。
+  - alphasystem の依頼の 13 か所に加えて、`money-forward/oauth` の `authorize`（MF の認可開始）も `@Roles('ADMIN')` だったため移行する（callback は MF からのリダイレクトなのでガードを付けないまま）。
+  - `AllInstance-control` の `POST shutdown/:userId/extend` は `/admin` 配下なのに `@Roles` が無く、誰でも他人のシャットダウン時刻を変えられた。呼び出し元は alphasys の `/manager`（ADMIN 限定）だけのため、クラス単位の ADMIN 限定に含めて塞ぐ。
+  - `RolesGuard` だけで `@Roles` の無いコントローラ（create-sheet・google-drive-read・member の instance-control）は、`RolesGuard` が何もしていなかったため外すだけ（挙動は変わらない）。
+  - `alphaexapi_api.yaml` は `x-user-role` を手で削除（アンカー `&ref_0`・`&ref_5`・`&ref_13` と参照も削除し、空になった箇所は Nest の生成に合わせて `parameters: []`）。
+- **確認**: 全体 95 スイート / 642 件 PASS、`tsc` エラーなし、AppModule 全体の DI が解決できることを一時テストで確認。
+- **セキュリティレビュー**: CRITICAL/HIGH なし。MEDIUM（`shutdown/:userId/extend` を本物の EmployeeGuard で確かめる結合テストが無い）は `AllInstance-control.controller.int.spec.ts` を新設して対応（`@AdminOnly()` を外すと失敗することを確認）。LOW（改行コード）は、リポジトリに CRLF と LF のファイルが混在しており、書き換えた行だけ LF になっていたため、staging の版の形式に揃えた（新規ファイルは LF）。PR 1 のコミットは staging と同じ LF で問題なし。LOW（alphasys の `/member/skills/infoset` の Drive 操作や `/sales/*` の法人番号・Drive 操作は、ADMIN 限定の API を呼ぶため非 ADMIN では以前から 403 のはず）は今回の変更による悪化ではないため、先送りするかどうかをユーザーに確認する。
+- **段取り**: PR 2 のレビュー対応 → コミット・Draft PR → PR 3（MF ユーザー単位 OAuth のやり直し。PR 2 のブランチから切る予定）。
+
+## 2026-11-06 alphasys の非 ADMIN 画面から ADMIN 限定 API を呼んでいる件は別課題として先送り（ユーザー決定）、PR 3 に着手
+
+- **経緯**: PR 2（#200）のセキュリティレビューで、alphasys の ADMIN 以外の画面から ADMIN 限定の API を呼んでいる経路が見つかった（`/member/skills/infoset` の sheet-upload・delete-additional-skill-sheet → `google-drive-write`、`/sales/*` の bill・contract・customer・project → `google-drive-*`・`corporation`）。変更前から、セッションの role によるヘッダー判定で非 ADMIN は 403 になっていたはずで、今回の変更による悪化ではない。
+- **決定（ユーザー）**: 別課題として先送りする（今回の PR では扱わない）。alphasystem-1d が引き取り、営業担当や一般社員が ADMIN かどうかの運用実態を alphasystem のユーザーに確認する。結論が出たら alphasystem から連絡が来る。
+- **PR #199・#200 の扱い**: alphasystem-1d が設計者として了承。マージ順は **#199 → #200**（alphasystem からユーザーへ伝える）。
+- **PR 3 に着手**: MF ユーザー単位 OAuth の実装（計画 `docs/superpowers/plans/2026-10-22-mf-user-oauth.md` の Task 1〜14、D1・D3・D4・D5）。ブランチ `feature/mf-user-oauth-impl-2` を PR 2 のブランチ（`feature/remove-roles-guard`）から切る（認可のコントローラなど触るファイルが重なるため）。base は staging。T13（ADMIN 限定）は PR 1・PR 2 で済んでいる前提とする。`alphadb@^0.2.7` への更新で CodeArtifact のトークンを取り直す時点で、ユーザーに確認する。
+
+## 2026-11-06 PR 3: 計画と現行コードの差分を事前チェックし、実装の進め方を決めた（Draft PR ＃201）
+
+- **Draft PR**: #201（`feature/mf-user-oauth-impl-2`、base staging）。本文に #199・#200 の上に積んでいることと、マージ順 **#199 → #200 → #201** を記載。
+- **事前チェック（計画 10/22 作成 → 現行コード）**: 計画作成以降に MF 関係の src で中身が変わったのは #199・#200 だけで、Service 層の行番号・変更前コードの引用は一致。計画に無い新しい MF 呼び出し経路は無い（`client.request` 15 か所はすべて Task 5〜8 の対象。CSV・給与・従業員情報の経路は MF を呼ばない）。
+- **実装で判断したこと（ユーザーに報告する）**:
+  - **Task 13 は全体をスキップ**（#199・#200 で実施済み。計画の手順は削除済みの `ROLES_KEY` を使っておりコンパイルできず、クラス単位のガードのテストとも衝突する）。alphasys への連絡は D1（412）の追加分だけにする。
+  - **alphadb は `^0.2.8` を入れる**（0.2.8 は 5_4_3 のテーブル追加のみで staging DB に適用済み。`^0.2.7` を指定しても 0.2.8 に解決される）。CodeArtifact のトークンを取り直す時点で、ユーザーに確認する。
+  - 計画に無かった既存テストの更新を追加する: Task 3（`mf-job-orchestrator.service.spec.ts` の `run` の期待値に第 2 引数）、Task 5（#199 で追加した `money-forward-customer.controller.int.spec.ts` の期待値に userEmail）、Task 8（`payable-import.service.spec.ts` の型付きモックを 3 引数に。`not.toHaveBeenCalledWith` が常に通ってしまわないよう書き換え）。
+  - 行番号のずれ（#199・#200 による）は内容で場所を特定する。
+- **進め方**: タスクごとに実装担当（サブエージェント）→ レビュー → 指摘対応の順で Task 1 から進める（Subagent-Driven Development）。Task 1 に着手済み。

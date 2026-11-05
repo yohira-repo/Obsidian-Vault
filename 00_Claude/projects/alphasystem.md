@@ -3769,3 +3769,25 @@ alphaexapi-af の指摘を受けて実物を確認し、**2026-10-23 と本日�
 - **確認できた点**: **DB の role が USER なら `x-user-role: ADMIN` を送っても 403 になる**ことを、本物の `EmployeeGuard` を通す結合テストで確かめている。今回の肝はここなので、実際に通して確認されたのは有効。全体 92 スイート / 624 件 PASS。設計者として内容に異存なし。Draft 解除とマージはユーザー。
 - **範囲の拡大は保留中**: CSV 5 本の追加・PR 2・PR 3 は、**alphaexapi のセッションでユーザー本人の了解を取ってから着手**する（CLAUDE.md の「コード修正の了解は本人から」に従う判断で、妥当）。alphasystem 側で代わりに承認はしない。
 - **段取り**: ユーザーが alphaexapi のセッションで「全部やる」旨を伝える。alphasystem からは、alphaexapi が待っていることをユーザーへ連絡済み。
+
+## 2026-11-05 alphaexapi PR ＃199 拡大・＃200 作成。マージ順は ＃199 → ＃200
+
+- **ユーザーの了解（alphaexapi のセッション）**: 「全部着手してよい」。これを受けて alphaexapi が PR 1 を拡大し PR 2 を作成した。
+- **PR #199（拡大）**: job コントローラを**クラス単位**で `EmployeeGuard` + `AdminOnly` に統一。send・import・rerun、CSV 6 本、実行状況の一覧・明細まで ADMIN 限定。
+- **PR #200（新規）**: 依頼した 13 箇所に加え、`money-forward/oauth` の `authorize` も移行（`callback` は MF からのリダイレクトを受けるためガードなしのまま）。**`RolesGuard`・`roles.decorator`（`@Roles`・`ROLES_KEY`）を削除**。`src` に `x-user-role` を認可に使う箇所は残っていない。
+- **マージ順**: **#199 → #200**（MF 側で `RolesGuard` を外す変更が #199 にあるため）。
+- **alphaexapi が見つけた既存の穴**: `admin/aws-instance` の `POST shutdown/:userId/extend` だけ `@Roles` が無く、**誰でも他人のシャットダウン時刻を変えられる状態**だった。クラス単位の ADMIN 限定に含めて塞いだ。
+- **`alp_users` に居ない呼び出し元**: 無し。呼び出し元はすべて alphasys のサーバー側処理でログインユーザーの id_token を使っており、CDK・batch からの呼び出しも無い。別扱いは不要で確定。
+
+### alphasystem 側で裏を取った 2 点（どちらも影響なし）
+
+- **job の一覧・明細が ADMIN 限定になる件**: alphasys で `mf-jobs` を呼ぶ箇所は `src/app/common/mf-jobs/`・`src/app/common/mf-csv/`・`src/app/common/page.tsx` のみで、**すべて `/common` 配下**。middleware で ADMIN 限定のため影響なし。
+- **`shutdown/:userId/extend` を塞ぐ件**: `AllInstance-control.controller.ts` は `@Controller('admin/aws-instance')` で、呼び出し元は alphasys の `/manager/aws-instance/[instanceId]` のみ。一般社員が使う `/member/aws-instance/[instanceId]` は `/member/aws-instance/extend` を叩いており、`src/member/aws-instance/instance-control/instance-control.controller.ts` の `@Post('extend')` が受ける**別コントローラ**。一般社員の延長は壊れない。
+
+## 2026-11-05 alphasys の既存問題（非 ADMIN 画面から ADMIN 限定 API）は alphasystem が引き取る
+
+- **内容（alphaexapi の報告、alphasystem で裏取り済み）**: 非 ADMIN の画面から ADMIN 限定の API を呼ぶ経路がある。**今回の変更による悪化ではなく、以前からヘッダーの role で 403 になっていたはず。**
+  - `/sales` 配下: `bill/add`・`bill/edit`・`contract/confirm`・`contract/edit`・`customer/add`・`customer/edit`・`project/edit` のアクションが `google-drive-*`・`corporation`（法人番号の照会）を呼ぶ
+  - `/member/skills/infoset`: `sheet-upload`・`delete-additional-skill-sheet` が `google-drive-write` を呼ぶ
+- **判断の分担（決定）**: **alphasystem が引き取る。alphaexapi のセッションではユーザーに確認しない**（二重に聞くことになるため）。「営業担当や一般社員が ADMIN かどうか」という運用の実態が分からないと、壊れているのか実害が無いのかを判断できないため、alphasystem 側でユーザーに確認する。
+- **PR #200 との関係**: #200 はこの状況を変えない（ヘッダーの role も DB の role も、alphasys のログインユーザーの role という点で同じ）。**#200 のマージを待つ必要はない。**
