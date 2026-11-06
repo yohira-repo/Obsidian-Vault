@@ -528,3 +528,53 @@ coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領
   - WCU: 現在 1,577（stg は 1,542）、追加後は約 1,700 の見込み（課金の区切りは 2,000）。
   - 段取り案: 新しいブランチで別の PR → stg に適用（③ は Count）→ prd の変更セットをユーザーが実行 → 数日観察 → ③ を stg → prd の順で Block に。
 - PR #51・#52 は 2026-10-28 10:26〜10:27 JST にユーザーがマージ。その後、Claude がマージ状況を確認せずに会話記録を push し、`feature/waf-all-alarm-exclude-iprep` がリモートに作り直された。追記した 1 件を新しいブランチ `feature/waf-sensitive-path-alb-alarm` に移して Draft PR #53 を作成した。作り直されたリモートブランチとローカルブランチの削除は auto mode でブロックされたため、ユーザーに削除を依頼した。ALB 監視の実装は、具体案にユーザーの了承を得てから PR #53 に追加する。
+
+## 2026-11-06 coop から申し送り: WAF ブロック情報の日次ダイジェスト（方式A）の実装依頼
+
+`INBOX_FROM_COOP.md`（coop セッションから、2026-11-06）を取り込んだ。設計の背景は coop `conversations/2026-11-06.md`。
+
+- **ユーザー決定（coop 側で確定）**: 毎朝の WAF 確認を、AWS ネイティブの日次通知で仕組み化する。
+  - 送信時刻: 毎朝 7:00 JST（EventBridge Scheduler `cron(0 7 * * ? *)`、`ScheduleExpressionTimezone: Asia/Tokyo`）
+  - 対象: prd のみ（ロググループ `aws-waf-logs-coopcde-prd`、過去 24 時間）
+  - 通知先: 既存アラートと同じ宛先。coopinf で確認したところ `arn:aws:sns:ap-northeast-1:725011976834:coopcde-send-error-alart-topic-prd`（WAF のアラームと、coopcdealert の Lambda `coopcde-send-error-alart-prd-index` が使っているトピック）。
+- 構成: Scheduler → Lambda（Logs Insights で集計し、本文を整形）→ SNS → メール。
+- 本文: 対象日・集計期間（JST）、ブロック総数とルール別内訳、要注意シグナル（1 件でもあれば件名と冒頭に ⚠）、CloudWatch コンソールへのリンク。
+  - 要注意シグナル: レート制限（Login/AdminSensitive/ApiRateLimit）の発動、`/web/admin/*` への AdminGeoRestrict 遮断（国別）、実エンドポイント（`/api/certif`、`/api/members/getBillInfoByMember`、`/api/admin/*`、`/web/admin/*`）へのアクセス、`/web/members` での `..`（GenericLFI）、（任意）前日比の急増。
+- IAM: `logs:StartQuery` / `GetQueryResults` / `StopQuery`（WAF ロググループ）、`sns:Publish`（上記トピック）、基本実行権限。
+- 役割分担: 実装は coopinf。結合確認（メールが届くか、要注意シグナルを検知できるか）は coop が担当する。実装が環境に入ったら coop に連絡し、手動実行で 1 回通知を出して本文の体裁を一緒に確認する。
+- 状況: 実装方針をユーザーに提示し、了承待ち。ブランチ `feature/waf-daily-digest`。
+- 未決のまま残っている件: ALB 監視（③ SensitivePathBlock、①② ALB 5xx アラーム）は、2026-10-28 に具体案を提示したまま了承待ち。PR #53 は会話記録だけでマージ済みで、実装はまだしていない。
+- Claude の実装方針の案（ユーザーの了承待ち）:
+  - 新しいテンプレート `cf/waf-digest-cf.yaml` を作り、独立したスタックにする（WAF 本体と切り離す）。Scheduler は `lambda-evb-cf.yaml` と同じ書き方で毎朝 7:00、Asia/Tokyo を指定。
+  - Lambda は Python 3.12、追加ライブラリなし。コードはリポジトリで管理。クエリ 5 本を並行して実行し、最大 120 秒で打ち切る。権限は WAF ロググループへのクエリ、上記トピックへの送信、自身のログ出力だけ。
+  - 前日比の急増は、まず「ブロック総数が前日の 3 倍以上」で入れる。
+  - 段取り案: ① stg に入れて、stg のログと stg のトピック宛てに手動で 1 回送り、本文を確認 → ② prd の変更セットをユーザーが実行 → ③ coop に連絡し、手動実行で結合確認。
+  - ユーザーに確認中: ALB 監視③（SensitivePathBlock）の遮断件数も要注意シグナルに含めるか。③とダイジェストのどちらを先に実装するか。
+
+## 2026-11-06 ALB 監視③を先に実装・ダイジェストに③の遮断件数を含める
+
+- **ユーザー決定（2026-11-06）**: ③（SensitivePathBlock）の遮断件数を日次ダイジェストの要注意シグナルに含める。実装の順番は ③ が先で、ダイジェストはその後。
+- ユーザーからの質問「先頭がドットのファイルで、Next.js や NestJS の内部（リダイレクト用など）の URL はないか」への回答（調査結果）:
+  - coopcdeweb は Next.js 16.4.2（`basePath: '/web'`、pages と app の両方）と NestJS 11（`setGlobalPrefix('api')`）。ドットで始まるルートや公開ファイル（`public/`）はなく、middleware もない。遮断対象の拡張子が出てくるのは、サーバーが内部で読むファイル（`src/env/*.env`、RDS 証明書の `.pem`）だけで、URL として配信されるものではない。
+  - Next.js の内部 URL は `/web/_next/static`・`/web/_next/image`・`/web/_next/data` の 3 種類で、どれもドットで始まらない（ビルド出力の `.next` はサーバー内のディレクトリで、URL には出ない）。
+  - prd の実際の通信（現行版 1.7.0 になった 2026-10-26 以降、日本から許可された通信）では、`/web`・`/api` 配下でドットで始まる区切りを含む URI は 0 件。拡張子は js/css/json/woff2/ico だけ。
+  - 注意: `/.well-known/`（security.txt やアプリ連携などで使う標準パス）も遮断対象になる。現在は使っていないが、将来使う場合は例外を追加する。
+- 次: ③の具体案（10/28 提示）にユーザーの了承を得てから、新しいブランチで実装する。
+
+## 2026-11-06 ALB 監視③・①②の実装に着手
+
+- **ユーザー承認（2026-11-06）**: 10/28 に提示した③（SensitivePathBlock、Priority 8、既定 Count）と①②（prd の ALB 5xx アラーム 2 つ）の具体案のまま実装に着手する。
+- 段取り: ① main から新しいブランチ `feature/waf-sensitive-path-block` を作り、`cf/waf-cf.yaml` と `cf/waf-settings.md` を修正して Draft PR → ② stg に適用（③は Count）→ ③ prd の変更セットを作成し、ユーザーが実行 → ④ 数日観察 → ⑤ ③を stg → prd の順で Block（ユーザーの go を得てから）。
+- 実施（2026-11-06）: ブランチ `feature/waf-sensitive-path-block`、Draft PR #55。stg は 11:59 JST に適用（Priority 8 SensitivePathBlock が Count、他のルールは Block のまま、WCU 1,542→1,592）。stg の ALB には手元から到達できないため（タイムアウト）、テスト送信での確認はしていない。
+- prd の変更セットを作成済み（`arn:aws:cloudformation:ap-northeast-1:725011976834:changeSet/awscli-cloudformation-package-deploy-1793934073/1f03b7b6-c579-47b0-9046-3af165154996`）。内容は RegexPatternSet 2 つ・ALB アラーム 2 つの追加と WebACL の変更（置き換えなし）。既存パラメータは前回値（Block）を維持。**実行は auto mode でブロックされるため、ユーザーが手元で実行する**。
+- 2026-11-06 12:04 JST にユーザーが prd の変更セットを実行。Priority 8 SensitivePathBlock が Count、他の独自ルールは Block のまま（WCU 1,577→1,627）。`coopcde-prd-alb-Target5XX` は状態 OK（ディメンションが正しくメトリクスを拾えている）、`coopcde-prd-alb-ELB5XX` は 5xx が無いため INSUFFICIENT_DATA。通知先は prd のエラー通知 SNS。`cf/waf-settings.md` の稼働値を Count に更新し、PR #55 の適用状況にチェックを入れた。
+- 段取り（残り）: 数日（目安は 11/9 前後まで）、prd・stg の WAF ログで SensitivePathBlock に当たった通信を確認し、日本からの正規利用が含まれていないかをユーザーに報告 → ユーザーの go を得て stg → prd の順で Block に切り替え → その後、WAF 日次ダイジェスト（PR #54）の実装に入る。
+- 2026-11-06: PR #54・#55 は 12:10〜12:11 JST にユーザーがマージ。
+- 2026-11-06: ユーザーの指示で、③①② の適用結果を coop セッション（coop-d8）に SendMessage で報告した。内容は、適用内容・時刻、確認結果と未確認の点、`/.well-known/` と waf-ALL への影響、今後の段取り（11/9 前後まで観察 → go を得て Block → ダイジェスト実装 → prd 投入後に coop へ結合確認を依頼）。
+- 2026-11-06: coop から受領の返信。
+  - ③の観察で、日本からの正規利用が当たっていないかを重点的に見ること。特に、`/web`・`/api` 配下のドットで始まる区切りと、機微な拡張子の誤検知。
+  - ③を Block にして waf-ALL アラームの閾値調整が要りそうなら、coop に相談する。
+  - ダイジェストは INBOX_FROM_COOP.md の仕様どおりでよい（毎朝 7:00 JST、prd のみ、既存のアラート宛先、本文に要注意シグナル）。③の遮断件数を含めることに coop も賛成。
+  - 手動実行で通知を 1 回出せる状態になったら coop に連絡する。結合確認（メールが届くか、本文の体裁、要注意シグナルを検知できるか）は coop が担当する。
+  - ダイジェストが stg と prd に入ったら、それぞれ連絡する。
+  - INBOX_FROM_COOP.md は取り込み済みで、削除済み。

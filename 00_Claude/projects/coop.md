@@ -727,3 +727,37 @@
 - **反映**:
   - `support/admin_mfa_estimate.md`: 「2. 方式別の概算」の冒頭に A と B の比較表を加えた（ログイン画面、ID・パスワード、MFA、権限・有効期限、管理者の登録・削除、工数、移行時の利用者への影響、依存）。方式表には A（1〜4）と B（5）の区切り行を入れた。
   - スライド: 3 枚目に「2つの方向性」（A／B の 2 枚カード）を追加し、全 10 枚になった。比較表に「区分」列（A／B、B の行は色を変える）を加えた。各スライドの見出しを A-④・B-⑤・A-② のように区分付きにした。同時対応のスライドには「B では +1.5〜2」を注記した。
+
+## 2026-11-06 WAF ブロック情報の確認と、日次ダイジェストの仕組み化（方式A・設計）
+
+- **依頼（ユーザー）**: WAF のブロック情報を確認。情報漏洩が頻発する昨今、**毎朝・日次で確認したい**。
+- **prd WAF ブロック確認結果（直近7日、2026-11-06）**: 総数の大半は無差別ボットの背景ノイズ（IpReputation 3604 / CommonRuleSet 1683 / KnownBadInputs 488 / Linux 150）で managed ルールが遮断。要点:
+  - 実管理ログイン `/web/admin/login` への攻撃は国外(US)からの3件のみ、すべて **AdminGeoRestrict** で遮断。
+  - レート制限（Login/AdminSensitive/ApiRateLimit）の発動は **0 件**（総当たりの痕跡なし）。
+  - ApiAllowList 82 件はすべて無関係なボット探索で、**実エンドポイント（/api/certif・getBillInfoByMember・/api/admin）を狙ったものは0件**。
+  - → MFA 資料には追記しない（ユーザー判断「確認だけで十分」）。
+- **決定（ユーザー）**: 毎朝の WAF 確認を **方式A（AWSネイティブ日次通知）** で仕組み化する。パラメータ: **毎朝 7:00 JST**・**prd のみ**・通知先は**既存アラートと同じ宛先**（coopcdealert の SNS→メール）。
+  - 不採用: クラウドの定期エージェント（/schedule）＝お客様 AWS の WAF ログにアクセスできず毎朝失敗するため不可。ローカル定期タスク＝SSO 期限切れで無人実行が不安定のため見送り。
+- **設計（coop）**:
+  ```
+  EventBridge Scheduler（cron(0 7 * * ? *), Asia/Tokyo）
+    → Lambda（CloudWatch Logs Insights で aws-waf-logs-coopcde-prd を過去24h集計）
+    → SNS（既存トピック）→ 担当者へメール
+  ```
+  - 既存資産を流用: coopinf `cf/lambda-evb-cf.yaml` の EventBridge Scheduler（Asia/Tokyo 指定の実績、`coop-batch-send-alarm`）、coopcdealert の SNS→メール経路。
+  - メール内容: (1) 24h ブロック総数＋ルール別内訳（上位）、(2) 要注意シグナル＝レート制限発動>0／`/web/admin/*` への AdminGeoRestrict（国別）／実エンドポイント（/api/certif・getBillInfoByMember・/api/admin/*・/web/admin/*）へのアクセス／`/web/members` の `..`(GenericLFI)／前日比急増。要注意が1件でもあれば件名・冒頭に ⚠ を付けて目立たせる。
+  - 時刻・TZ は既存 Scheduler と同様に `ScheduleExpressionTimezone: Asia/Tokyo` を使う（UTC 換算は 22:00 UTC 前日だが、TZ 指定で `cron(0 7 * * ? *)` と書ける）。
+- **実装は coopinf**（CF: Scheduler＋Lambda＋IAM、SNS は既存流用）。coopinf セッション未起動のため `INBOX_FROM_COOP.md` で申し送る。結合確認（通知が届くか・要注意シグナルの検知）は coop が担当。
+
+## 2026-11-06 coopinf 進捗: ALB 監視③（SensitivePathBlock, Count）＋prd 5xx アラーム適用、WAF 日次ダイジェストは後続
+
+- **受信（coopinf-68）**: Draft PR alphacmc/coopinf#55 で stg・prd へ適用（stg 11:59 JST、prd 12:04 JST。prd 変更セットはユーザー実行）。記録は coopinf `conversations/2026-11-06.md`・`cf/waf-settings.md`。
+- **③ WAF ルール `coopcde-<env>-SensitivePathBlock`（Priority 8、prd・stg、いまは Count）**:
+  - (a) アプリ入口（`^/web(/|$)`・`^/api/`・`^/$`・favicon・apple-touch-icon・robots.txt）以外のパスを遮断対象。
+  - (b) 先頭ドットの区切り（`/.env`・`/.git/` 等）と機微な拡張子（env/bak/zip/sql/pem/php/yml 等）は `/web`・`/api` 配下でも遮断対象。
+  - 照合前に URL_DECODE → NORMALIZE_PATH → LOWERCASE。Count/Block はパラメータ `SensitivePathBlockAction` で切替。
+- **①② prd のみの ALB 5xx アラーム**: 5 分で 5 件以上 → prd エラー通知 SNS（`coopcde-send-error-alart-topic-prd`）。`coopcde-prd-alb-Target5XX`・`coopcde-prd-alb-ELB5XX`。stg は停止中 503 の誤報回避のため作らない。
+- **確認結果**: Target5XX は OK でメトリクス取得、ELB5XX は 5xx 0 件で INSUFFICIENT_DATA（異常ではない）。正規表現はサンプル URI で検証（正規11許可／スキャン11遮断）。Next16/Nest11 の内部 URL（`/web/_next/static・image・data`）にドット始まり区切りなし。未確認: ③に実通信が当たったか（ログ未到着）、stg テスト送信（手元から ALB に届かず）。③の当たり方は 11/9 前後まで WAF ログで観察。
+- **注意（設計影響）**: `/.well-known/` も遮断対象（現在未使用、使うなら例外追加）。③を Block にすると 404 相当のスキャンも遮断数に乗り、`waf-ALL` アラーム（IpReputation 除く遮断が 5 分 500 件以上）の発報が増える可能性。
+- **WAF 日次ダイジェスト（coop 依頼分）**: ブランチ `feature/waf-daily-digest`・Draft PR #54 で後続実装。**要注意シグナルに③の遮断件数も含める**（coopinf 提案、妥当として coop も合意）。prd 投入後に coopinf から連絡 → **手動実行で通知1回を出し、coop が結合確認**する段取り。
+- **段取り**: 1. 11/9 前後まで③の当たり方を観察（日本からの正規利用が当たっていないか）→ 2. ユーザーの go で stg→prd の順に③を Block 化 → 3. 日次ダイジェスト実装 → 4. prd 投入後に結合確認。
