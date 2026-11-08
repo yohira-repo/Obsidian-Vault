@@ -3791,3 +3791,144 @@ alphaexapi-af の指摘を受けて実物を確認し、**2026-10-23 と本日�
   - `/member/skills/infoset`: `sheet-upload`・`delete-additional-skill-sheet` が `google-drive-write` を呼ぶ
 - **判断の分担（決定）**: **alphasystem が引き取る。alphaexapi のセッションではユーザーに確認しない**（二重に聞くことになるため）。「営業担当や一般社員が ADMIN かどうか」という運用の実態が分からないと、壊れているのか実害が無いのかを判断できないため、alphasystem 側でユーザーに確認する。
 - **PR #200 との関係**: #200 はこの状況を変えない（ヘッダーの role も DB の role も、alphasys のログインユーザーの role という点で同じ）。**#200 のマージを待つ必要はない。**
+
+## 2026-11-06 夜間自動移行の復旧は「結合試験の後」でなくてよい（先の説明を訂正。復旧の可否はユーザー判断待ち）
+
+- **ユーザーの質問**: 夜間自動移行の復旧が、なぜ結合試験のあとなのか。
+- **訂正**: 「復旧は結合試験のあと」は必須の順序ではなかった。手順書（3 章）の趣旨は「試験の期間中だけ止める」で、今のうちに復旧すると、試験の開始時にまた止める二度手間になるのを避ける意図だった。
+- **止まっている原因（推測）**: 手順書の現状欄は、10/27 の確認時点でタイマーが動いていたと書く。11/05 の記録では、10/27 19:22 の Bastion 置換のあとから止まったまま。試験のために止めたのではなく、置換でタイマーが無くなった可能性が高い（Bastion で未確認）。
+- **影響**: 止まっている間、staging の `alp_users` などは旧システムに追いつかない。試験の日が先なら、先に復旧し、試験開始時に停止、試験後に再開する方が妥当。
+- **決定待ち（ユーザー）**: 今のうちに復旧するか、試験の日が決まるまで待つか。復旧と再停止は、ユーザーの Bastion での作業（alphadb `nightly_automation.md` の 7・9 節）。
+
+## 2026-11-06 夜間自動移行は先に復旧する。試験が日を跨ぐ場合は手動で停止（ユーザー決定）
+
+- **決定（ユーザー）**: **先に復旧する。結合試験が日を跨ぐ場合は、手動で停止する。**
+- **復旧の手順（alphadb `prisma/doc/migration/nightly_automation.md` の 7 章「Bastion の置換」）**: Bastion が置換されると、手動導入した PostgreSQL・配布ファイル・設定が消えて、タイマーも無くなる。単純な `enable --now` では戻らない。手順は、①手元 PC から `nightly/deploy.sh`（SSM Run Command）で `/opt/alphadb-migration` へ配布 → ②Bastion で `nightly/setup_bastion.sh` を実行 → ③`/etc/alphadb-migration.env` を再作成（Aurora エンドポイント・マスターシークレット名・ロググループ） → ④`systemctl start alphadb-migration.timer`。Bastion の置換が本当に原因かは、Bastion で確認する（PostgreSQL・`/opt/alphadb-migration` の有無）。
+- **訂正**: 先に「復旧と再停止は Bastion での作業」とだけ説明したが、復旧は上の 4 手順で、再開（9.3）より重い。9.3 は「停止していたタイマーを `enable --now` で戻す」場合の手順。
+- **試験が日を跨ぐ場合の停止**: 同じ doc の 9.2（停止）・9.3（再開）。試験の終了後は 9.3 で再開し、翌朝 9.4 で CloudWatch `/alphasys/staging/nightly-migration` の `RESULT: SUCCESS` を確認する。
+- **次**: ユーザーが復旧を実施。実施結果（翌朝の `RESULT: SUCCESS`）を確認したら記録する。alphadb のセッションに手順の確認を依頼するかは、ユーザーの指示を待つ。
+
+## 2026-11-06 夜間移行の復旧を Windows で行う手順と、止まっている時期の食い違い
+
+- **ユーザーの質問**: 復旧の手順 1（`deploy.sh`）は、Windows ではどうするか。
+- **回答**: `deploy.sh` は bash スクリプトなので、**Git Bash** で `cd ~/git/alphadb && bash prisma/doc/migration/nightly/deploy.sh`。スクリプト内に Windows 向けのパス変換（`cygpath`）がある。`aws`・`jq`・`tar`・`base64`・`cygpath` はこの PC に揃っている。既定のプロファイルは `staging`、リージョンは `ap-northeast-1`。成功の目安は `Status: Success`。手順 2〜4 は、PowerShell で `aws ssm start-session`（doc 9.1）で Bastion に入り、`/opt/alphadb-migration/nightly/setup_bastion.sh` を実行し、`nightly.env.example` を参考に `/etc/alphadb-migration.env` を作り、`systemctl start alphadb-migration.timer`。
+- **食い違い（未解決）**: alphadb の doc の 9 章は「Bastion は 10/19 と 10/22 に置換され、10/19 の実行が最後」と書く。alphasystem の手順書は「10/27 の確認時点で、10/23 以降は毎晩実行されている（復旧済み）」と書く。11/05 の記録の「10/27 19:22 の Bastion 置換から停止」とも合わない。**先に、CloudWatch `/alphasys/staging/nightly-migration` の最新ログストリーム（doc 9.4 の 1 つ目のコマンド）で、最後に動いた日を確認する**。最近の日付なら、停止の原因の見立てを見直す。
+- **未決**: `setup_bastion.sh` と `.env` の作成は Bastion 内の作業のため、不安があれば alphadb のセッションに確認する（ユーザーの指示待ち）。
+
+## 2026-11-06 夜間移行の復旧手順 1〜4 を実行（ユーザー報告）。即時同期の手順を案内
+
+- **実行（ユーザー報告）**: Windows 版の復旧手順 1〜4（`deploy.sh` の配布、`setup_bastion.sh`、`.env` の作成、タイマー起動）を実行した。結果（各段階の成否）は未報告。
+- **即時同期の方法（案内）**: Bastion に入り（`aws ssm start-session`）、`sudo systemctl is-active alphadb-migration.service` が inactive であることを確認して、`sudo systemctl start alphadb-migration.service`。結果は `sudo journalctl -u alphadb-migration.service -n 50 --no-pager` か、CloudWatch `/alphasys/staging/nightly-migration` で、`RESULT: SUCCESS` を確認する。
+- **注意**: staging の 14 テーブルが入れ直される。結合試験の開始後に実行すると試験データが消える。旧システム側 S3 のバックアップが古い・無いと `check-freshness` で FAILED になる。
+- **次**: ユーザーから、手動同期の結果（`RESULT: SUCCESS` か）の報告を受けたら記録する。今夜（JST 1:00）の自動実行は、翌朝にログストリームで確認する（doc 9.4）。
+
+## 2026-11-06 手動同期が起動に失敗（原因は調査中）
+
+- **事象（ユーザー報告）**: Bastion で `systemctl is-active alphadb-migration.service` が `failed`、`systemctl start alphadb-migration.service` が「control process exited with error code」で失敗。`RESULT:` 行は未確認。
+- **見立て（未確認）**: ユニットは `Requires=postgresql.service`、`User=postgres`、`EnvironmentFile=/etc/alphadb-migration.env`。候補は、PostgreSQL が動いていない（`setup_bastion.sh` の未完了）、`.env` の値が空・書式違反・権限違い、旧システム側のバックアップが古い／無い（`check-freshness`）。
+- **依頼**: `sudo journalctl -u alphadb-migration.service -n 60 --no-pager` の出力と、`postgresql` の状態、`/etc/alphadb-migration.env` の権限、`/opt/alphadb-migration/nightly` の中身を教えてもらう。`.env` の値は、秘密情報を伏せて貼る。
+- **次**: 出力を受けて原因を切り分ける。必要なら alphadb のセッションに確認する（ユーザーの指示待ち）。
+
+## 2026-11-06 手動同期の失敗原因: get-credentials で AccessDenied（SECRET_ID が appuser のシークレットの疑い）
+
+- **ログ（ユーザー提供）**: `fetch-dump`・`restore`・`source-sanity`・`extract` は成功（旧システムのバックアップは新しく、PostgreSQL も動作）。**`get-credentials` で失敗**（`RESULT: FAILED (STEP get-credentials) rc=254`）。Bastion のロール（`StagingStack-SsmEc2BastionInstanceRole...`）が、`staging-alphasys-db-appuser` への `secretsmanager:GetSecretValue` を許可されていない。
+- **見立て（未確認）**: 移行はマスターシークレット（`clear.sql` が `session_replication_role = replica` を使うためマスター権限が必要）で接続する設計。`staging-alphasys-db-appuser` は alphasyscdk `rds.ts` のアプリ用シークレット。`/etc/alphadb-migration.env` の `SECRET_ID` に、appuser のシークレット名を入れた可能性が高い。Bastion のロールがマスターシークレットを読めるかは、alphasyscdk の IAM 定義を未確認。
+- **依頼**: Bastion で `sudo grep -E '^SECRET_ID=' /etc/alphadb-migration.env` を確認し、手元 PC で `aws secretsmanager list-secrets` からマスター（RDS 自動生成名）を調べて `SECRET_ID` を直し、再実行する。それでも AccessDenied なら、alphasyscdk の Bastion ロールの IAM の変更が必要（10/6 の構成が Bastion の置換で戻っていない可能性）。
+- **次**: ユーザーの確認結果を受けて、`.env` の修正で足りるか、alphasyscdk の IAM の変更が要るかを判断する。
+
+## 2026-11-06 夜間移行の手動同期が成功。復旧完了（ユーザー報告）
+
+- **結果（ユーザー報告）**: `/etc/alphadb-migration.env` の `SECRET_ID` を、マスターシークレットの名前に直したら、手動同期が成功した。原因は見立てどおり、`SECRET_ID` に appuser のシークレットを入れていたこと。alphasyscdk の IAM の変更は不要。
+- **状態**: staging の 14 テーブルは、旧システムの最新で入れ直された。Bastion の復旧（`deploy.sh`・`setup_bastion.sh`・`.env`・タイマー起動）は完了。結合試験はまだ始まっていないので、試験データの消失は無い。
+- **今後**: 今夜（JST 1:00）の自動実行を、翌朝に CloudWatch `/alphasys/staging/nightly-migration` で `RESULT: SUCCESS` を確認する（alphadb doc 9.4）。結合試験が日を跨ぐ場合は、ユーザーが手動で停止する（9.2）。試験後に再開（9.3）。
+- **未確認**: 手動同期の `RESULT: SUCCESS` の行そのものは、ユーザーの報告のみ（ログは未提示）。タイマーが有効か（`list-timers` の NEXT 欄）も未確認。
+
+## 2026-11-06 タイマーは有効。ただし昨夜すでに動いていた（停止期間の見立てを見直し中）
+
+- **確認（ユーザー提供）**: `systemctl list-timers alphadb-migration.timer --all` は、NEXT = 11/06 16:00 UTC（JST 1:00）、**LAST = 11/05 16:00:17 UTC（JST 11/06 1:00、15 時間前）**。タイマーは有効で、今夜も動く。
+- **見直し**: LAST が昨夜なので、復旧手順（今日実施）の前から、タイマーは存在し動いていた。「Bastion の置換でタイマーが消えて、10/27 から約 10 日間止まっていた」という見立て（11/05 の記録・11/06 の説明）は、外れていた可能性がある。手動実行の前に `is-active` が `failed` だったことは、昨夜の自動実行が失敗していた可能性を示す（`SECRET_ID` の誤りが前からあった可能性。未確認）。
+- **確認依頼**: `sudo journalctl -u alphadb-migration.service --since "2026-11-05 15:50" --until "2026-11-05 16:30" --no-pager | grep -E "RESULT|STEP"` で、昨夜の結果を見る。CloudWatch のログストリーム一覧で、いつまで動いていたかも確認できる。
+- **次**: 結果を受けて、停止期間の事実（いつから止まっていたか、または止まっていなかったか）を訂正して記録する。結合試験のためのタイマー停止の段取りは、変わらない。
+
+## 2026-11-06 昨夜の自動実行は STEP init で失敗していた（ユーザー提供のログ）
+
+- **確認（ユーザー提供）**: 11/06 JST 1:00（11/05 16:00 UTC）の自動実行は、`RESULT: FAILED (STEP init) rc=1`。理由の行は出ていない（init は、`lib.sh` の読み込み・`.env` の読み込み・作業ディレクトリの作成のいずれか）。
+- **意味**: タイマーは、今日の復旧手順より前から存在して動いていた。「Bastion の置換でタイマーが消えて、10/27 から約 10 日間止まっていた」という 11/05 の記録の見立ては外れていた。昨夜は init で失敗している。今日の手順 1〜4（配布・`.env` の作成のやり直し）のあと、手動実行は init を通過したので、昨夜の失敗は解消したと考えられる。今夜の自動実行は、同じ設定で動くはず。
+- **未確認**: いつから失敗していたか、いつまで成功していたか。`sudo journalctl -u alphadb-migration.service --since "2026-10-20" --no-pager | grep -E "RESULT"` と、CloudWatch のログストリーム一覧で確認できる。必須ではなく、ユーザーが知りたい場合だけ行う。
+- **段取りへの影響**: 結合試験の手順（実施日の決定、試験が日を跨ぐ場合の手動停止、試験後の再開）は変わらない。
+- **次**: 翌朝（11/07）に、今夜の自動実行が `RESULT: SUCCESS` かを CloudWatch か journalctl で確認する。
+
+## 2026-11-06 結合試験 5.1 の ＃1〜＃9 を実施。メールが届かず（MessageRejected）、＃9 の履歴が見えない（ユーザー報告）
+
+- **実施（ユーザー）**: 結合試験の 5.1 の #1〜#9 を実行した。**メールは、どの項目でも届かない**。#9（緊急連絡先）は即反映されるが、履歴が表示されない。夜間タイマーの停止の実施有無は未確認。
+- **調査（alphasystem、読み取りのみ）**:
+  - CloudWatch `staging-alphasys-backend` の直近 4 時間: 却下通知（依頼 14・15、社員コード 1）が「送信に失敗した（却下は確定済み）: MessageRejected」。確認メール（依頼 16・17）が「送信に失敗したため依頼を取消した」で、画面は 503（文字化けしたログを CP932 で読み取った）。
+  - SES: ID はドメイン `alphasys.alphacmc-test.com` とメール `yohira@alphacmc.co.jp` の両方が検証済み。サンドボックスのまま（本番アクセス未承認）。
+  - ECS のタスク定義: `MAIL_DRIVER=ses`、`MAIL_FROM=no-reply@alphasys.alphacmc-test.com`（検証済みドメイン内）、`ALPHASYS_BASE_URL` 設定済み。SES のリージョンはスタックのリージョン（ap-northeast-1）で、ID と同じ。
+- **原因の見立て（未確認）**: 宛先に未検証のアドレスが混ざっている。却下通知の宛先は `[mm_adder, email]`、確認メールの宛先は新しい `mm_adder`。社員コード 1 の `mm_adder` に、旧システム由来の別アドレスが入っている、または #10 で別のアドレスを入力した可能性。`MessageRejected` の理由（どのアドレスか）は、宛先を出さない設計のためログに出ない。
+- **#9 の履歴**: 仕様書は「履歴は `alp_user_change_data` に残し、誰がいつ何を変えたかを追える」と書き、画面表示は明記していない。`alp_user_change_data` に行が入っていれば仕様どおり。画面表示を期待するなら仕様の抜け。ユーザーに、どちらかを確認する。
+- **依頼（ユーザー）**: 社員コード 1 の `alp_users` の `email`・`mm_adder`、#10 で入力した新しい `mm_adder`、`alp_user_change_data` に #9 の行があるか、夜間タイマーの停止の有無。
+- **次**: 回答を受けて原因を確定する。`mm_adder` が原因なら、`mm_adder` を空にするか `yohira@alphacmc.co.jp` にして再試験する。試験結果（○×）は、全項目の実施後にまとめて記録する。
+
+## 2026-11-06 メール不達の原因を確定（mm_adder が SES 未検証）。再試験の段取り
+
+- **ユーザーの回答**: 社員コード 1 の `email` = `yohira@alphacmc.co.jp`、`mm_adder` = `yohira-mb@ezweb.ne.jp`（読み取り。順序からの解釈）。#10 で入力した新しい `mm_adder` = `yohira_mb@icloud.com`。
+- **原因（確定扱い）**: SES はサンドボックス。却下通知の宛先は `[mm_adder, email]` で、未検証の `yohira-mb@ezweb.ne.jp` が混ざるため、メール全体が `MessageRejected`。#10 の確認メールも、未検証の `yohira_mb@icloud.com` 宛のため拒否された。手順書は、#10 の新しい `mm_adder` を `yohira@alphacmc.co.jp`（検証済み）にする指定だった。
+- **再試験の段取り（DB の編集は不要）**:
+  1. #10 を先に、新しい `mm_adder` を `yohira@alphacmc.co.jp` にしてやり直す（確認メールのリンクから確定）。これで `mm_adder` = `email` になり、却下通知の宛先は 1 件にまとまる。
+  2. #4・#8e を、依頼を作り直してやり直す（メールが 1 通届けば合格）。
+  3. #10 の後半（他の社員が使用中のアドレスの拒否）を続けて行う。
+  4. #1〜#3・#9 のメール以外の動作は、やり直さない。
+- **やらないこと**: `yohira-mb@ezweb.ne.jp`・`yohira_mb@icloud.com` を SES で検証しての 2 通の宛先の試験（先の決定「宛先は 1 つだけ」に従う）。
+- **運用への示唆**: `mm_adder` に社外のアドレスが入った社員への通知は、サンドボックスの間は届かない。SES の本番アクセスの申請が必要な理由の 1 つ。
+- **回答待ち（ユーザー）**: `alp_user_change_data` に #9 の行があるか（履歴の件）。夜間タイマーの停止の有無（`systemctl is-enabled alphadb-migration.timer`）。
+
+## 2026-11-06 SES の宛先検証は運用で成り立つか（ユーザーの懸念）。本番アクセスの申請が実運用の前提
+
+- **ユーザーの懸念**: `email` は全員 `@alphacmc.co.jp` だが、`mm_adder` はどのドメインが来るか分からない。宛先を 1 件ずつ検証する運用では、SES は使えないのではないか。
+- **回答**: 宛先の検証が要るのはサンドボックスの制限。**本番アクセス（サンドボックス解除）の承認後は、宛先の検証が不要になり、任意のドメインに送れる**。複数宛先のメールで 1 件が不達でも、他の宛先には届く（サンドボックスのような全体拒否にならない）。送信元ドメインの検証は済んでいる。
+- **承認後の留意点**: ①存在しないアドレスへの送信（バウンス）の率が高いと送信が止まる場合がある。`mm_adder` は確認メールのリンク後に反映されるので実在アドレスのみだが、旧システム由来の値は確認を経ていない。②携帯キャリアのメール（ezweb など）は、`no-reply@` や不明なドメインを受信拒否している場合がある（SES 側ではエラーにならない）。送信元ドメインの SPF・DKIM・DMARC の確認が要る。③申請は、AWS アカウントとリージョンごと（staging は 570024666076 の ap-northeast-1。本番は別）。
+- **サンドボックス中の影響**: 4_7_1 の却下通知・確認メールは、`mm_adder` が未検証だと届かない。5_5_3 の初期パスワードのメールも、研修生のアドレスが未検証だと届かない。
+- **提案（ユーザーの決定は未了）**: 本番アクセスの申請は、結合試験とは別に早めに進める（申請文の下書きは alphasyscdk `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 4.2）。承認までの間、結合試験は宛先 `yohira@alphacmc.co.jp` の 1 つだけで進める。承認後に、`mm_adder` を外部ドメインにして再試験できる。申請はユーザー作業。
+
+## 2026-11-06 staging の SES サンドボックスを解除するか（選択肢を提示。ユーザーの決定待ち）
+
+- **ユーザーの質問**: staging でサンドボックスを解除しない理由は何か。
+- **回答**: 解除しないと決めたわけではない。設計では、staging も申請する前提だった。ただし、staging の DB は夜間移行で旧システムのデータに入れ直され、`alp_users` に**実在の社員のアドレス**が入っている。解除すると、staging の試験（却下通知・確認メール）が実在の社員に届く可能性がある。今のサンドボックスは、結果として誤送信を防ぐ安全装置になっている。
+- **選択肢**: **A. staging は解除しない**（私の推奨）。本番のアカウントだけ別に申請し、外部ドメインの試験が必要なら、そのアドレスを 1 つずつ検証する（今回は `yohira-mb@ezweb.ne.jp`・`yohira_mb@icloud.com`）。**B. staging も解除する**。外部ドメインの試験は楽になるが、staging の送信先を試験用のアドレスに制限する仕組みを alphaexapi に入れるなどの対策が要る。どちらでも、本番のアカウントの申請は必要（staging とは別アカウント）。「テスト環境」と書いた場合の審査への影響は未確認。
+- **決定待ち（ユーザー）**: A と B のどちらにするか。決まったら、alphasyscdk `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 4.2 に反映する内容を整理する。
+
+## 2026-11-06 「DB のコピーで誤送信」の懸念は過大だった。推奨を A から B（staging も解除）へ訂正
+
+- **ユーザーの指摘**: DB がコピーされるだけで、なぜメールが送信されるのか。
+- **訂正**: 指摘のとおり、DB のコピーだけでは送信されない。メールは、staging の画面・API の操作か、自動ジョブで送られる。alphaexapi の定期実行（`@Cron`）は、営業メールの取り込み（`sales-mail/mail-polling.job.ts`、10 分ごと、受信のみ）だけで、**staging で自動的に社員へ送るジョブはない**。
+- **残るリスク（小さい）**: 総務が、staging で実在の社員宛ての依頼を却下する場合。夜間移行は旧システムの変更依頼（`alp_uchange`、先のログでは 8 件）も入れ直すため、そこに実在の社員の依頼があれば却下通知が届く。5_5_3 のインスタンス作成で、ユーザー名を実在の社員にすれば、その社員に初期パスワードが届く。どちらも、操作する人の注意で防げる。
+- **推奨の訂正**: 先の「A（staging は解除しない）を推奨」は取り下げる。懸念が小さいので、**B（staging も解除する）で問題ない**。運用に近い条件で試験でき、手戻りが少ない。どちらでも、本番のアカウントの申請は必要。
+- **決定待ち（ユーザー）**: A と B のどちらにするか（ユーザーの決定は、まだ出ていない）。B なら、staging の申請を進める（ユーザー作業）。申請文の下書きは alphasyscdk `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 4.2。
+
+## 2026-11-06 staging の SES サンドボックスも解除する（ユーザー決定: B）
+
+- **決定（ユーザー、2026-11-06）**: **B（staging も解除する）**。申請はユーザーが AWS コンソール（SES > アカウントダッシュボード > 本番アクセスをリクエスト）から出す。staging のアカウントは 570024666076、リージョン ap-northeast-1。本番のアカウントの申請は別に必要。
+- **既存の設計との差**: alphasyscdk `docs/superpowers/specs/2026-10-22-ses-mail-infra-design.md` の 104 行目は「staging のサンドボックス → 解除せず、受信者を検証して試験する。解除の申請は本番の前に行う（4.2）」。先の私の説明「設計では staging も申請する前提だった」は不正確だった（4.2 の下書きは staging から出す文面だが、104 行目は解除しないと書いている）。今回の決定で、この設計を改める。
+- **申請文の補足（案）**: 下書き（4.2）は用途が 2 つ（却下通知、メール変更の確認メール）だけ。5_5_3 の初期パスワードのメール（研修用の Windows インスタンスのユーザー宛て、`@alphacmc.co.jp`）が入っていないので、3 つ目の用途として加える。
+- **次**: ユーザーが申請する。alphasyscdk へ、設計の 104 行目と 4.2 の更新を依頼する。承認後、`mm_adder` を外部ドメインにした試験ができる。承認までは、結合試験を宛先 `yohira@alphacmc.co.jp` の 1 つだけで進める（#10 を `yohira@alphacmc.co.jp` で先にやり直す段取りは変わらない）。
+
+- **送信済み（上の決定の続き）**: alphasyscdk-b2（起動中のため `SendMessage`）へ、設計書の 104 行目を「解除する（2026-11-06 ユーザー決定）」に改めることと、4.2 の申請文の下書きに 3 つ目の用途（5_5_3 の初期パスワードのメール）を加えることを依頼した。コード・インフラの変更はない。
+
+## 2026-11-06 alphasyscdk が SES 設計を更新（Draft PR ＃125）
+
+- **報告者**: alphasyscdk-b2（別セッション）。[alphasyscdk PR #125](https://github.com/alphacmc/alphasyscdk/pull/125)（base=staging、Draft）。
+- **内容**: 7 章の確認事項 3 を「解除する（2026-11-06 ユーザー決定）」に改め、4 章冒頭の決定と、4.2 の見出しの「本番の前に行う」も合わせて直した。4.2 の申請文の下書き（英語）に、3 つ目の用途「Windows インスタンスの初期パスワードのメール（`@alphacmc.co.jp`）」を加えた。コード・インフラの変更なし。
+- **ユーザーへ**: 申請文は、#125 のマージ後の 4.2 を使う（マージ前でも、#125 の差分から参照できる）。Draft の解除とマージは、ユーザー。
+
+## 2026-11-06 結合試験 5.1 の ＃1〜＃10 を確認（ユーザー報告）
+
+- **結果（ユーザー報告）**: 5.1 の #1〜#10 を確認できた。メール不達は、再試験（#10 を `yohira@alphacmc.co.jp` で先にやり直し、#4・#8e をやり直し）で解消したと読む（詳細な ○× と日時は未報告）。
+- **未確認（要確認）**: #9 の「履歴が表示されない」件の決着。`alp_user_change_data` に行があれば仕様どおり（画面表示は仕様に無い）。画面表示を期待するなら仕様の抜け。ユーザーの回答がないので、#9 は「動作は合格、履歴の画面表示は未決」として扱う。
+- **残り**: 5.1 の #11（一般社員 D で総務画面を開く。ADMIN でない別の Google アカウントが要る）、5.2（従業員情報 CSV の取込 #5〜#8f、試験用 CSV が要る）、5.3（#12 ログ・個人情報の検索）。夜間タイマーの停止の有無も未確認。
+
+## 2026-11-06 ＃9 の履歴は表示された（ユーザー報告）
+
+- **結果（ユーザー報告）**: #9（緊急連絡先の保存）の履歴は、**表示されている**。先の「履歴が表示されない」は解消した（再試験の過程で、履歴が出る状態になったと読む。原因は未確認）。
+- **#9 の扱い**: 動作・履歴の表示とも合格として扱う（○×の日時は未報告）。5.1 の #1〜#10 は、すべて確認済み。
+- **残り**: #11、5.2（#5〜#8f）、5.3（#12）。夜間タイマーの停止の有無は未確認。
