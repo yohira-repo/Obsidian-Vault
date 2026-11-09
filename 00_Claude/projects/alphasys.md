@@ -1593,3 +1593,32 @@ alphaexapi-daから連絡があった。Draft PR alphacmc/alphaexapi#187（base 
 - alphasyscdk側の記録: alphasyscdkの`docs/conversations/2026-11-02.md`
 - ユーザーがstagingで4_6_1（見出し）と4_6_2（資格を改行で区切ってAD4〜AD8に出す、#318）を確認し、OKだった。課題表F81・F82を「OK」にした
   - alphasysは#316で、400のmessageを「インスタンス作成中にエラーが発生しました: {message}」と表示するよう対応済みなので、変更不要の見込み
+
+## 2026-11-09 alphasyscdkからの申し送り（ECRのイメージにコミットハッシュのタグも付ける）を取り込み
+
+`INBOX_FROM_ALPHASYSCDK.md`（2026-11-09）を取り込み、ファイルは削除した（コミットしていない）。
+
+- **経緯**: 2026-11-09、alphaexapi #203をstagingにマージしたとき、GitHubのwebhookの配信が抜けてバックエンドのビルドが起動しなかった。パイプラインは成功したが、古いイメージがデプロイされた
+  - ECRはMUTABLEで、タグ（package.jsonのversion、0.1.0）を毎回上書きしている。このため、どのコミットのイメージがデプロイされたかが分からず、気づけなかった
+  - フロント（alphasys）も同じ作りなので、同じことが起こりうる
+  - alphasyscdk側の記録: `docs/conversations/2026-11-09.md`
+- **alphasyscdkでの承認**: 2026-11-09、alphasyscdkのセッションでユーザーが「案Aに進めてください」と承認した
+- **alphasysへの依頼内容**（`buildspec.yml`）
+  - pre_buildでコミットハッシュを求める: `COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)`（alphaexapiのbuildspecと同じ）
+  - buildの`docker tag`の後に、`docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:$COMMIT_HASH`を足す
+  - post_buildの`docker push`の後に、`docker push $REPOSITORY_URI:$COMMIT_HASH`を足す
+  - どちらもpushする分岐（`SKIP_BUILD != true`かつ`DEPLOY_ENV != prod`）の中だけにする。docsだけのpushとprodでは付けない
+  - `frontend_imagedefinitions.json`は今のままversionのタグを指す。デプロイもこれまでどおりversionのタグで行う
+- **alphasyscdk側**（対応済み、Draft PR #126）: パイプラインでデプロイするイメージを確かめるステップで、`=== DEPLOY IMAGE ===`に続けて、frontendとbackendのダイジェスト・push時刻・タグを1行ずつ出すようにした。コミットハッシュのタグが付けば、デプロイしたイメージのコミットをパイプラインのログで確かめられる
+- alphaexapiにも同じ修正を依頼済み（alphaexapi-3e）
+- 完了したらPR番号をalphasyscdkに知らせる（セッションが起動していなければ、alphasyscdk直下に`INBOX_FROM_ALPHASYS.md`を置く）
+- alphasysでの着手は、alphasysのセッションでユーザーの了解を得てから行う
+
+## 2026-11-09 ECRのフロントのイメージにコミットハッシュのタグも付ける修正に着手（Draft PR ＃322）
+
+- ユーザーがタグの仕組みの説明を受けて、修正方針（`buildspec.yml`だけ。version のタグに加えてコミットハッシュ先頭7文字のタグを付ける）を了解した（「OKです」）
+  - 説明した要点: 新しいイメージが増えるのではなく、同じイメージにタグ（名札）がもう1枚付く。デプロイは従来どおりversionのタグで、動きは変わらない
+  - ECR `alphasys-frontend`の自動削除ルール（タグなしは7日で削除、タグありは新しい10個まで）があるので、コミットのタグが付いたイメージがたまり続けることはない
+- `fix/ecr-commit-hash-tag`ブランチで修正し、Draft PR #322（base: staging）を作成した。依頼どおりpushする分岐（`SKIP_BUILD != true`かつ`DEPLOY_ENV != prod`）の中だけでtag/pushする
+- PR番号はalphasyscdk（alphasyscdk-6b）にSendMessageで知らせた
+- マージ後の確認: ECR `alphasys-frontend`の最新イメージに`0.1.0`とマージコミットのハッシュの2つのタグが付いていること

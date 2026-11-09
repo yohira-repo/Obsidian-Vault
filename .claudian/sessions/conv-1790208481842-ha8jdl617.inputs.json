@@ -186,6 +186,34 @@
       "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
       "providerUserMessageId": "cccea8e4-4a48-4bde-a4de-744199c8baf9",
       "providerAssistantMessageId": "ba9a99f7-04f8-4744-807e-6dffbcb1039f"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1794266177543-9xh8e5u",
+      "userTurnOrdinal": 14,
+      "state": "accepted",
+      "localMessageId": "msg-1794266177507-ak8a6xn",
+      "timestamp": 1794266177507,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "2980da68-c8a6-4e45-9359-ea99e922e4de",
+      "providerAssistantMessageId": "ca15be2c-e350-4eea-bcd8-20dbaf2808d6"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1794266349921-v5ez7mp",
+      "userTurnOrdinal": 15,
+      "state": "accepted",
+      "localMessageId": "msg-1794266349908-aamsrri",
+      "timestamp": 1794266349908,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "24334089-face-4e29-b451-6065e68912b5",
+      "providerAssistantMessageId": "3bab5130-5026-4e98-b165-7a40ee21edd2"
     }
   ]
 }

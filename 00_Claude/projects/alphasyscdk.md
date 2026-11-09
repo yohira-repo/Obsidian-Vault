@@ -370,3 +370,58 @@
   - 7章の確認事項3を「解除する（2026-11-06 ユーザー決定）」に改めた。食い違わないように、4章冒頭の決定と 4.2 の見出し（「本番の前に行う」）も合わせて直した。
   - 4.2 の申請文の下書き（英語）に、3つ目の用途「5_5_3: 研修用 Windows インスタンスのユーザー（@alphacmc.co.jp）に初期パスワードを送るメール」を加えた。
 - 解除が承認されるまでは、これまでどおり 4.1 の手順（受信者の検証）で試験する。
+
+## 2026-11-09 alphaexapi から確認依頼: staging への push でバックエンドのビルドが起動しなかった件と、ECR のタグの運用
+
+- **依頼（alphaexapi-3e、alphaexapi のユーザー承認済み）**: alphaexapi #203 を staging にマージした（951005e、15:50:36 JST）が、CodeBuild `staging-alphasys-backend-ecr-build` が起動しなかった。15:54 の StagingEcsDeployPipeline は成功したが、ECR `alphasys-backend:0.1.0` は 11/06 のイメージ（be8679b）のままで、古いイメージがデプロイされた。16:10 に手でビルドし、16:19 にデプロイし直して解消した。#205（17:30）のマージでは、webhook からビルドが起動していた。
+- **調査結果**:
+  - webhook のフィルターは `EVENT=PUSH` かつ `HEAD_REF=refs/heads/staging` の1組で、正しい。11/06 の3つのマージと 11/09 の #205 は GitHub-Hookshot から起動している。
+  - GitHub の webhook（id 672516288。alphaexapi に1つだけ）の配信一覧では、マージの前後の push は 15:50:41 と 15:51:10（main への push、#204）の2件だけ。マージとブランチ削除で2件届くはずの push が1件しか無いので、staging への push（951005e）の配信は GitHub 側で作られなかったと考えられる。配信の中身は、gh に `admin:repo_hook` の権限が無いので見ていない。
+  - **結論**: GitHub 側で配信がたまに抜けたもの。CDK の設定では防げない。
+  - パイプラインは、15:54 も 16:14 も人が手で起動していた（StartPipelineExecution）。ビルドは3分ほどかかるので、15:54 の起動ではビルドが終わる前だった可能性もある。
+- **ECR のタグ**: MUTABLE で version（0.1.0）を上書きするのは、正式リリースまでの意図した暫定の運用（`lib/shared-stack.ts` のコメント、`cdk.json` の `imageTagMutability`）。ただ、このままでは古いイメージのデプロイに気づけない。対策案を alphaexapi-3e に返した（どれも未着手。ユーザーの了解待ち）:
+  - A（勧め）: alphaexapi・alphasys の buildspec で、コミットハッシュのタグも push する。alphasyscdk の imagedefinitions のステップで、デプロイするイメージのダイジェスト・push 時刻・タグをログに出す。
+  - B（つなぎの運用）: パイプラインを手で起動する前に、ECR のイメージの push 時刻がマージより後であることを確かめる。
+  - C（今はやらない案）: ECR への push をきっかけに、パイプラインを自動で起動する（EventBridge）。
+
+## 2026-11-09 対策案A に着手（ユーザー承認「案A に進めてください」）
+
+- **承認**: ECR のタグの対策は案A で進める（コミットハッシュのタグを付け、パイプラインのログでデプロイしたイメージを確かめられるようにする）。B（つなぎの運用）は A が入るまで続け、C（EventBridge で自動起動）はやらない。
+- **alphasyscdk の変更**: `lib/constructs/imagedefinitions-project.ts` のイメージを確かめるステップで、`=== DEPLOY IMAGE (digest / pushedAt / tags) ===` に続けて、frontend・backend のダイジェスト・push 時刻・タグを1行ずつ出すようにした。デプロイはこれまでどおり version のタグで行う（imagedefinitions.json は変えない）。
+  - 確認: 同じクエリを staging の ECR で実行し、`sha256:a6a7… 2026-11-09T17:41:45 0.1.0` と出ることを確かめた。tsc・テスト7件が通った。`diff:staging` の差分は StagingStack の `ImagedefinitionsProject/MergeProject`（CodeBuild のビルド設定）1つだけ。反映には `deploy:staging` が要る。
+- **依頼**:
+  - alphaexapi-3e（SendMessage）と alphasys（セッションが無いので `alphasys/INBOX_FROM_ALPHASYSCDK.md`）に、buildspec.yml の修正を頼んだ。push するときに、version のタグに加えて、コミットハッシュ（先頭7文字）のタグも付けて push する。docs だけの push と prod では付けない。
+- **影響**: ECR のライフサイクルは変えない。今後は、上書きされた古いイメージにもコミットハッシュのタグが残るので、7日で消えずに最新10個まで残る。
+- **次のアクション**: (1) ユーザーが PR #126 をマージし、`deploy:staging` を実行する、(2) alphaexapi・alphasys の buildspec の PR がマージされたら、次にパイプラインを実行したときのログで、コミットハッシュのタグが出ることを確かめる。
+- **alphasys の対応**: alphasys-a8 が Draft PR alphasys #322（base=staging、alphasys のユーザー了解済み）を作った。buildspec.yml の pre_build で `COMMIT_HASH` を求め、push する分岐の中だけで `$REPOSITORY_URI:$COMMIT_HASH` を tag・push する。差分を見て、依頼どおりであることを確かめた。alphaexapi は、alphaexapi のユーザーの承認待ち。
+- **alphaexapi の対応**: alphaexapi-3e が Draft PR alphaexapi #208（base=staging、alphaexapi のユーザー承認済み）を作った。push する分岐の中だけで `$REPOSITORY_URI:$COMMIT_HASH` を tag・push する。`COMMIT_HASH` が空のときは付けない（alphaexapi のユーザー判断）。差分を見て、依頼どおりであることを確かめた。alphasys #322 には空のときの判定が無いが、CodeBuild ではソースのコミットが必ず決まるので、実害は無い見込み。
+
+## 2026-11-09 今 deploy:staging を実行すると Bastion が置き換わることが判明（デプロイは保留）
+
+- **ユーザーの質問**: 「deploy:staging では Bastion は置換されないか」。
+- **確認結果**: 置き換わる見込み。Bastion の AMI は `lib/constructs/ssm-ec2.ts` の `MachineImage.latestAmazonLinux2023()` で、デプロイのたびに CloudFormation が SSM パラメータ（`/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64`）を読み直す。今の Bastion（`i-08f13fc70ac372bde`、10/27 起動）は `ami-0a5110ef683dd3ad9`、最新は `ami-0c6b329f2abc3518d`（10/31 更新）なので、デプロイすると置き換わり、夜間移行の設定とタイマーが消える。テンプレートは変わらないので、cdk diff には出ない（上の「差分は1つだけ」は、この点で不十分だった）。
+  - 補足: Git Bash から `aws ssm get-parameter --name /aws/...` を実行すると、パスが Windows 形式に変換されて ParameterNotFound になる。`MSYS_NO_PATHCONV=1` を付ける。
+- **提示した案（ユーザーの判断待ち）**: (1)（勧め）`latestAmazonLinux2023({ cachedInContext: true })` にして、`cdk.context.json` に今の AMI を記録し、AMI を固定してからデプロイする（PR #126 に含める）。(2) 置き換わる前提でデプロイし、夜間移行を 10/27 と同じ手順で復旧する。
+- **上の次のアクションの訂正**: どちらにするか決まるまで、`deploy:staging` は実行しない。
+- あわせて、10/27 に置き換わった Bastion で、夜間移行の復旧が終わっているかをユーザーに確認中。
+
+## 2026-11-09 Bastion の AMI を固定した（ユーザー承認「AMIを固定してください」）
+
+- **承認**: 上の案 (1) で進める。あわせて、10/27 に置き換わった Bastion の夜間移行の復旧は、正常に終わっていることをユーザーが確認した。
+- **変更**:
+  - `lib/constructs/ssm-ec2.ts`: `MachineImage.latestAmazonLinux2023({ cachedInContext: true })` にした。AMI の値は `cdk.context.json` から読み、デプロイのたびに最新を読み直さない。
+  - `cdk.context.json`: synth で作られたキー（`ssm:account=570024666076:parameterName=/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64:region=ap-northeast-1`）の値は、最新の `ami-0c6b329f2abc3518d` だった。これを今の Bastion の `ami-0a5110ef683dd3ad9`（al2023-ami-2023.12.20261026.1、廃止予定日 2027-01-22）に書き換えた。
+- **確認**:
+  - 変更セットを使う `diff:staging`（既定）では、差分は `ImagedefinitionsProject/MergeProject`（PR #126）と、使わなくなった SSM パラメータの削除だけ。Bastion の差分は無い。
+  - `--no-change-set` では、ImageId の書き方が変わる（パラメータの参照 → 直書き）ため、Bastion が「replace」と出る。ただ、値は今と同じなので、CloudFormation の変更セットでは変更なしと判定された。
+  - tsc・テスト7件が通った。
+- **今後の扱い**: AMI を更新するとき（OS の更新や、2027-01-22 の廃止予定日の前など）は、`cdk.context.json` の値を書き換えて、意図して Bastion を置き換える。置き換えたら、alphadb の `nightly_automation.md` の手順で夜間移行を復旧する。本番は、初めて synth するときに、その時点の最新の AMI が `cdk.context.json` に記録される。
+- **次のアクション**: (1) ユーザーが PR #128 をマージし、`deploy:staging` を実行する、(2) デプロイ後、Bastion のインスタンス ID が `i-08f13fc70ac372bde` のままであることを確かめる。
+
+## 2026-11-09 StagingStack をデプロイし、Bastion が置き換わらなかったことを確認
+
+- **ユーザーの作業**: PR #128 をマージし、`deploy:staging` を実行した（StagingStack は 2026-11-09 19:19 JST に UPDATE_COMPLETE）。
+- **確認**:
+  - Bastion は `i-08f13fc70ac372bde`（`ami-0a5110ef683dd3ad9`、10/27 起動）のままで、置き換わっていない。夜間移行の設定とタイマーも残っている。
+  - CodeBuild `staging-alphasys-imagedefinitions-pipeline-project` のビルド設定に、`=== DEPLOY IMAGE (digest / pushedAt / tags) ===` が入った（PR #126 の反映）。
+- **残り**: alphasys #322 と alphaexapi #208（コミットハッシュのタグ）のマージ。マージ後、次にパイプラインを実行したときのログで、`0.1.0` と7桁のハッシュのタグが並んで出ることを確かめる。

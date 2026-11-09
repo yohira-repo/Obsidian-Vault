@@ -1365,3 +1365,84 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
   - 計画に無かった既存テストの更新を追加する: Task 3（`mf-job-orchestrator.service.spec.ts` の `run` の期待値に第 2 引数）、Task 5（#199 で追加した `money-forward-customer.controller.int.spec.ts` の期待値に userEmail）、Task 8（`payable-import.service.spec.ts` の型付きモックを 3 引数に。`not.toHaveBeenCalledWith` が常に通ってしまわないよう書き換え）。
   - 行番号のずれ（#199・#200 による）は内容で場所を特定する。
 - **進め方**: タスクごとに実装担当（サブエージェント）→ レビュー → 指摘対応の順で Task 1 から進める（Subagent-Driven Development）。Task 1 に着手済み。
+
+## 2026-11-09 alphasystemからの申し送り: 銀行コードAPIのv3の形式への対応
+
+`INBOX_FROM_ALPHASYSTEM.md`(2026-11-09)を取り込んだ。
+
+### 決定(ユーザー、2026-11-09)
+
+**方式B: bankcode APIはv3のまま使い、v3が返す形式(`banks`・`branches`)に合わせて読む。** v2には戻さない。
+
+### 経緯
+
+- 結合試験4_7_1の#8で、社員情報画面の金融機関・支店の検索が、全パターン「候補がありません」になった。
+- 原因: `src/bankcode/bankcode.service.ts`はv3のURLを呼んでいるのに、`data`(配列)と`meta`を読んでいる。実際のv3は次の形式で返す。
+  - 金融機関: `{ banks: [{code, name, halfWidthKana, fullWidthKana, hiragana, businessTypeCode, businessType}], size, limit, hasNext, nextCursor?, hasPrev, version }`
+  - 支店: `{ bank: {...}, branches: [{code, name, halfWidthKana, fullWidthKana, hiragana}], size, limit, hasNext, nextCursor?, hasPrev, version }`
+  - (参考)v2は`data`で返す。現行システムalphaofficesystemはv2を呼んで`data`を読むので動く。
+- alphasysは`result.data?.data`を読むので、`data`が無いと常に空配列になる。
+
+### 依頼の内容
+
+1. 画面向けの検索(`GET /bankcode/banks`・`/bankcode/banks/branches`): alphasysを変えずに済むよう、これまでの形式(`data`の配列)で返す。`meta`(`total`・`limit`・`offset`)はv3に無いので、alphasysが`meta`を読んでいないことを確かめたうえで、返す内容を決める。DTOも実態に合わせる。
+2. CSV照合(`findBankCodeByName`・`findBranchCodeByName`): `data.data[0]`を`banks[0]`・`branches[0]`に直す。`BankNameResolver`は失敗をnull(不一致)にするので、形式の違いが見えなくなる。形式が想定と違うときは、`TypeError`ではなく、はっきりしたエラー(ログ)にすることを検討する。
+3. テスト: v3の実際の形式をモックにしたテストを加える。
+4. レート制限(429): v3は連続して呼ぶと429を返す。今は500「取得に失敗しました」に変えている。429を呼び出し側が分かる形で返すかを検討し、方式をalphasystemに知らせる。
+5. 支店の絞り込み(未確認): `hiragana==しぶや*`・`name==渋谷支店`が三井住友銀行(0009)で空だった。実際の支店名(例: 神保町支店`code=001`、`hiragana=じんぼうちよう`)で確認する。
+6. 完了したら、Draft PR(base=staging)のリンクをalphasystemに知らせる。その後alphasystemが結合試験#8を再開する。
+
+### 待機事項
+
+- 対応方針は、alphaexapiのユーザーの承認待ち。
+
+## 2026-11-09 銀行コードAPI v3対応の方式をユーザー承認
+
+1. 画面向けの検索: v3の`banks`・`branches`を`data`に詰め替え、これまでの`data`配列の形式で返す。`meta`は`size`・`limit`・`hasNext`に替える(alphasysは`meta`を読んでいない)。DTOも合わせる。alphasysの変更は不要。
+2. CSV照合: `banks[0]`・`branches[0]`を読む。配列が無いときは形式違いが分かるエラーにする(既存の仕組みでwarnログ。URL・APIキーは出さない)。
+3. 429: 500に変えず、429のまま返す(「銀行コードAPIの呼び出しが多すぎます。少し待ってから再度検索してください」)。CSV照合は不一致扱いのまま、ログに429と分かるように出す。画面での扱いはalphasysの判断。方式をalphasystemに知らせる。
+4. 支店の絞り込み: 手元の`.env`のキーでv3を直接呼び、三井住友銀行(0009)の神保町支店を`code==001`・`hiragana==じんぼうちよう*`・`name==神保町支店`で確かめる(読み取りだけ、キーはログに残さない)。指定の仕方が変わっていたら、直し方は別に相談する。
+5. v3の実際の形式をモックにしたテストを加える。
+- 優先順位(ユーザー決定): この件を先にやる。stagingでのインスタンス作成の実機確認、受発注採算表のサプレス確認、5_4_3は、その後。
+
+## 2026-11-09 銀行コードAPI v3対応を実装(PR ＃203)
+
+- 支店の絞り込みの確認(申し送りの5): v3を直接呼んで確かめた。三井住友銀行(0009)の神保町支店は`code==001`・`hiragana==じんぼうちよう*`・`name==神保町支店`のどれでも1件返った。`hiragana==しぶや*`も2件(渋谷駅前支店・渋谷支店)返った。**v3の絞り込みの指定は変わっていない。** 空になったのは、応答を`data`として読んでいたため。なお`name==`は完全一致(`name==神保町`・`name==三井住友`は0件)。
+- 実装は承認した方式のとおり。形式が違うときのエラーは`BankcodeResponseFormatError`とした。CSV照合のwarnログには、axiosのエラーならHTTPステータスを付ける(例「AxiosError (status: 429)」)。画面向けのエラーログも、URL(APIキーを含む)を出さず、ステータスと本文だけにした。
+- テスト: bankcodeのspecを新規作成(10件)、BankNameResolverに429のログのテストを追加。`npx jest -w 2 src/bankcode src/employee-info`は116件すべて成功。
+
+## 2026-11-09 銀行コードAPI v3対応のstaging確認
+
+- 最初の試験では直っていなかった(みずほ・みついすみとも・0009のどれも検索されない)。調べたところ、#203のマージ後にstagingのbackendのECRビルド(`staging-alphasys-backend-ecr-build`)が走っておらず、15:54のデプロイは古いイメージ(11/06 09:26 push の`0.1.0`)のままだった。ログにも古い文言「銀行情報の取得に失敗しました」が出ていた。GitHubのwebhookの配信履歴に、stagingへのpushが見当たらなかった。
+- 16:13に新しいイメージがpushされ、16:14〜16:19のデプロイが成功した。その後、ユーザーが**正しく動作することを確認した**。
+- 残っていること:
+  - webhookがstagingへのpushで届かなかった理由と、ECRがMUTABLEでタグがpackage.jsonのversion(`0.1.0`)のまま上書きされる運用について、alphasyscdkに確認してもらう(提案済み。依頼するかはユーザーの判断待ち)。
+  - 後回しにした作業: stagingでのインスタンス作成の実機確認(5_5_3・5_5_4・#195)、受発注採算表のサプレス確認、5_4_3。
+
+## 2026-11-09 alphasyscdkへの確認依頼と、後回しの作業の着手をユーザー承認
+
+- ユーザー承認: alphasyscdkに確認を頼む。staging への push 後にbackendのビルドが走らなかった件と、ECRのタグ`0.1.0`を上書きする運用について。alphasyscdk-6bに依頼済み。
+  - 追加で分かったこと: 16:10のビルド(951005e)は手動で起動されたもの。17:30の#205のマージでは、webhookからビルドが起動した。毎回届かないのではなく、届いたり届かなかったりする。
+- ユーザー承認: 後回しにした作業は、次の順に進める。① stagingでのインスタンス作成の実機確認(5_5_3・5_5_4・#195) → ② 受発注採算表のサプレス確認 → ③ 5_4_3。
+- ①の前提: 今のstagingのbackendのイメージは951005eから作られている。#192・#193・#195はすべて入っている。
+
+## 2026-11-09 stagingでのインスタンス作成の実機確認の手順
+
+- 作成とRDPでのログインはユーザーが管理画面から行う。alphaexapiはスタックとログで結果を確かめる。
+- 前提: stagingのSESはsandbox(本番アクセス無し)で、`@alphacmc.co.jp`で認証済みなのは`yohira@alphacmc.co.jp`だけ。そのためデフォルトユーザー名は`yohira`にする。確認を始める時点で、作成中のスタックは無い。
+- 手順(この順で行う。インスタンス名は例):
+  1. 5_5_3: Windowsを作成する(AMIは指定しない。`client-test01`、ユーザー名`yohira`)。初期パスワードのメールが届き、作成が終わったらRDPでログインでき、パスワードの変更を求められることを確かめる。
+  2. 5_5_4: 存在するAMI`ami-03615e54111d296c0`(Windows_Server-2022-Japanese-Full-Base-2026.07.15、Launch Template `alphacmc-windows`のAMI)を指定して作成する(`client-test02`)。作成が成功することを確かめる。
+  3. 5_5_4: 存在しないAMI`ami-00000000`を指定する。400「指定したAMIが見つかりません」になり、スタックが作られないことを確かめる。
+  4. #195: 1と同じ名前で作成する。400「同じ名前のインスタンス（client-test01）が既に存在します…」になることを確かめる。
+- 確認が終わったら、使ったスタックとSSMパラメータ`/ssh-keys/<userId>/public-key`を削除する。消す前に対象を見せて、ユーザーに確認する。
+
+## 2026-11-09 alphasyscdk-6bから: ビルドが起動しなかった件の回答と、buildspec.ymlの修正依頼
+
+- 原因: CodeBuildのwebhookのフィルター(EVENT=PUSH、HEAD_REF=refs/heads/staging)は正しい。#203のマージのとき、stagingへのpush(951005e)の配信がGitHub側で作られなかった。GitHubでたまに配信が抜けたものと考えられ、CDKの設定では防げない。なお、15:54と16:14のパイプラインは、どちらも手で起動されていた。
+- ECRのタグ: 正式リリースまでの暫定の運用として、MUTABLEで`0.1.0`を上書きしている(正式な運用ではIMMUTABLEにして、versionを上げる予定)。
+- alphasyscdkのユーザーが対策案Aを了承した。案Aでは、コミットハッシュのタグもpushする。alphasyscdkのパイプラインは、デプロイするイメージのダイジェスト・push時刻・タグをログに出す(alphasyscdk側は対応済み・未マージ)。
+- alphaexapiへの依頼: buildspec.ymlで、pushする分岐(SKIP_BUILD≠true かつ DEPLOY_ENV≠prod)の中だけ、`$REPOSITORY_URI:$COMMIT_HASH`もtagしてpushする。`backend_imagedefinitions.json`は今のままversionのタグを指す。終わったらPR番号をalphasyscdk-6bに知らせる。
+- 修正するかは、alphaexapiのユーザーの承認待ち(方式を提示済み)。
+- ユーザー承認: buildspec.ymlは提示した方式で直す。pushする分岐の中だけでコミットハッシュのタグを付けてpushし、`backend_imagedefinitions.json`は変えない。追加の提案(`COMMIT_HASH`が空ならタグを付けない)もOK。
+- 実装: Draft PR #208(base=staging)。PR番号はalphasyscdk-6bに知らせた。マージ後のstagingのビルドで、ECRに7桁のコミットハッシュのタグが付くことを確かめる。
