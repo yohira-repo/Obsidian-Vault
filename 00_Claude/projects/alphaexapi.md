@@ -1446,3 +1446,33 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - 修正するかは、alphaexapiのユーザーの承認待ち(方式を提示済み)。
 - ユーザー承認: buildspec.ymlは提示した方式で直す。pushする分岐の中だけでコミットハッシュのタグを付けてpushし、`backend_imagedefinitions.json`は変えない。追加の提案(`COMMIT_HASH`が空ならタグを付けない)もOK。
 - 実装: Draft PR #208(base=staging)。PR番号はalphasyscdk-6bに知らせた。マージ後のstagingのビルドで、ECRに7桁のコミットハッシュのタグが付くことを確かめる。
+
+## 2026-11-10 PR ＃201 も記録のコミットだけでマージされていた: 新しいブランチ・PR で出し直し、Task 10 の alphadb 更新を承認（ユーザー）
+
+- **事実**: PR #201（`feature/mf-user-oauth-impl-2`）は、着手の記録のコミット（453beef）だけを push した状態で 2026-11-06 09:23 JST にマージされていた。Task 1〜8 の 8 コミットはローカルのブランチにしか無く、staging には入っていない。PR #160 と同じ事象の再発。
+- **原因**: Draft PR を作った後、タスクごとのコミットを push せずにローカルに溜めていた。PR には「実装中」と書いていたが、記録のコミットだけの PR がマージされた。
+- **対応**: staging から `feature/mf-user-oauth-impl-3` を作り、Task 1〜8 の 8 コミットを cherry-pick した（衝突なし）。11/6 に書き足した記録は、作業ツリーを staging に切り替えた際に stash に退避されていたものを戻した。新しい Draft PR で出し直す。
+- **今後**: 1 タスク完了ごとに push する（PR の中身と記録が食い違ったままマージされないようにする）。
+- **Task 9（中間確認）の結果**: staging（銀行コード API v3 対応などを含む）の上でも、`tsc` エラーなし、全体 97 スイート / 664 件 PASS。旧 2 引数の `client.request(product, config)` の呼び出しは src に残っていない。MF 関係のディレクトリで prettier 以外の lint は staging の 85 件に対して 86 件（増えたのは Task 4 のテストの `unbound-method` 1 件で、既存と同じ書き方）。
+- **承認（ユーザー）**: Task 10 で CodeArtifact のトークンを取り直し、`npm install alphadb@^0.2.8` することを承認（「取り直してよい」）。
+- **Draft PR #210 を作成**（`feature/mf-user-oauth-impl-3`、base staging）。本文に「実装中・マージしないでください」と進み具合のチェックリストを載せた。
+- **Task 9 の判断**: 計画の「Task 1〜8 の差分をまとめてレビュー」は省いた（Task 1〜8 はタスクごとのレビューが済んでおり、最後の全体レビューで 1〜8 も見るため）。
+- **Task 10 の Step 1〜3（実施）**: CodeArtifact のトークンを取り直して `alphadb@^0.2.8` を入れた（package.json は `^0.2.8`）。lockfile は alphadb の 4 行（範囲指定・version・resolved・integrity）以外の書き換え（`"dev": true` → `"devOptional": true` 等）を元に戻した。Prisma クライアントを生成。tsc のエラーは計画どおり Repository の 4 か所と OAuth サービスの 3 か所だけで、0.2.8 にほかの破壊的変更は無い。残りの Step は実装担当（サブエージェント）が作業中。
+- **参考**: CodeArtifact に alphadb 1.0.0 も公開されている（`^0.2.8` では選ばれない）。中身は未確認。
+- **連絡**: alphasystem のセッションが動いていなかったため、`../alphasystem/INBOX_FROM_ALPHAEXAPI.md` に申し送りを書いた（#201 に実装が入っていないこと、#210 で出し直したこと、#210 のマージ・デプロイまで staging の MF 連動は止まったままであること、alphadb 1.0.0 の存在）。
+
+## 2026-11-10 PR ＃210: Task 10〜12 完了、最終レビューへ
+
+- **Task 10（トークンのユーザー単位化）**: Repository・定数・OAuth サービス（state に userEmail を入れて HMAC 署名、refresh は複合キー）・OAuth コントローラ（`requireUserEmail(req)`）・Client（userEmail でトークンを引き、旧 overload を削除）を 1 コミット（ed53a46）。レビュー承認。ユーザー A の認可で B のトークンを読み書きできないこと（userEmail は署名付き state の中、nonce は Cookie で照合）、トークン・認可コードがログやメッセージに出ないことを確認した。
+- **Task 11（起動前の認可チェック、D1）**: `MfAuthorizationChecker` を追加し、送信・取込・rerun の `startChain` でロック取得とジョブ作成より前に確認。未認可・失効の製品があれば 412（製品名と userEmail をメッセージに含める）、起動者不明は 401。取引先同期は INVOICE と PAYABLE の両方が必要。CSV・給与・従業員情報のジョブは製品不要で素通り。レビュー承認（cf32fc3）。
+- **Task 12（全体確認）**: tsc・`npm run build` OK、全 99 スイート / 689 件 PASS。userEmail の渡し漏れなし（`client.request` 16 か所すべて第 2 引数が userEmail）、ログに秘密情報なし。lint は spec ファイルだけ staging より 11 件増（既存と同じモックの書き方）、本体のコードは増加なし。
+- **判断（Swagger）**: `alphaexapi_api.yaml` の再生成にはアプリを DB につないで起動する必要があり、今回はその承認を得ていないため、送信・取込・rerun に 412 を手で書き足した（84fa1ce。文言はデコレータと一致）。次に再生成したときに差分が出ることがある。
+- **Task 13**: スキップ（#199・#200 で実施済み）。**Task 14**（staging デプロイ連携）はマージ後に行う。
+- **次**: ブランチ全体の最終レビュー（実行中）→ 指摘をまとめて 1 回で修正 → Draft PR #210 の本文を完了状態に更新。
+
+## 2026-11-10 PR ＃210 の最終レビュー: マージ可、Minor を 1 コミットで修正、M6 は別課題に先送り（ユーザー決定）
+
+- **最終レビュー（ブランチ全体）**: Ready to merge = Yes。Critical・Important なし、Minor 6 件。D1・D3・D4・D5 と設計 3〜6 章はすべて実装・テスト済み。userEmail の渡し漏れなし、ユーザー A が B のトークンを読み書きする経路なし、ログ・メッセージに秘密情報なし。alphasys は 412 のメッセージをそのまま画面に出すため alphasys 側の変更は不要。
+- **修正（4881369）**: M1（スタブのランナー 2 ファイルの整形）、M2（`mf-partner-gateway.impl.ts` の余分な空行 4 か所）、M3（412 のメッセージの案内を API のパスから「MFクラウド連携の認可画面で各製品の認可を行ってください。」に変更）、ログにトークン・認可コードが出ないことの回帰テスト 2 件、M5（設計書 6 章に D1 の追補を明記）、M4（設計書 9 章に残リスクを 1 行：callback で、MF 側で認可したアカウントが本人のものかは照合していない。MF の資格情報を共有しない運用が前提）。全 99 スイート / 691 件 PASS。
+- **決定（ユーザー）**: M6（MF が 401 を返しても DB 上の有効期限が先だとリフレッシュされず、「再認可が必要」とも出ない。#210 より前からの挙動）は **#210 では直さず別課題に先送り**。issue #211 を起票した。
+- **次**: 修正の再レビュー → Draft PR #210 の本文を完了状態に更新 → マージはユーザー → マージ後すぐ staging にデプロイし、alphadb-b1 に連絡（Task 14）→ staging で実 MF の手動確認（2 人の ADMIN で operator_id が分かれることなど）。
