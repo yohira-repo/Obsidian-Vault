@@ -1474,3 +1474,15 @@ Draft PR [#6](https://github.com/yohira-repo/Obsidian-Vault/pull/6) に、先行
 ### 残
 - Draft 解除・マージは利用者。マージ後、各PCで `git pull` して反映。
 - ②（セッションのPC間共有：妙案A中心＋必要時C）は方針合意のみ・未着手。
+
+## 2026-11-10 プロジェクト状況PRベース化：両PRマージ完了・後片付け
+
+### 確定
+- 利用者が **PR #7（Vault）と PR #141（alphasystem）を両方マージ**。
+- Vault `main` を最新化し、feature 上に残っていたバックアップコミットを cherry-pick して main へ反映・push（`4f86b32 add conversation`）。
+- alphasystem `staging` に #141 のマージ（`77e219c`）を確認。
+- マージ済み feature ブランチ（status-pr-based / daily-archive / project-status-pr-based）を削除。両リポジトリともクリーン。
+- 以後、全PC（Windows2・Mac1）で `git pull` すれば①のPRベース状況表示が揃う。
+
+### 残
+- ②（Claude Code セッションのPC間共有：妙案A中心＋必要時C）は方針合意済み・未着手。
