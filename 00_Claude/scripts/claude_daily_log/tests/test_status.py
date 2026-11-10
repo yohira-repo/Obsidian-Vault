@@ -50,9 +50,19 @@ class TruncateAndEscapeTest(unittest.TestCase):
 
 
 class CollectStatusTest(unittest.TestCase):
+    """gh を使わない（ローカル基準フォールバック）前提の従来挙動テスト。
+
+    gh が None を返す＝GitHub 基準で判定できない場合は、従来どおりローカルの
+    HEAD を基準に表示する。ここでは list_open_prs を None 固定にして、その
+    フォールバック経路を検証する（PR 基準の経路は PrBasedStatusTest で検証）。
+    """
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name
+        patcher = patch.object(status, "list_open_prs", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -166,6 +176,61 @@ class CollectStatusTest(unittest.TestCase):
         self.assertTrue(result.failed)
 
 
+class PrBasedStatusTest(unittest.TestCase):
+    """GitHub の open PR を基準に表示する経路（gh が PR を返す場合）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _project(self, name, path):
+        return projects.Project(name=name, path=path)
+
+    def _clone_with_branches(self):
+        """origin/staging と origin/feature/x を持つ clone を作る。"""
+        origin = helpers.init_repo(
+            os.path.join(self.root, "origin"), {"a.txt": "a"},
+            branch="staging", message="staging init",
+        )
+        helpers.git(origin, "checkout", "-q", "-b", "feature/x")
+        helpers.write(origin, "b.txt", "b")
+        helpers.git(origin, "add", "-A")
+        helpers.git(origin, "commit", "-q", "-m", "feat: on x")
+        helpers.git(origin, "checkout", "-q", "staging")
+        clone = helpers.clone_repo(origin, os.path.join(self.root, "repo"))
+        helpers.git(clone, "fetch", "--quiet", "--prune", "origin")
+        return clone
+
+    def test_open_pr_produces_pr_row_from_origin_branch(self):
+        clone = self._clone_with_branches()
+        prs = lambda name: [  # noqa: E731
+            {"number": 42, "headRefName": "feature/x", "baseRefName": "staging", "isDraft": True},
+        ]
+        result = status.collect_status(self._project("repo", clone), pr_lister=prs)
+        self.assertEqual(len(result.prs), 1)
+        pr = result.prs[0]
+        self.assertEqual((pr.number, pr.head, pr.base, pr.is_draft), (42, "feature/x", "staging", True))
+        self.assertEqual(pr.message, "feat: on x")       # origin/feature/x の最終コミット件名
+        self.assertNotEqual(pr.when, status.DASH)         # origin/feature/x から取れている
+
+    def test_no_open_pr_shows_pr_nashi_with_canonical_origin(self):
+        clone = self._clone_with_branches()
+        result = status.collect_status(self._project("repo", clone), pr_lister=lambda name: [])
+        self.assertEqual(result.branch, status.NO_PR_BRANCH)
+        self.assertEqual(result.prs, ())
+        self.assertEqual(result.message, "staging init")  # origin/staging の最新
+
+    def test_gh_unavailable_falls_back_to_local(self):
+        clone = self._clone_with_branches()
+        result = status.collect_status(self._project("repo", clone), pr_lister=lambda name: None)
+        # フォールバック＝ローカル HEAD 基準。staging をチェックアウト中。
+        self.assertEqual(result.branch, "staging")
+        self.assertEqual(result.prs, ())
+
+
 class CollectAllTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -180,7 +245,8 @@ class CollectAllTest(unittest.TestCase):
             projects.Project(name="ok", path=os.path.join(self.root, "ok")),
             projects.Project(name="gone", path=os.path.join(self.root, "gone")),
         ]
-        results = status.collect_all(items)
+        # gh は使わない（ローカルフォールバック）。並列実行でも順序が戻ることを確認。
+        results = status.collect_all(items, pr_lister=lambda name: None)
         self.assertEqual([r.name for r in results], ["ok", "gone"])
         self.assertEqual(results[1].branch, "未clone")
 

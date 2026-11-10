@@ -6,6 +6,24 @@ import unittest.mock
 import cli
 from tests import helpers
 
+# これらのテストは gh（GitHub ネットワーク）に触れさせない。list_open_prs を
+# None 固定にすると、状況収集はローカル基準フォールバックになり、決定的かつ
+# オフラインで走る（PR 基準経路は test_status.py で検証する）。
+_PR_PATCHER = None
+
+
+def setUpModule():
+    global _PR_PATCHER
+    _PR_PATCHER = unittest.mock.patch.object(
+        cli.status_module, "list_open_prs", return_value=None,
+    )
+    _PR_PATCHER.start()
+
+
+def tearDownModule():
+    if _PR_PATCHER is not None:
+        _PR_PATCHER.stop()
+
 CONV = """# 会話ログ
 
 ## 2026-09-06 当日のまとめ
