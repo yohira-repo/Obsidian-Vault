@@ -4058,3 +4058,208 @@ alphaexapi-af の指摘を受けて実物を確認し、**2026-10-23 と本日�
 - **手順書**: 5.1 #11 の結果欄を「合格（2026-11-10）」に更新し、文言の件は別課題である旨を併記した。
 - **これで結合試験の試験項目はすべて完了**（5.1 #1〜#10 は 11/06、5.2 #8 は 11/09、#11 は本日）。残りは締め作業（夜間自動移行タイマーの復旧ほか）。
 - **別課題（alphasys へ依頼）**: `src/app/unauthorized/page.tsx` を作る。遷移先の URL は **`/unauthorized` のまま**とし、「権限がありません」系の文言を出す（存在を隠すために 404 のままにする案は採らない）。影響する誘導は 6 箇所: `src/middleware.ts` の 3 箇所（`/admin`・`/common`・`/manager`）、`manager/employee-change-requests/page.tsx`、同 `[id]/page.tsx`、`money-forward/oauth/callback/route.ts`。
+
+## 2026-11-10 alphasys が `/unauthorized` ページを新設（Draft PR ＃324）
+
+`INBOX_FROM_ALPHASYS.md`（2026-11-10）を取り込み、ファイルは削除した。
+
+- **[alphasys PR #324](https://github.com/alphacmc/alphasys/pull/324)**（base=staging、Draft）。`src/app/unauthorized/page.tsx` を新設。`not-found.tsx`・`error.tsx` と同じ最小構成。
+- URL は `/unauthorized` のまま、文言は「この画面を表示する権限がありません。」。**誘導 6 箇所はページ新設のみで解消**し、他コードの変更は無し。
+- MF ユーザー単位 OAuth（#210）の 412 挙動について、**alphasys 側は変更不要**で認識が一致。
+- Draft 解除・マージはユーザー。
+
+## 2026-11-10 本番環境構築の全体計画: 方針 5 点をユーザーが決定
+
+ユーザーから「本番環境を作成したい。あわせて alphadb・alphaexapi・alphasys のバージョンを 0.5.0 にしたい。ステージングでのテストは今後も続く」との依頼。アーキテクチャ案件として brainstorming で方針を詰めた。
+
+| # | 論点 | **決定** |
+| --- | --- | --- |
+| 1 | 本番構築の範囲 | **インフラ構築まで**。本番アカウントに ProductionStack をデプロイし staging と同じアプリが動くところまで。DB は空（マイグレーション適用のみ）。**データ移行とカットオーバーは別計画** |
+| 2 | バージョンの採り方 | **3 プロジェクトを常に同じ番号で揃える**（リリース単位で一括採番）。alphadb に変更が無くても publish する |
+| 3 | 本番 DNS | **サブドメインだけ委譲**。`alphasys.alphacmc.com` のホストゾーンを本番アカウントの Route53 に作り、現行の `alphacmc.com` の DNS 側で NS を切る。ドメインごと Route53 へ移す案は採らない（会社 HP・メールに影響するため） |
+| 4 | 研修環境 | **本番アカウントにも alphacdk を一式作る**（NetworkStack・KeyPairsStack・LaunchTemplatesStack と training-instance-role） |
+| 5 | staging との並走 | **区切りごとに追従**。課題が一つ終わるごとに `staging` → `main` をマージし、本番も 0.5.1・0.5.2 と上げる。既存のブランチ運用（通常時は `main` = `staging`）をそのまま保つ。0.5.0 で凍結する案は採らない |
+
+### 調査で判明した制約（計画の前提）
+
+- **`ProductionStack` は研修環境に依存している。** `lib/constructs/ecs.ts` が `cdk.Fn.importValue("NetworkStack-VpcId")`・`NetworkStack-PublicSubnetIds`・`NetworkStack-PrivateSubnetIds` を参照し、`MMS_INSTANCE_ROLE_ARN` も使う。`Fn.importValue` は**同一アカウント内でしか解決できない**ため、**本番アカウントに alphacdk の NetworkStack が無いと ProductionStack はデプロイできない**。これが論点 4 の背景。alphacdk には既に `.env.prod.example`（アカウント 938812705475）があり、本番展開を想定した作りになっている。
+- **本番アカウントに `alphacmc.com` のホストゾーンが無い**（`alphacmc.click` という別ドメインのゾーンはある）。`.env.prod.example` は `AUTH_URL=https://alphasys.alphacmc.com` を前提としている（構築・メンテナンス手順 C-1）。
+- **build once, deploy many**。本番は staging が作ったイメージをそのまま使うため、**0.5.0 のイメージが ECR に無いと ProductionStack はデプロイできない**（CodePipeline の ImageBuild が fail-fast）。
+- 現在の版は alphadb `0.2.8`、alphaexapi `0.1.0`、alphasys `0.1.0`。揃える対象は package.json のほかに ECS の `FRONTEND/BACKEND_PACKAGE_VERSION` と `alphasysdeploy/version.json`（構築・メンテナンス手順 C-4）。
+
+### 提案した進め方（ユーザー確認中）
+
+- **案 C（並行）を推奨**。待ちが発生する前提作業（DNS 委譲の伝播、SES 本番アクセス申請の審査、本番の cdk bootstrap、alphacdk のデプロイ）を先に着手し、その裏で 0.5.0 を揃える。両方そろった時点で ProductionStack をデプロイする。案 A（バージョン先行）は待ちが最後に来て全体が延び、案 B（インフラ先行）は本番を 2 回デプロイすることになる。
+- **0.5.0 を切る時期**: 進行中の作業（alphaexapi #210、alphasys #324、4_7_1 の締め作業＝夜間自動移行タイマーの復旧）を staging に入れ終えてから。進行中のまま版を切ると「0.5.0 に何が入っているか」の説明が難しくなる。前提作業は今日から並行して始められる。
+
+## 2026-11-10 本番環境構築は案 C（並行）で進める（ユーザー承認）。版を持つ 5 箇所が判明
+
+- **承認（ユーザー）**: **案 C（並行）＋ 進行中作業の完了後に 0.5.0**。待ちが発生する前提作業（DNS 委譲の伝播、SES 本番アクセス申請、本番の cdk bootstrap、alphacdk のデプロイ）を先に着手し、その裏で 0.5.0 を揃える。両方そろった時点で ProductionStack をデプロイする。
+- **0.5.0 を切る時期**: alphaexapi #210・alphasys #324・4_7_1 の締め作業（夜間自動移行タイマーの復旧）を staging に入れ終えてから。
+
+### 調査で判明: 版を持つ場所は 5 箇所、リリースは alphasysdeploy のブランチで切り替わる
+
+**`alphasysdeploy` は CLAUDE.md の構成表に無いが、リリースの引き金を握る 6 つ目のリポジトリ。**
+
+| # | 場所 | 現在 | 役割 |
+| --- | --- | --- | --- |
+| 1 | `alphadb/package.json` | `0.2.8` | CodeArtifact に publish する版 |
+| 2 | `alphaexapi/package.json` の `version` と `alphadb` 依存 | `0.1.0` / `^0.2.8` | **イメージのタグ**になる |
+| 3 | `alphasys/package.json` の `version` と `alphadb` 依存 | `0.1.0` / `^0.2.7` | 同上 |
+| 4 | `alphasyscdk/.env` の `FRONTEND/BACKEND_PACKAGE_VERSION` | `0.1.0` | ECS タスク定義の初期値 |
+| 5 | `alphasysdeploy/version.json` | `0.1.0` | リリースの引き金 |
+
+- **パイプラインの対象ブランチ**: `lib/staging-stack.ts` が `targetBranch: "staging"`、`lib/prod-stack.ts` が `targetBranch: "main"`。**alphasysdeploy の `staging` → staging ECS、`main` → 本番 ECS。**ブランチ運用ルール（`staging` → `main` のマージが本番リリース）と仕組みが一致している。
+- **alphasys の `alphadb` 依存だけ `^0.2.7` で遅れている**（alphaexapi は `^0.2.8`）。0.5.0 で揃えるときに解消する。
+
+### ① バージョン統一の手順（提案、ユーザー確認中）
+
+A-5 のゲートに従い、各ゲートの完了を確認してから次へ進む。
+
+1. **alphadb 0.5.0 を publish** → 確認: `aws codeartifact list-package-versions`
+2. **alphaexapi / alphasys を 0.5.0 に**（依存も `^0.5.0`）→ staging へマージ → CI がタグ 0.5.0 で ECR へ push → 確認: `aws ecr describe-images --image-ids imageTag=0.5.0`
+3. **alphasyscdk/.env を 0.5.0 に** → StagingStack をデプロイ
+4. **alphasysdeploy の `staging` ブランチの version.json を 0.5.0 に** → CodePipeline → staging ECS が 0.5.0 で動く
+5. staging が 0.5.0 一式であることを確認してから本番へ
+
+**設計上の注意（提案に含めた）**
+
+- 依存は `^0.5.0` のままにし、`0.5.0` 固定にはしない。再現性は `package-lock.json` の digest が担保する。過去に lockfile の `integrity` 不整合で `EINTEGRITY` を踏んでいるため、**lockfile を必ず一緒にコミットする**ことを手順に明記する。
+- **手順 2 の前に ECR のタグが immutable に戻っているかを確認する。** 「本番リリースまで mutable のまま」と決めていた経緯があり、immutable でないと「staging で検証したイメージ＝本番が動かすイメージ」という本構成の前提が崩れる。本番を作る今が戻す時期。
+
+## 2026-11-10 CLAUDE.md の構成表を更新（ユーザー指示）。alphaexapi ＃210・alphasys ＃326 がマージ済み
+
+- **決定（ユーザー）**: 構成表に **alphasysdeploy を載せ**、**alphabatch と alphaaimail を外す**。
+  - **alphasysdeploy を追加した理由**: リリースの引き金（`version.json` の push → CodePipeline → ECS 更新）を握るのに構成表に無く、`project-status.sh` の対象からも漏れていた。
+  - **外した 2 つ**: alphabatch（サンプル。MF クラウド連動では使わないと決定済み）、alphaaimail（アーカイブ済。参照のみで改修しない）。
+  - **判断を 1 つ挟んだ**: 外した 2 つの扱いを**表の直後に 1 行だけ残した**。表から消すと「alphaaimail は改修しない」という指示も一緒に消え、将来のセッションが触ってしまう恐れがあるため。不要なら削る。
+  - `project-status.sh` は CLAUDE.md の構成表を読むため、**外した 2 つは状況一覧からも消える**。実行して正しく読めることを確認済み。
+  - [Draft PR #146](https://github.com/alphacmc/alphasystem/pull/146)。
+- **進捗（状況一覧で判明）**: **alphaexapi PR #210（MF ユーザー単位 OAuth）がマージ済み**、**alphasys PR #326 もマージ済み**。
+  - **次の人の作業**: #210 を **staging へデプロイ**する（MF 連動の復旧のため）。
+  - これと 4_7_1 の締め作業（夜間自動移行タイマーの復旧）が終われば、**0.5.0 を切る条件が揃う**。
+
+## 2026-11-10 ① バージョン統一の手順を承認（ユーザー）。② 本番アカウントの前提作業を提案
+
+- **承認（ユーザー）**: **① バージョン統一の手順**（alphadb publish → アプリ 2 つを 0.5.0 で staging へ → alphasyscdk/.env → alphasysdeploy の staging、各ゲートで確認）を承認。依存は `^0.5.0` のままとし lockfile を必ずコミットすること、手順 2 の前に ECR のタグが immutable に戻っているか確認することも含む。
+- **alphaexapi PR #210 はマージ済み**（ユーザー確認）。
+
+### ② 本番アカウントの前提作業（提案、ユーザー確認中）
+
+待ち時間の長いものから着手する。① とは独立なので並行して進められる。
+
+| # | 作業 | 待ち | ProductionStack の前提か |
+| --- | --- | --- | --- |
+| 1 | DNS 委譲 | NS 伝播（TTL 次第） | **必須**（ACM の証明書が DNS 検証） |
+| 2 | SES 本番アクセス申請 | AWS の審査（数日のことも） | 不要（4_7_1 のメールに必要） |
+| 3 | `cdk bootstrap`（本番アカウント） | なし | **必須** |
+| 4 | Parameter Store に機密 7 件（`/alpha/prod/...`） | なし | **必須**（未登録だと ECS タスクが起動しない。`scripts/register-secret-parameters.py --env prod`） |
+| 5 | alphacdk 一式（KeyPairs → Network → LaunchTemplates） | なし | **必須**（`Fn.importValue` のため） |
+| 6 | SharedStack の ECR に本番アカウントからの pull 許可 | なし | 実装済み（B-1）。確認のみ |
+
+- **GitHub 接続の承認は不要**（SharedStack は共有アカウント固定で、承認済み＝`AVAILABLE`）。
+- **5 の出力が ProductionStack につながる**: alphacdk の **NetworkStack が `training-instance-role` を作り**（`MMSInstanceRoleConstruct`）ARN を CfnOutput する。これを `alphasyscdk/.env.prod` の `MMS_INSTANCE_ROLE_ARN` に入れる。
+
+### ★ 判断待ち: 本番ホストゾーンの名前（決定 3 の副作用でコード修正が要る）
+
+`lib/constructs/dns.ts` は `HostedZone.fromLookup({ domainName })` で引き、証明書を `${subDomain}.${domainName}` で取る。`cdk.json` の本番コンテキストは `{"domainName": "alphacmc.com", "subDomain": "alphasys"}` で、**`alphacmc.com` のゾーンが本番アカウントにある前提**。サブドメイン委譲にするとこの前提が変わる。
+
+| 案 | ゾーン名 | コード修正 | 評価 |
+| --- | --- | --- | --- |
+| **ア（alphasystem の推奨）** | `alphasys.alphacmc.com` | **要**（`DnsConstruct` と A レコードの `recordName` の 2 箇所。`subDomain` が空なら apex を指すように） | 名前と実体が一致し、後から見て迷わない |
+| イ | `alphacmc.com`（委譲でしのぐ） | 不要 | 動くが、本番に「委譲された一部分だけ権威を持つ `alphacmc.com` ゾーン」が残る。後任が他のレコードを足すと黙って解決されない |
+
+## 2026-11-10 ② 前提作業とホストゾーン名（案ア）を承認（ユーザー）。③ で本番稼働時の副作用 2 件が判明
+
+- **承認（ユーザー）**: ① ② の章をそれぞれ承認。**本番ホストゾーンは案ア**＝`alphasys.alphacmc.com` のゾーンを本番アカウントに作り、`DnsConstruct` と A レコードの `recordName` を `subDomain` が空なら apex を指すよう小修正する（alphasyscdk のコード修正が要る）。案イ（`alphacmc.com` ゾーンを委譲でしのぐ）は採らない。
+
+### ① の訂正: alphadb の publish は `main` を読む
+
+`alphadb-publish` の CodeBuild は `--source-version` を指定しておらず**デフォルトブランチ（`main`）を読む**。`staging` にマージしただけでは古い内容が publish される（2026-09-02 にこれで失敗した記録あり）。
+
+→ **① の手順 1 は「alphadb を `staging` → `main` にマージしてから publish」が正確。** alphadb だけは本番リリースを待たずに `main` へ入れる必要がある。
+
+### ③ デプロイ順（提案）
+
+ゲート①（SharedStack）は構築済みのため確認のみ。② alphadb publish（`main` マージ後）→ ③ StagingStack（0.5.0 のイメージが ECR に入る）→ ④ ProductionStack（本番アカウント）。④ の前提は Parameter Store・alphacdk NetworkStack・ECR のイメージの 3 つ。
+
+### ★ 本番が生きた瞬間に起きること 2 件（ユーザー判断待ち）
+
+- **1. 営業メールの取り込みが本番と staging で取り合いになる。** `src/sales-mail/mail-polling.job.ts` は 10 分ごとの `@Cron` で `{ seen: false }` のメールを取り、成功したものに `\Seen` を付ける。重複防止のアドバイザリロックは**その環境の DB** にあるため、**別アカウントの本番と staging の間では効かない**。先に取った方だけにメールが入り、もう片方は永久に見られない。実データのない本番に営業メールが吸い込まれ、**staging の試験からメールが消える**。
+  - **対処案（提案）**: 取り込みを**環境変数で on/off** できるようにする（alphaexapi のコード修正）。本番構築時は OFF、カットオーバー時に本番 ON・staging OFF。**シークレット未登録だと ECS タスク自体が起動しない**ため、「本番に IMAP の認証情報を入れない」では回避できない。
+- **2. MF クラウドの redirect URI が本番用に要る。** シークレットに `MF_OAUTH_REDIRECT_URI`・`MF_INVOICE_CLIENT_ID`・`MF_PAYABLE_CLIENT_ID` が含まれ、redirect URI は環境ごとに異なる。**MF クラウド側に本番の URI を登録**する必要がある。アプリ登録が環境ごとに要るのか既存アプリに URI を追加できるのかは **MF 側の仕様確認**が必要。
+
+### ドキュメントの件数が古い
+
+Parameter Store のシークレットは `scripts/register-secret-parameters.py` の `MAPPING` 実測で **26 件**。`構築・メンテナンス手順.md` は 1-3 で「機密 7 件」、付録 A で「11 件」と書いており**どちらも古い**。本番構築に合わせて直す。
+
+## 2026-11-10 営業メール取り込みの on/off 化を承認。MF の本番 redirect URI は登録済み。④ 並走の運用ルールを提案
+
+- **承認（ユーザー）**: **営業メール取り込みを環境変数で on/off できるようにする**（alphaexapi のコード修正）。本番構築時は OFF、カットオーバー時に本番 ON・staging OFF と切り替える。これを入れないと、本番を立てた瞬間に staging の試験用メールが本番に吸い込まれる。
+- **ユーザー回答**: **MF クラウドの本番用 redirect URI は既に登録済み。** MF 側の作業は不要で、本番の Parameter Store に値を入れるだけでよい。
+
+### ④ 並走の運用ルール（提案）
+
+- **ブランチは既存ルールを維持。例外は alphadb だけ。** `alphadb-publish` も `prod/staging-prisma-merge-project` も **alphadb の `main` を読む**ため、alphadb は本番リリースを待たず publish のたびに `main` へ入れる必要がある。**これは既存のブランチ運用ドキュメントに書かれていない例外**なので仕様書で明記する。
+- **区切りごとの本番追従は 5 手順。順序に意味がある。**
+  1. alphadb を `staging` → `main` にマージし `alphadb-publish` を実行（共有）
+  2. alphaexapi / alphasys の版を上げて `staging` へ → CI がイメージを作る → **staging で確認**（共有）
+  3. 各リポジトリを `staging` → `main` にマージ（本番 CI はビルドをスキップ）
+  4. **スキーマ変更があれば `prod-prisma-merge-project` を手動起動**（本番）
+  5. `alphasysdeploy` の `main` の `version.json` を更新 → CodePipeline → 本番 ECS
+  - **4 を 5 より先に**やらないと、新しいコードが古いスキーマを見て `relation does not exist` で落ちる。
+  - **本番のマイグレーションが自動なのは初回（`onCreate`）だけ。** 2 回目以降は手動（`aws codebuild start-build --project-name prod-prisma-merge-project --profile prod`）で、手順から落ちやすい。
+- **環境ごとに分けるもの**
+
+  | 対象 | staging | 本番（構築時） | カットオーバー後 |
+  | --- | --- | --- | --- |
+  | 営業メール取り込み | ON | **OFF** | 本番 ON / staging OFF |
+  | 夜間自動移行 | 現在は停止中（4_7_1 の試験のため） | 作らない | 検討 |
+  | MF 月次バッチ | 画面から手動起動 | 認可しなければ動かない | 本番で認可 |
+
+  MF は起動契機が手動で、ユーザー単位 OAuth（#210）により**認可を持つ人が起動しないと 412 で止まる**ため、本番を立てただけでは動かない。**自動で動いてしまうのは営業メールの取り込みだけ。**
+- **守るべき不変条件**: ECR のタグは immutable を維持する。「staging で検証したイメージ＝本番が動かすイメージ」という同一性がこの構成の土台。mutable に落とすのは初期構築・デバッグ中だけで必ず戻す。
+
+## 2026-11-10 夜間自動移行は本日以降 staging・本番の両方で動かす（ユーザー指示）。範囲決定が1つ更新
+
+- **指示（ユーザー）**: 夜間自動移行を**本日以降、staging と本番のどちらからも動かす**。
+- **仕組み（確認した内容）**: 旧システムの日次ダンプ `s3://alpha-conbackup/alphadb.dmp` を **Bastion 上で取得 → ローカル Postgres にリストア → 抽出 → Aurora へロード**する systemd timer（`alphadb-migration.timer`、JST 1:00）。**毎晩、移行対象 14 テーブルを DELETE してから入れ直す。**`alp_customer_domain`・`alp_sales_email`・`alp_sales_email_contract_link` は移行対象外で触らない。本番にも `SsmEc2Construct`（Bastion）があるため同じ仕組みを置ける。
+- **範囲決定の更新**: **「本番 DB は空（マイグレーション適用のみ）」は撤回。** 本番にも毎晩、現行データが入る。カットオーバー時の差分が小さくなるため方向として妥当。
+- **④ の表を更新**
+
+  | 対象 | staging | 本番 |
+  | --- | --- | --- |
+  | 夜間自動移行 | **本日復旧**（10/27 の Bastion 置換から停止中。結合試験が全項目完了したため） | **新たに配備** |
+
+### 新たに必要になったもの 2 件
+
+- **1. 旧システム側の S3 バケットポリシーに本番アカウントを追加する。** 現在は staging の Bastion ロール（`arn:aws:iam::570024666076:role/StagingStack-SsmEc2Bastion...`）1 つだけを許可している（`prisma/doc/migration/nightly/alpha-conbackup-bucket-policy.json`）。本番 Bastion のロール ARN を足さないと**本番側はダンプを取得できない**。`alpha-conbackup` は旧システム側アカウント（alphacmc）にあるため、そちらでの作業。
+  - **順序**: ProductionStack デプロイ → 本番 Bastion のロール ARN 取得 → バケットポリシー更新 → 夜間移行の配備。本番 Bastion を作るまで ARN が確定しないため、この順序になる。
+- **2. カットオーバー時に本番の夜間移行を止める手順。** 毎晩 DELETE してから入れ直すため、**本番で業務が始まったあとも動いているとその日に入力したデータが消える**。カットオーバー手順の必須項目として別計画に申し送る。
+
+### 本日できること
+
+本番側は ProductionStack のデプロイ後になるため、**本日できるのは staging の復旧だけ**。手順は alphadb の `prisma/doc/migration/nightly_automation.md` §9.3。alphadb のセッションに依頼する。
+
+### 確認中
+
+「本日以降どちらからも動かす」が、**staging の復旧と本番への新規配備の両方**という理解でよいかをユーザーに確認している。
+
+## 2026-11-10 夜間自動移行の本番配備は「本番の DB・EC2 がデプロイされてから」（ユーザー確認）。staging の復旧を alphadb へ依頼
+
+- **ユーザー確認**: 「本日以降どちらからも動かす」は、**本番の DB および EC2 がデプロイされていたらの話**。理解は合っており、**本日できるのは staging の復旧だけ**で確定。
+- **alphadb へ依頼（`INBOX_FROM_ALPHASYSTEM.md`、セッション未起動のため）**: staging の夜間自動移行を本日復旧する。
+  - **単純な再開（§9.3 の `systemctl enable --now`）では足りない見込み。** 2026-10-27 19:22 の StagingStack デプロイで **Bastion が置換**されており（`i-08f13fc70ac372bde`）、置換されると手動導入した PostgreSQL・配布ファイル・`/etc/alphadb-migration.env` が消える（§7「運用上の注意: Bastion の置換」）。最後の実行は `nightly-20261027-010001`。
+  - **§7 の復旧手順**: `nightly/deploy.sh` で配布 → Bastion で `setup_bastion.sh` → `/etc/alphadb-migration.env` を再作成 → `systemctl enable --now alphadb-migration.timer`。ただし**現物を確認してから判断**するよう伝えた（誰かが復旧済みなら有効化だけで済む）。
+  - **注意として伝えた**: 手動で 1 回実行するとその時点の staging のデータが入れ替わる（14 テーブルを DELETE して入れ直す）。
+  - 翌朝 §9.4 で `/alphasys/staging/nightly-migration` の `RESULT: SUCCESS` を確認する。
+- **本番配備の順序も予告済み**: ProductionStack デプロイ → 本番 Bastion のロール ARN 取得 → 旧システム側（アカウント alphacmc）の S3 バケットポリシーに本番アカウントを追加 → `deploy.sh`／`setup_bastion.sh`／`.env`／タイマー有効化。時期が来たら改めて依頼する。
+
+## 2026-11-10 本番環境構築の仕様書を作成（Draft PR ＃148）。④ の章は夜間自動移行の訂正を反映して確定
+
+- **ユーザー承認**: PR #145 をマージし、**仕様書の作成に進む**ことを承認。④（並走の運用ルール）は、夜間自動移行を両環境で動かす訂正を反映した形で確定とした。
+- **成果物**: [`docs/design/2026-11-10-本番環境構築-仕様.md`](../design/2026-11-10-本番環境構築-仕様.md)（10 章、[Draft PR #148](https://github.com/alphacmc/alphasystem/pull/148)）。brainstorming で詰めた 4 章をまとめ、決定 8 件・必要なコード修正 4 件・別計画への申し送り 4 件・未決 2 件を収めた。
+- **自己レビューで直した 2 点**:
+  - 曖昧さ: 8-3 の「削除**または改訂**」を**削除する**に確定（版数を上げる通常運用に移行済みで 0.5.0 以降は該当しないため）。
+  - 事実の更新: **alphasys #324（`/unauthorized`）はマージ済み**（2026-11-10 06:05 UTC）だったので反映。
+- **次**: ユーザーの仕様書レビュー → 承認後に実装計画（どのリポジトリに何をどの順で依頼するか）を作成する。

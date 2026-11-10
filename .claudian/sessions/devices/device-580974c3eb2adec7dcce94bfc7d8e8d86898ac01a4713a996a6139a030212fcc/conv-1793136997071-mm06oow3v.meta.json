@@ -4,7 +4,7 @@
   "title": "Daily syncこのターンを確認しました。\n\n**記録対象なし**\n\nこのターンの内容：\n...",
   "titleGenerationStatus": "success",
   "createdAt": 1793136997076,
-  "lastActivityAt": 1794188358375,
+  "lastActivityAt": 1794349273414,
   "sessionId": "b13063fb-7bf4-430f-a9d5-bcf9ea1349ae",
   "selectedModel": "opus",
   "providerState": {
@@ -14,11 +14,11 @@
   "usage": {
     "model": "opus",
     "inputTokens": 4,
-    "cacheCreationInputTokens": 1126,
-    "cacheReadInputTokens": 48296,
+    "cacheCreationInputTokens": 954,
+    "cacheReadInputTokens": 54651,
     "contextWindow": 1000000,
-    "contextTokens": 49426,
-    "percentage": 5,
+    "contextTokens": 55609,
+    "percentage": 6,
     "contextWindowIsAuthoritative": true
   }
 }

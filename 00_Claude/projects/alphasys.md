@@ -1634,3 +1634,21 @@ alphasystemセッションが4_7_1（総務画面）の結合試験5.1 #11で、
 - あわせて、alphaexapiのMFユーザー単位OAuth（PR#210）により送信・取込・rerunが認可未取得時に412を返す挙動になったとの共有があったが、alphasysはメッセージをそのまま表示するため**変更不要**（alphaexapi側で最終レビュー済み）
 - 変更後、`tsc --noEmit`・`eslint`で新規エラー無しを確認。`jest`・`next build`は本件と無関係な既存の問題（`EditProjectInfo.test.tsx`のflaky失敗、`contract.repository.ts`の`scheduledPaymentDate`型エラー）が変更前から存在することを`git stash`比較で確認済み（本件のスコープ外、別途報告）
 - Draft PR #324（base: staging）を作成。完了をalphasystem直下の`INBOX_FROM_ALPHASYS.md`で連絡済み（alphasystemセッション未起動のため）
+
+## 2026-11-10 PR ＃324マージ後、新規登録直後の社員で`/member/employees`がクラッシュする不具合を発見・修正
+
+ユーザーより、PR #324（`/unauthorized`ページ新設）マージ・再デプロイ後の実機確認で、`https://alphasys.alphacmc-test.com/member/employees`に新規登録直後の一般社員でアクセスすると「Cannot read properties of null (reading 'length')」というエラーが表示されるとの報告。`https://alphasys.alphacmc-test.com/manager/employee-info`への権限エラー表示（「この画面を表示する権限がありません。」）は正しく動作していることも確認済み。
+
+- PR #324でマージされたコミットは今回の`/unauthorized`ページ追加とconversations.mdの変更のみで、`/member/employees`には無関係と確認（原因は別件）
+- **原因**: `EmployeeInfoContainer.tsx`が`current.emergencyContacts`（`src/types/employee-change.ts`では`EmergencyContact[]`というnull不可の配列型で宣言）をそのまま`EmergencyContactsSection`へ渡し、同コンポーネント45行目で`contacts.length === 0`を判定。`src/lib/employee-change-api.ts`の`callApi`はレスポンスの型チェックをせず`data as T`でキャストするだけのため、**alphaexapi側`/member/employee-info`が新規登録直後（緊急連絡先レコードが1件も無い社員）に`emergencyContacts: null`を返すと、宣言上の型と実際の値が食い違ってクラッシュする**契約違反が原因と判明
+- **承認（対応方針）**: (1) alphasys側で即時の防御的ガードを追加、(2) 根本原因（alphaexapi側のnull返却）はalphaexapiセッション（`alphaexapi-a4`、起動中）へ連絡して確認・依頼する、の2段構えで進めることを承認
+- **対応(1)実施**: `EmployeeInfoContainer.tsx`で`current.emergencyContacts ?? []`として渡すよう修正（型の宣言自体は維持し、実行時のnullのみ吸収）。`tsc --noEmit`・`eslint`に新規エラー無し、`jest`は`src/app/member/employees`配下9 suites/68 tests全てpass。Draft PR #326（base: staging）を作成
+- **対応(2)実施**: `alphaexapi-a4`セッションへ`SendMessage`で事象・原因・依頼内容（`GET /member/employee-info`が0件時に`null`ではなく`[]`を返すよう修正、他エンドポイントも同様の契約か確認）を送信。回答待ち
+
+alphaexapiより回答あり、原因・方針が判明:
+
+- **原因確定**: `GET /member/employee-info`の`current.emergencyContacts`は`parseEmergency(user.emgInfo)`をそのまま返しており、新規登録直後で`emg_info`がNULL（非配列）だと`null`になる（`src/employee-info/employee-self.service.ts:91`）。alphaexapiの契約書（`docs/superpowers/specs/2026-10-22-employee-change-request-api-contract.md` 2.1）が「未設定はnull」としているが、配列系項目の扱いがあいまいだったための契約のあいまいさ（バグというより仕様の穴）
+- **alphaexapi側の方針案（ユーザー了解待ち）**: `emergencyContacts`のみ「未設定は`[]`」に変更し契約書にも明記。`address`・`bankAccount`等のオブジェクト系は契約通り`null`のまま維持。他エンドポイント（総務用CHANGE_EMERGENCYのchangeInfo）は通常配列のため今回の事象とは無関係と確認
+- **確定**: alphasys側の応急処置（`?? []`、PR #326）は、alphaexapi側修正後も残してよいとのこと。alphaexapi側でユーザー了解が得られPRができ次第連絡が来る予定。alphasys側はPR #326のまま待機
+
+alphaexapiよりDraft PR作成の連絡あり: alphaexapi PR #213（base: staging、https://github.com/alphacmc/alphaexapi/pull/213 ）。`GET /member/employee-info`の`emergencyContacts`を未設定時`[]`返却に修正し、契約書2.1にも明記。`address`・`bankAccount`は従来通り`null`のまま。マージはユーザーが行う。alphasys側の`?? []`（PR #326）は修正後も残置可とのこと再確認。両PR（alphasys #326、alphaexapi #213）ともマージ待ち。

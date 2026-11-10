@@ -1483,3 +1483,10 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - 先送り 2 件（issue #211、callback での認可アカウント照合なし＝設計書 9 章の残リスク）は、設計者として異存なしとのこと。
 - alphasystem からユーザーへ、#210 の Draft 解除・マージ、マージ後すぐの staging デプロイ、2 人の ADMIN による手動確認が必要なことを伝達済み。412 の挙動は alphasys 側の変更不要と alphasys へも申し送り済み。
 - マージ・デプロイが済んだら alphasystem から連絡が来る。その後 Task 14（alphadb-b1 への連絡、staging での手動確認）を行う。
+
+## 2026-11-10 社員本人用 API の緊急連絡先は、未設定なら null ではなく ［］ を返す（ユーザー承認）
+
+- **発端**: alphasys（alphasys-47）から連絡。新規登録直後の社員（`alp_users.emg_info` が NULL）で `/member/employees` を開くと、`emergencyContacts` が null のためクラッシュする。alphasys 側は応急処置として `?? []` を入れる（alphasys Draft PR #326）。
+- **原因**: `GET /member/employee-info` が `parseEmergency(user.emgInfo)` の結果をそのまま返していた。契約書 2.1 は `current` を「未設定は null」と書いていたが、例は配列で、配列の項目の扱いがあいまいだった。
+- **決定（ユーザー）**: `emergencyContacts` だけ、未設定（NULL・空文字・配列でない値）なら `[]` を返す。`address`・`bankAccount` は、オブジェクトなので null のまま。契約書 2.1 にも明記した。
+- **ほかのエンドポイント**: `emergencyContacts` を返すのはこの 1 か所だけ。総務用の CHANGE_EMERGENCY の `changeInfo` は、PUT で保存した配列を読むので対象外。
