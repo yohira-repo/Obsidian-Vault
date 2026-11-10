@@ -28,10 +28,17 @@ def latest(*entries):
     return {item.source_id: item for item in entries}
 
 
-def _status(name, branch, dirty="-", when="-", message="-", linked=True):
+def _status(name, branch, dirty="-", when="-", message="-", linked=True, prs=()):
     return status.ProjectStatus(
         name=name, branch=branch, dirty=dirty, when=when,
-        message=message, linked=linked, failed=False,
+        message=message, linked=linked, failed=False, prs=tuple(prs),
+    )
+
+
+def _pr(number, head, base="staging", is_draft=False, when="1日前", message="m"):
+    return status.PrRow(
+        number=number, head=head, base=base, is_draft=is_draft,
+        when=when, message=message,
     )
 
 
@@ -250,7 +257,7 @@ class RenderStatusLinesTest(unittest.TestCase):
         self.assertIn("### alpha", text)
         self.assertIn("### coop", text)
         # 「メッセージ」列は廃止され「最新の記録」列に置き換わった。
-        self.assertIn("| プロジェクト | ブランチ | 未コミット | 最終コミット | 最新の記録 |", text)
+        self.assertIn("| プロジェクト | PR / ブランチ | 未コミット | 最終コミット | 最新の記録 |", text)
         self.assertIn(
             r"| [[00_Claude/projects/alphasystem\|alphasystem]] | staging | - | 2日前 | "
             r"2026-10-20 [[00_Claude/projects/alphasystem#2026-10-20 Merge pull request ＃91\|Merge pull request ＃91]] |",
@@ -303,20 +310,20 @@ class StatusRowPipeEscapeTest(unittest.TestCase):
         return line.replace(r"\|", "\x00").split("|")[1:-1]
 
     def test_wikilink_alias_pipe_is_escaped(self):
-        row = daily._status_row(_status("alphasystem", "staging", when="2日前", message="x"))
+        row = daily._status_rows(_status("alphasystem", "staging", when="2日前", message="x"))[0]
         self.assertIn(r"[[00_Claude/projects/alphasystem\|alphasystem]]", row)
         self.assertNotIn("alphasystem|alphasystem", row)
 
     def test_linked_row_has_exactly_five_cells(self):
-        row = daily._status_row(_status("alphasystem", "staging", when="2日前", message="x"))
+        row = daily._status_rows(_status("alphasystem", "staging", when="2日前", message="x"))[0]
         self.assertEqual(len(self._cells(row)), 5)
 
     def test_unlinked_row_has_exactly_five_cells(self):
-        row = daily._status_row(_status("alphabsmail", "alphasystem内", linked=False))
+        row = daily._status_rows(_status("alphabsmail", "alphasystem内", linked=False))[0]
         self.assertEqual(len(self._cells(row)), 5)
 
     def test_pipe_in_branch_name_is_escaped(self):
-        row = daily._status_row(_status("x", "feature/a|b", when="1日前", message="m"))
+        row = daily._status_rows(_status("x", "feature/a|b", when="1日前", message="m"))[0]
         self.assertEqual(len(self._cells(row)), 5)
         self.assertIn(r"feature/a\|b", row)
 
@@ -328,11 +335,47 @@ class StatusRowPipeEscapeTest(unittest.TestCase):
             # ここでも実際のパイプラインと同じ形（エスケープ済み）を渡す。
             _status("coop", "main", dirty="3件", when="1日前",
                     message=status.escape_cell("docs: a|b")),
+            # open PR が複数あるプロジェクト（複数行に展開される）。
+            _status("coopinf", "", dirty="2件",
+                    prs=[_pr(42, "feature/a", "staging", is_draft=True),
+                         _pr(43, "feature/b|x", "main")]),
         ]
         for line in daily.render_status_lines(statuses, "2026-10-21 08:55"):
             if line.startswith("|") and not line.startswith("|---"):
                 with self.subTest(line=line):
                     self.assertEqual(len(self._cells(line)), 5)
+
+
+class StatusPrRenderingTest(unittest.TestCase):
+    def test_open_pr_becomes_one_row_with_branch_and_base(self):
+        statuses = [_status("coopinf", "", dirty="2件",
+                            prs=[_pr(42, "feature/x", "staging", when="3時間前")])]
+        text = "\n".join(daily.render_status_lines(statuses, "2026-10-21 08:55"))
+        self.assertIn("#42 feature/x → staging", text)
+        self.assertIn("| 3時間前 |", text)
+
+    def test_draft_pr_is_marked(self):
+        statuses = [_status("coopinf", "", prs=[_pr(42, "feature/x", is_draft=True)])]
+        text = "\n".join(daily.render_status_lines(statuses, "2026-10-21 08:55"))
+        self.assertIn("#42 feature/x → staging (Draft)", text)
+
+    def test_multiple_prs_render_multiple_rows_name_only_on_first(self):
+        statuses = [_status("coopinf", "", dirty="2件",
+                            prs=[_pr(42, "feature/a"), _pr(43, "feature/b")])]
+        lines = [line for line in daily.render_status_lines(statuses, "2026-10-21 08:55")
+                 if line.startswith("|") and not line.startswith("|---")
+                 and "プロジェクト" not in line]
+        # ヘッダ以外の表行は PR 2 件ぶん。
+        self.assertEqual(len(lines), 2)
+        self.assertIn("coopinf", lines[0])           # 先頭行にプロジェクト名
+        self.assertNotIn("coopinf]]", lines[1])      # 2 行目は名前なし
+        self.assertIn("2件", lines[0])               # 未コミットは先頭行だけ
+        self.assertNotIn("2件", lines[1])
+
+    def test_no_pr_row_shows_pr_nashi_label(self):
+        statuses = [_status("coop", status.NO_PR_BRANCH, when="1日前")]
+        text = "\n".join(daily.render_status_lines(statuses, "2026-10-21 08:55"))
+        self.assertIn("PRなし", text)
 
 
 class StatusBlockPlacementTest(unittest.TestCase):

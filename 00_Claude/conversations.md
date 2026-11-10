@@ -1436,3 +1436,18 @@ Draft PR [#6](https://github.com/yohira-repo/Obsidian-Vault/pull/6) に、先行
 - 新しい連絡方式に従い、**`~/git/alphasystem/INBOX_FROM_OBSIDIAN.md` を作成**（第一便）。内容は、5 項目の回答を受領・了解した旨／任意依頼は対応しないこと（および文面が揃わない状態になること）／当方の現況（PR #6 マージ済み・テスト 186 件全通過・Issue #4/#5 は実害が出た時点で着手）。
 
 これで本件の未決事項はすべて解消。
+
+## 2026-11-10 プロジェクト状況のGitHub基準化とセッション共有の方針
+
+### 決定
+- **① プロジェクト状況表**：現状はローカル基準（ローカルHEADの最終コミット等）。これを GitHub 基準へ変更する方針で合意。ただし単に staging/main を出すのではなく、**開いている PR のブランチを表示**（PRが複数ある場合は複数行）。open PR が無いプロジェクトについて staging/main を出すだけなら不要（既知のため）。
+  - 実装方針：`gh pr list --repo alphacmc/<name>`（認証は yohira-repo で確認済み・取得可）で open PR を取得し、PRごとに行を出す。最終コミットは fetch 済みの `origin/<PRブランチ>` から取る想定。
+  - 留意：`status.py` は alphasystem の `.claude/hooks/project-status.sh`（セッション表示用bash版）と整合を保つ正本。変更時は両方対象になりうる（スコープ要確認）。
+- **② Claude Code セッションのPC間共有**：**妙案A（蒸留メモリをVaultに集約）中心＋必要時C（特定セッションのJSONLをVault配下へ明示エクスポートしgit同期）** で進める方針で合意。妙案B（生ログ全文をTailscale+Syncthing同期）は当面見送り。
+
+### ①詳細の確定（2026-11-10）
+- open PR 無し → **1行で「PRなし」＋最新 staging コミット時刻**を表示。
+- ローカル固有列（未コミット/未push）は**残す**。
+- bash版（alphasystem `.claude/hooks/project-status.sh`）も**同じPRベースに揃える**（＝別リポPRが必要）。
+- gh 利用不可時（未認証/オフライン/未導入）は**現行ローカル表示にフォールバック**＋警告。
+- 計画書: [[00_Claude/plans/2026-11-10-project-status-pr-based.md]]

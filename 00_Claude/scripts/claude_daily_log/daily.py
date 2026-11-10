@@ -15,7 +15,7 @@ STATUS_SECTION_HEADING = "## プロジェクト状況"
 STATUS_START_MARKER = "<!-- project-status:start -->"
 STATUS_END_MARKER = "<!-- project-status:end -->"
 STATUS_TABLE_HEADER = (
-    "| プロジェクト | ブランチ | 未コミット | 最終コミット | 最新の記録 |",
+    "| プロジェクト | PR / ブランチ | 未コミット | 最終コミット | 最新の記録 |",
     "|---|---|---|---|---|",
 )
 NO_RECORD_CELL = "-"
@@ -91,23 +91,52 @@ def render_record_cell(source_id: str, entry) -> str:
     )
 
 
-def _status_row(item, record_cell: str = NO_RECORD_CELL) -> str:
-    """1 プロジェクト分の表の行。同居はリンクを付けない。
+def _project_label(item) -> str:
+    """プロジェクト名セル（同居はリンクを付けない）。"""
+    name = status_module.escape_cell(item.name)
+    return (
+        "[[00_Claude/projects/%s\\|%s]]" % (item.name, name)
+        if item.linked else name
+    )
+
+
+def _pr_branch_cell(pr) -> str:
+    """PR 行の『PR / ブランチ』セル: `#番号 head → base`（Draft は印を付ける）。"""
+    draft = " (Draft)" if pr.is_draft else ""
+    return "#%d %s → %s%s" % (pr.number, pr.head, pr.base, draft)
+
+
+def _status_rows(item, record_cell: str = NO_RECORD_CELL) -> List[str]:
+    """1 プロジェクト分の表の行（open PR があれば PR ごとに複数行）。
 
     セル内の `|` は必ず `\\|` にエスケープする。特に**ウィキリンクのエイリアス
     区切り**（`[[path|alias]]` の `|`）は見落としやすく、エスケープしないと
     Obsidian が列区切りとして解釈して 1 行が 6 列に割れ、データが右へずれる。
     message 列は status 側で既にエスケープ済みだが、name / branch はここで行う。
+
+    複数行になるのは open PR が 2 件以上のときだけ。プロジェクト名・未コミット
+    （リポジトリ単位の値）・最新の記録は **先頭行にのみ** 出し、2 行目以降は
+    空欄 / `-` にする（同じ値の重複でノイズにしないため）。
     """
-    name = status_module.escape_cell(item.name)
-    label = (
-        "[[00_Claude/projects/%s\\|%s]]" % (item.name, name)
-        if item.linked else name
-    )
-    return "| %s | %s | %s | %s | %s |" % (
-        label, status_module.escape_cell(item.branch),
-        item.dirty, item.when, record_cell,
-    )
+    label = _project_label(item)
+    if not item.prs:
+        # PRなし・未clone・ローカルフォールバック等: 従来どおり 1 行。
+        return ["| %s | %s | %s | %s | %s |" % (
+            label, status_module.escape_cell(item.branch),
+            item.dirty, item.when, record_cell,
+        )]
+
+    rows: List[str] = []
+    for index, pr in enumerate(item.prs):
+        first = index == 0
+        rows.append("| %s | %s | %s | %s | %s |" % (
+            label if first else "",
+            status_module.escape_cell(_pr_branch_cell(pr)),
+            item.dirty if first else NO_RECORD_CELL,
+            pr.when,
+            record_cell if first else NO_RECORD_CELL,
+        ))
+    return rows
 
 
 def _umbrella_first(group_items: List, umbrella: Optional[str]) -> List:
@@ -152,10 +181,10 @@ def render_status_lines(statuses: List, now_text: str,
         lines.append("")
         lines.extend(STATUS_TABLE_HEADER)
         entries = latest_entries or {}
-        lines.extend(
-            _status_row(item, render_record_cell(item.name, entries.get(item.name)))
-            for item in group_items
-        )
+        for item in group_items:
+            lines.extend(
+                _status_rows(item, render_record_cell(item.name, entries.get(item.name)))
+            )
 
     if lines:
         lines.append("")
