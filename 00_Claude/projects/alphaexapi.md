@@ -1476,3 +1476,10 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - **修正（4881369）**: M1（スタブのランナー 2 ファイルの整形）、M2（`mf-partner-gateway.impl.ts` の余分な空行 4 か所）、M3（412 のメッセージの案内を API のパスから「MFクラウド連携の認可画面で各製品の認可を行ってください。」に変更）、ログにトークン・認可コードが出ないことの回帰テスト 2 件、M5（設計書 6 章に D1 の追補を明記）、M4（設計書 9 章に残リスクを 1 行：callback で、MF 側で認可したアカウントが本人のものかは照合していない。MF の資格情報を共有しない運用が前提）。全 99 スイート / 691 件 PASS。
 - **決定（ユーザー）**: M6（MF が 401 を返しても DB 上の有効期限が先だとリフレッシュされず、「再認可が必要」とも出ない。#210 より前からの挙動）は **#210 では直さず別課題に先送り**。issue #211 を起票した。
 - **次**: 修正の再レビュー → Draft PR #210 の本文を完了状態に更新 → マージはユーザー → マージ後すぐ staging にデプロイし、alphadb-b1 に連絡（Task 14）→ staging で実 MF の手動確認（2 人の ADMIN で operator_id が分かれることなど）。
+
+## 2026-11-10 alphasystem が ＃210 の完了連絡を受領
+
+- alphasystem（alphasystem-fd）が `INBOX_FROM_ALPHAEXAPI.md` を取り込み、削除した（alphasystem 側の記録は `docs/conversations/2026-11-10.md`、Draft PR #143）。
+- 先送り 2 件（issue #211、callback での認可アカウント照合なし＝設計書 9 章の残リスク）は、設計者として異存なしとのこと。
+- alphasystem からユーザーへ、#210 の Draft 解除・マージ、マージ後すぐの staging デプロイ、2 人の ADMIN による手動確認が必要なことを伝達済み。412 の挙動は alphasys 側の変更不要と alphasys へも申し送り済み。
+- マージ・デプロイが済んだら alphasystem から連絡が来る。その後 Task 14（alphadb-b1 への連絡、staging での手動確認）を行う。

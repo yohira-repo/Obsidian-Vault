@@ -251,6 +251,34 @@
       "contentDigest": "f463f1427180eb0fd06a0ec9b8cad33725e94f7a6bb9b67cf6e167a851261f9b",
       "providerUserMessageId": "6814c551-7e60-456e-8231-6adb9ce40610",
       "providerAssistantMessageId": "044d4950-8d65-4e16-87c7-ed6814cc4e1a"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1794286308323-n64e1qi",
+      "userTurnOrdinal": 18,
+      "state": "accepted",
+      "localMessageId": "msg-1794286308316-e5cbd0j",
+      "timestamp": 1794286308316,
+      "rawDisplayText": "いずれもマージしました。",
+      "canonicalText": "いずれもマージしました。",
+      "images": [],
+      "contentDigest": "7c098a27fc91910a61b8b74841f433767cdb4e41319c3cbd80e07eed34cad930",
+      "providerUserMessageId": "a6a5eb78-6fcb-4234-bf2b-67c6ac1fb177",
+      "providerAssistantMessageId": "8001dac6-2d0d-4f65-98fe-5e679298cb54"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "msg-1794286571541-bwd3mg7",
+      "userTurnOrdinal": 19,
+      "state": "accepted",
+      "localMessageId": "msg-1794286571536-7d04ua3",
+      "timestamp": 1794286571536,
+      "rawDisplayText": "/daily-sync",
+      "canonicalText": "/daily-sync",
+      "images": [],
+      "contentDigest": "474e16b94b2e770c3b0b241073155484fc57c554b5cedd8252793aecbc1ebfa8",
+      "providerUserMessageId": "669297c1-6392-4487-9e6d-d1d1bd1d32ef",
+      "providerAssistantMessageId": "460ea3f0-a74c-4625-96ce-5c2278ea9fbf"
     }
   ]
 }

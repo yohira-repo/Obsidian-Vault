@@ -1622,3 +1622,15 @@ alphaexapi-daから連絡があった。Draft PR alphacmc/alphaexapi#187（base 
 - `fix/ecr-commit-hash-tag`ブランチで修正し、Draft PR #322（base: staging）を作成した。依頼どおりpushする分岐（`SKIP_BUILD != true`かつ`DEPLOY_ENV != prod`）の中だけでtag/pushする
 - PR番号はalphasyscdk（alphasyscdk-6b）にSendMessageで知らせた
 - マージ後の確認: ECR `alphasys-frontend`の最新イメージに`0.1.0`とマージコミットのハッシュの2つのタグが付いていること
+
+## 2026-11-10 alphasystemからの申し送り（INBOX_FROM_ALPHASYSTEM.md）を受け、`/unauthorized`ページを新設
+
+alphasystemセッションが4_7_1（総務画面）の結合試験5.1 #11で、一般社員が`/unauthorized`へリダイレクトされた際に`src/app/unauthorized/`が存在せず、Next.jsの`not-found.tsx`（「お探しのページが見つかりません。」）が表示されてしまう問題を発見。拒否自体は意図通りのため試験は合格としたが、文言の問題として`INBOX_FROM_ALPHASYSTEM.md`で申し送りがあった。
+
+- **ユーザー決定済み（alphasystem経由で確認）**: 遷移先URLは`/unauthorized`のまま維持（存在を隠すため404のままにする案は不採用）。文言は「権限がありません」系とし、利用者が「権限がない」のか「URLを間違えた」のか区別できることが目的。具体的な文面・デザインはalphasys側の判断に委ねる
+- **対応**: `src/app/not-found.tsx`・`src/app/error.tsx`と同じ最小構成（メッセージ＋トップページへ戻るボタン）に合わせ、`src/app/unauthorized/page.tsx`を新設（「この画面を表示する権限がありません。」＋`LinkButton`でトップページへ）
+- 影響する誘導6箇所（`middleware.ts`の3箇所、`manager/employee-change-requests`一覧・詳細、`money-forward/oauth/callback`）はいずれもコード変更不要（ページを新設するだけで解消）
+- 申し送り内容を本ファイルへ取り込んだため`INBOX_FROM_ALPHASYSTEM.md`は削除
+- あわせて、alphaexapiのMFユーザー単位OAuth（PR#210）により送信・取込・rerunが認可未取得時に412を返す挙動になったとの共有があったが、alphasysはメッセージをそのまま表示するため**変更不要**（alphaexapi側で最終レビュー済み）
+- 変更後、`tsc --noEmit`・`eslint`で新規エラー無しを確認。`jest`・`next build`は本件と無関係な既存の問題（`EditProjectInfo.test.tsx`のflaky失敗、`contract.repository.ts`の`scheduledPaymentDate`型エラー）が変更前から存在することを`git stash`比較で確認済み（本件のスコープ外、別途報告）
+- Draft PR #324（base: staging）を作成。完了をalphasystem直下の`INBOX_FROM_ALPHASYS.md`で連絡済み（alphasystemセッション未起動のため）
