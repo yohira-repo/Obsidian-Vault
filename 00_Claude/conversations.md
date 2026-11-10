@@ -1451,3 +1451,26 @@ Draft PR [#6](https://github.com/yohira-repo/Obsidian-Vault/pull/6) に、先行
 - bash版（alphasystem `.claude/hooks/project-status.sh`）も**同じPRベースに揃える**（＝別リポPRが必要）。
 - gh 利用不可時（未認証/オフライン/未導入）は**現行ローカル表示にフォールバック**＋警告。
 - 計画書: [[00_Claude/plans/2026-11-10-project-status-pr-based.md]]
+
+## 2026-11-10 プロジェクト状況のPRベース化を実装（PR-X/PR-Y 作成）
+
+### 完了した段取り・成果
+- **PR-X（Vault, Python 正本）**: feature/status-pr-based → Draft PR #7
+  （https://github.com/yohira-repo/Obsidian-Vault/pull/7）。status.py/daily.py/テスト/README 更新。
+- **PR-Y（alphasystem, bash セッション表示）**: feature/project-status-pr-based（base=staging）→ Draft PR #141
+  （https://github.com/alphacmc/alphasystem/pull/141）。project-status.sh を同仕様に追従。
+- 実行順序は計画どおり PR-X → PR-Y。両者の出力一致・実リポジトリでのスモークを確認。
+
+### 確定した細部
+- 列ヘッダは `ブランチ` → `PR / ブランチ` に変更（既定採用）。
+- gh フォールバックはリポジトリ単位。
+- テストのうち `test_main_uses_patched_lock...` 1件は Windows portlock の既存失敗（本変更と無関係）。
+
+### 既知の既存問題（今回は直さないと決定・スコープ外）
+- bash 版で `./alphabsmail`（同居）が「alphasystem内」でなくローカル行で出る。Windows の
+  `git --show-toplevel`(`C:/…`) と `pwd -P`(`/c/…`) の表記差が原因。元の staging 版でも同じ。
+  希望があれば別PRで対応。
+
+### 残
+- Draft 解除・マージは利用者。マージ後、各PCで `git pull` して反映。
+- ②（セッションのPC間共有：妙案A中心＋必要時C）は方針合意のみ・未着手。
