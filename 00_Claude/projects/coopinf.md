@@ -569,3 +569,185 @@ coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領
 - prd の変更セットを作成済み（`arn:aws:cloudformation:ap-northeast-1:725011976834:changeSet/awscli-cloudformation-package-deploy-1793934073/1f03b7b6-c579-47b0-9046-3af165154996`）。内容は RegexPatternSet 2 つ・ALB アラーム 2 つの追加と WebACL の変更（置き換えなし）。既存パラメータは前回値（Block）を維持。**実行は auto mode でブロックされるため、ユーザーが手元で実行する**。
 - 2026-11-06 12:04 JST にユーザーが prd の変更セットを実行。Priority 8 SensitivePathBlock が Count、他の独自ルールは Block のまま（WCU 1,577→1,627）。`coopcde-prd-alb-Target5XX` は状態 OK（ディメンションが正しくメトリクスを拾えている）、`coopcde-prd-alb-ELB5XX` は 5xx が無いため INSUFFICIENT_DATA。通知先は prd のエラー通知 SNS。`cf/waf-settings.md` の稼働値を Count に更新し、PR #55 の適用状況にチェックを入れた。
 - 段取り（残り）: 数日（目安は 11/9 前後まで）、prd・stg の WAF ログで SensitivePathBlock に当たった通信を確認し、日本からの正規利用が含まれていないかをユーザーに報告 → ユーザーの go を得て stg → prd の順で Block に切り替え → その後、WAF 日次ダイジェスト（PR #54）の実装に入る。
+- 2026-11-06: PR #54・#55 は 12:10〜12:11 JST にユーザーがマージ。
+- 2026-11-06: ユーザーの指示で、③①② の適用結果を coop セッション（coop-d8）に SendMessage で報告した。内容は、適用内容・時刻、確認結果と未確認の点、`/.well-known/` と waf-ALL への影響、今後の段取り（11/9 前後まで観察 → go を得て Block → ダイジェスト実装 → prd 投入後に coop へ結合確認を依頼）。
+- 2026-11-06: coop から受領の返信。
+  - ③の観察で、日本からの正規利用が当たっていないかを重点的に見ること。特に、`/web`・`/api` 配下のドットで始まる区切りと、機微な拡張子の誤検知。
+  - ③を Block にして waf-ALL アラームの閾値調整が要りそうなら、coop に相談する。
+  - ダイジェストは INBOX_FROM_COOP.md の仕様どおりでよい（毎朝 7:00 JST、prd のみ、既存のアラート宛先、本文に要注意シグナル）。③の遮断件数を含めることに coop も賛成。
+  - 手動実行で通知を 1 回出せる状態になったら coop に連絡する。結合確認（メールが届くか、本文の体裁、要注意シグナルを検知できるか）は coop が担当する。
+  - ダイジェストが stg と prd に入ったら、それぞれ連絡する。
+  - INBOX_FROM_COOP.md は取り込み済みで、削除済み。
+
+## 2026-11-11 coop から 3 件の依頼（③の Block 化・管理画面 IP 制限・日次ダイジェスト）
+
+coop セッション（coop-2a）から SendMessage で依頼を受けた（coop 側ではユーザー決定済みとのこと）。
+
+### A. ③ SensitivePathBlock の Block 化（条件つきで go 済み、とのこと）
+
+- 条件: 許可リスト（`AppEntryPathPatternSet`）の apple-touch-icon を、サイズ付きの変種（iOS Safari の正規の要求 `/apple-touch-icon-120x120.png`、`-120x120-precomposed.png`）も許可するよう広げる。その修正を入れたうえで stg → prd の順に Block にする。
+- Claude の確認（prd の WAF ログ、Count 投入の 2026-11-06 12:04 JST 以降）:
+  - ヒットは BG 601、US 101、NL 31、GB 23 などの順で、ほぼ海外のスキャン。
+  - 日本からは 5 件。`/.git/config` 2 件、`/maker/miss_private_key_addresses` 1 件はスキャン。`/apple-touch-icon-120x120.png` 1 件、`/apple-touch-icon-120x120-precomposed.png` 1 件は誤検知。
+  - `/web`・`/api` 配下へのヒットは 0 件。
+  - coop は「過去 90 日」と書いていたが、観察期間は実際には約 5 日間。
+- 修正案: `^/apple-touch-icon(-[0-9]+x[0-9]+)?(-precomposed)?\.png$`。
+
+### B. 管理画面の IP 制限（coop で 2026-11-10 にユーザー決定。coopinf はこの日に初めて受領）
+
+- 方式: WAF に許可 IP の IPSet とルールを 1 つ追加する。
+- 対象パス: AdminGeoRestrict と同じ（`/web/admin/`、`/api/admin/`、`/api/admin-auth/login`・`logout`、`/api/members/getbillinfobyadmin/`）。このうち許可リストにない IP を遮断する。`/api/admin-auth/csrf` は対象外。AdminGeoRestrict は残す。
+- 許可 IP は CloudFormation のパラメータで渡し、リポジトリには書かない。各 /32 をカンマ区切りで指定する。
+  - prd: お客様 2 拠点と弊社 1 拠点。
+  - stg: 弊社 1 拠点のみ。
+  - 実際の値はデプロイ時にユーザーが直接入力する（coop も値を持たない）。
+- 進め方: Count で投入し、正規利用が当たらないことを確認してから Block にする。Count の観察中に、テレワークの IP が「Block なら遮断される」通信として出るのは想定内。
+- テレワークの IP は許可リストに含めない。テレワーク時は自社 PC にリモート接続し、送信元を許可済みの自社 IP にする運用で対応する。
+
+### C. WAF 日次ダイジェスト
+
+- coop は「PR #54 でコードはマージ済みだが、未デプロイ」と見ていた。実際には PR #54 の中身は会話記録と LEARNINGS だけで、**ダイジェストは未実装**（11-06 の決定どおり、③を終えてから着手する予定だった）。coop にそのとおり回答した。
+- prd に入ったら手動で 1 回通知を出し、coop が結合確認する（仕様は 11-06 の記録のとおり）。
+
+### 対応
+
+- coop に回答: B の設計は今回初めて受領したこと、C は未実装であること、A の誤検知を再現できたこと、コードの修正は coopinf のユーザーの了承を得てから着手すること。
+- A・B・C の実装順と方式を、ユーザーに確認中。
+- Claude の提案（ユーザーの了承待ち）:
+  - A: 許可リストを `^/apple-touch-icon(-[0-9]+x[0-9]+)?(-precomposed)?\.png$` に広げる → stg に Block で適用 → prd の変更セットをユーザーが実行。
+  - B: 新しいルール `AdminIpAllowList`（Priority 15）。
+    - 対象パスは AdminGeoRestrict と同じで、csrf は対象外。許可 IPSet に含まれない送信元を遮断する。
+    - 許可 IP はパラメータ `AdminAllowedIps`（カンマ区切り）で渡す。初回はユーザーが入力し、以後は前回の値を使う。
+    - 最初は Count で入れる。WCU は約 1,800 の見込み。
+    - アラームは作らず、Count 中の当たり件数はダイジェストで報告する案（この点もユーザー判断待ち）。
+  - C: 11-06 の方針のとおり、別スタックで毎朝 7:00 JST。要注意シグナルに③の遮断件数と B の当たり件数を含める。stg で確認 → prd → 手動で 1 回実行 → coop が結合確認。
+  - 順番の案: A → B（Count で投入）→ C。B の Count 観察期間に C を実装する。
+- coop から了承の返信を受けた。
+  - C は未実装と理解し、順番は「③が先、その後ダイジェスト」でよいとのこと。
+  - B は今回の全文を正として扱う。
+  - A は提案した正規表現で進めてよい。
+  - B のルールを置く位置（③の前か後か）を含め、実装の順番と方式は coopinf のユーザーが判断する。
+  - ダイジェストを prd に入れたら連絡し、手動で 1 回通知を出す。
+
+## 2026-11-11 A・B・C の方式と実装順を承認
+
+- **ユーザー承認（2026-11-11）**:
+  - A・B・C を提案どおりの方式で、A → B（Count で投入）→ C の順に実装する。
+  - B のアラームは作らず、Count で当たった件数は C のダイジェストで報告する。
+- 段取り:
+  - A: 許可リストの修正 → stg に Block で適用 → prd の変更セットをユーザーが実行。
+  - B: 新しいブランチで実装 → stg に Count で適用 → prd に Count で適用（許可 IP はユーザーが入力）→ 観察 → Block（ユーザーの go を得てから）。
+  - C: B の観察期間に実装 → stg で確認 → prd に適用 → 手動で 1 回実行 → coop に結合確認を依頼。
+- A 実施: 許可リストを修正し、stg は 2026-11-11 08:35 JST に Block で適用。Priority 8 が Block になったこと、許可リストに新しい正規表現が入ったことを確認した。
+- prd の変更セットを作成済み（`arn:aws:cloudformation:ap-northeast-1:725011976834:changeSet/awscli-cloudformation-package-deploy-1794353771/c901988a-36e3-464b-b6ad-0ab7e3790933`）。内容は、許可リストの変更と WebACL の変更（どちらも置き換えなし）で、ほかのパラメータは前回値の Block を維持。**ユーザーが実行する**。
+- 2026-11-11 08:42 JST にユーザーが prd の変更セットを実行。Priority 8 SensitivePathBlock が Block になり、許可リストに新しい正規表現が入ったことを確認した。WAF の独自ルール（Priority 8〜14）はすべて Block。`cf/waf-settings.md` の稼働値を更新し、coop に完了を連絡した。次は B（管理画面の IP 制限）。
+- coop が prd の A を独自に確認し、問題なしとのこと。
+  - Priority 8 が Block になっている。
+  - apple-touch-icon のサイズ付き変種は 404（WAF の 403 ではない）。
+  - `/web/admin/login` は 200。
+  - `/.env`・`/config.php`・`/web/app.zip` は 403。
+  - 引き続き、waf-ALL アラームの発報が増えないかを見てほしいとのこと。
+
+## 2026-11-11 B 管理画面の IP 制限を実装
+
+- ブランチ `feature/waf-admin-ip-allowlist`（PR #57 のブランチから派生）。
+- 新しいルール `AdminIpAllowList`（Priority 15、既定は Count）。
+  - 管理用パスは RegexPatternSet `admin-pathlist` にまとめた。文字列一致を 5 本並べるより WCU が少ない（約 55 と約 160）。
+  - 許可 IP は IPSet `admin-allowed-ips`。値はパラメータ `AdminAllowedIps`（CommaDelimitedList、NoEcho、既定値なしの必須）で渡す。
+- 許可 IP の実際の値は Claude も coop も持たない。そのため、stg と prd の初回デプロイ（変更セットの作成）は、ユーザーが手元で IP を指定して実行する。2 回目以降のデプロイは、省略すれば前回の値を使う。
+- Draft PR #58 を作成した。PR #57 のブランチから派生しているため、#57 を先にマージする。
+- B の適用の段取り:
+  1. ユーザーが `feature/waf-admin-ip-allowlist` をチェックアウトし、許可 IP を指定して stg と prd の変更セットを作る（`--no-execute-changeset`）。
+  2. Claude が変更セットの中身を確認する（IP は NoEcho で伏せ字になる）。
+  3. stg の変更セットは Claude が実行する。
+  4. prd の変更セットはユーザーが実行する。
+  5. Claude が IPSet の件数（stg 1 件、prd 3 件）と、Priority 15 が Count になっていることを確認する。
+  6. coop に連絡する。
+  7. 観察して、正規利用が当たらないことを確認する。
+  8. ユーザーの go を得てから、stg → prd の順で Block にする。
+- 補足: 許可 IP の値は、チャットにも記録にも書かない。ユーザーはコマンドで直接入力し、変更セットを作ったことだけを伝える（ARN も不要。Claude が `list-change-sets` で探す）。stg は `--no-execute-changeset` を外し、ユーザーが直接適用してもよい。その場合は「適用した」とだけ伝え、Claude が反映を確認する（IPSet は件数だけを見る）。
+- 2026-11-11 09:12 JST、ユーザーが作った stg の変更セットを Claude が実行したところ、失敗してロールバックした（`UPDATE_ROLLBACK_COMPLETE`、stg は元の状態のまま）。
+  - 原因: `AdminPathPatternSet` の Description に、WAF で使えない文字（`(` `)` `;`）が入っていた。
+  - 対処: Description を修正して push した。ユーザーが stg の変更セットを作り直す。
+- 2026-11-11 09:18 JST、ユーザーが作り直した stg の変更セットを Claude が実行した。
+  - 修正後のテンプレートであることを `get-template --change-set-name` で確認してから実行した。
+  - Priority 15 AdminIpAllowList が Count で入った。ほかのルールは Block のまま。
+  - IPSet は 1 件で、/32。値は見ていない。
+  - WCU は 1,592 から 1,618 に増えた。
+  - 次は、ユーザーが prd の変更セットを作成して実行する。
+- 2026-11-11 09:23 JST、Claude の端末から stg の `/web/admin/login` に 1 回アクセスした。
+  - 結果は 200。WAF ログでは送信元が JP で、`AdminIpAllowList` に当たっていた（Count なので通過）。つまり、この端末の送信元 IP は許可リストに入っていない。
+  - この端末が社内（登録した弊社の拠点）から接続しているかをユーザーに確認中。社外からなら想定どおり。社内からなら、Block にする前に登録した IP を見直す。
+- stg の ALB は 443 で 0.0.0.0/0 に開いている。80 は開いていない。11-06 のテスト送信がタイムアウトしたのは http で試したため。
+
+## 2026-11-11 AdminIpAllowList: stg は即 Block、prd は本日 Count で確認して明日以降に Block
+
+- **ユーザー決定（2026-11-11）**:
+  - stg はすぐに Block にする。動作はユーザーが確認する。
+  - prd は Count で設定し、本日中は Count のまま当たり方を確認する。Block にするのは明日（11/12）以降。
+- stg: 2026-11-11 09:25 JST に Block で適用した。
+  - Priority 15 が Block になったことを確認した。
+  - IPSet は変更対象に入らず、前回の値（1 件）のまま。
+- 切り戻し: 正規の利用者が遮断された場合は、`AdminIpAllowListAction=Count` で再デプロイすると、すぐに解除できる。
+- 段取り（残り）:
+  1. ユーザーが stg で動作を確認する。
+  2. ユーザーが prd の変更セットを作成して実行する（Count）。
+  3. Claude が反映を確認する（許可 IP が 3 件、Priority 15 が Count）。
+  4. 本日中、prd の当たり方を WAF ログで確認する。
+  5. 11/12 以降、ユーザーの go を得てから prd を Block にする。
+  6. 節目ごとに coop に連絡する。
+- ユーザーが stg で確認した（2026-11-11）。社内からは管理画面にアクセスでき、社外からは 403 になる。stg の IP 制限は期待どおりに動いている（09:23 に Claude の端末から試したアクセスが許可リストに当たっていなかったのは、社外からの接続だったためと整合する）。
+
+## 2026-11-11 管理画面の許可 IP に保守端末の NAT GW の EIP を追加
+
+- **ユーザー要望（2026-11-11）**: AWS 上に stg 用・prd 用の保守端末があり、NAT GW 経由で管理画面にアクセスすることがある。環境ごとに EIP を 2 つ、許可 IP に追加したい。
+- 確認した内容: NAT GW は `coopcde-stg-vpc`・`coopcde-prd-vpc` にそれぞれ 2 つあり（2 AZ）、どれも EIP は 1 つ。Claude は EIP の値を表示していない。
+- 方式: テンプレートは変えない。パラメータ `AdminAllowedIps` にリスト全体を指定し直す。
+  - stg: 弊社 1 拠点と、stg の NAT EIP 2 つで計 3 件（Block のまま更新する）。
+  - prd: お客様 2 拠点、弊社 1 拠点、prd の NAT EIP 2 つで計 5 件（初回の Count 投入で指定する）。
+- NAT の EIP は、コマンドの中で `describe-nat-gateways` から取り出して組み立てる。値は画面にも記録にも出さない。`cf/waf-settings.md` の許可 IP の説明も更新した。
+- 注意: NAT GW を作り直すと EIP が変わる。そのときは許可リストも更新する。
+- 設計の変更（許可 IP を追加すること）は coop に連絡する。
+- 段取り:
+  1. ユーザーが、stg の変更セット（Block のまま、3 件）を作成する。
+  2. Claude が中身を確認して実行し、IPSet が 3 件になったことを確認する。
+  3. ユーザーが、prd の変更セット（Count、5 件）を作成して実行する。
+  4. Claude が、5 件入っていることと Count になっていることを確認する。
+  5. prd の Count 期間中に、保守端末（NAT の EIP）からのアクセスが AdminGeoRestrict に当たっていないかを、WAF ログで確認する。
+- coop には新しいセッション（coop-b9）に連絡した。前のセッション（coop-2a）は終了していた。
+- coop（coop-b9）から返信があり、設計の記録に反映済みとのこと。
+  - prd を Block にする前に、Count の観察結果を coop に伝えてほしい。特に、許可リストにない正規のアクセス（保守端末・お客様拠点）が「Block なら遮断」として記録されていないかを知りたい。
+  - 必要なら coop 側でも prd を確認してくれる（社外からは 403、正規の入口は 200）。
+  - その後 C（日次ダイジェスト）に進む、という認識で合っている。
+- 2026-11-11 09:51 JST、ユーザーが stg の変更セットを作成した。中身を見ると `AdminIpAllowListAction=Count` になっていて、実行すると stg が Block から Count に戻る。そのため、Claude は実行を保留し、意図をユーザーに確認している（Block のまま作り直すか、Count に戻すのが意図どおりか）。
+- **ユーザー決定（2026-11-11）**: stg は Block のままにする。Count になっていた変更セットは Claude が削除した（stg スタックは変わっていない）。ユーザーが `AdminIpAllowListAction=Block` で、3 件の変更セットを作り直す。
+- ユーザーが stg の変更セット（Block）を作り直した。実行する前に、ユーザーが手元で `$ips` の値を確認する（値は会話に書かない）。ユーザーから OK が出たら、Claude が変更セットの中身を確認して実行する。
+- 2026-11-11 09:57 JST、ユーザーが `$ips` を確認したあと、Claude が stg の変更セットを実行した。
+  - 実行前に、すべての Action が Block であること、変わるのは IPSet だけであることを確認した。
+  - 実行後に確認した結果:
+    - Priority 8〜15 はすべて Block。
+    - IPSet は 3 件で、すべて /32。
+    - `coopcde-stg-vpc` の NAT EIP 2 つが、どちらも IPSet に入っている。値は表示せず、一致するかどうかだけを判定した。
+  - 次は、ユーザーが prd の変更セット（Count、5 件）を作成して実行する。
+- 2026-11-11、ユーザーが stg で、AWS 上の保守端末から（NAT GW 経由で）管理画面にアクセスできることを確認した。これで stg の B は確認完了。次は prd（Count、5 件）に進む。
+- 2026-11-11 11:08 JST ごろ、ユーザーが prd の変更セットを作成した（`AdminIpAllowListAction=Count`、5 件）。
+  - Claude が中身を確認した。
+    - Action: AdminIpAllowListAction だけが Count で、ほかの 6 つは今と同じ Block。
+    - 追加されるリソース: IPSet と AdminPathPatternSet。
+    - 変わるリソース: WebACL（作り直しはしない）、WAFLogConfig と WebACLAssociation（WebACL を参照しているための更新扱い）。
+    - テンプレートは、リポジトリとの違いが日本語の行が「?」になる点だけ。これは表示上のことで、今のスタックも同じように表示され、動いているアラームの説明は日本語のまま正しい。
+  - 実行してよいとユーザーに伝えた。実行はユーザーが行う。
+  - 実行後、Claude が次を確認する（値は表示しない）。
+    - 許可リストが 5 件で、すべて /32 であること。
+    - prd の NAT EIP 2 つが入っていること。
+    - Priority 15 が Count であること。
+- 2026-11-11 11:11 JST、ユーザーが prd の変更セットを実行した（UPDATE_COMPLETE）。Claude が確認した結果:
+  - IPSet `coopcde-prd-admin-allowed-ips` は 5 件で、すべて /32。
+  - `coopcde-prd-vpc` の NAT EIP 2 つが、どちらも入っている（値は表示せず、一致するかどうかだけを判定した）。
+  - Priority 8〜14 は Block のまま。Priority 15 の AdminIpAllowList は Count。
+  - 次の段取り:
+    1. 今日は Count のまま観察する。WAF ログで、許可リストにない正規のアクセス（保守端末・お客様拠点）が「Block なら遮断」として記録されていないかを見る。
+    2. 結果をユーザーと coop に伝える。
+    3. 11/12 以降、ユーザーの go を得てから prd を Block にする。
+- prd に Count で適用したことを coop（coop-b9）に連絡した（2026-11-11 11:15 JST ごろ）。観察の結果は、今日の夕方ごろに WAF ログを見てから、ユーザーと coop に伝える。
+- coop（coop-b9）から返信があった。prd を Count にしたことを coop 側の記録（coop PR #31）に反映済み。今日の Count 観察の結果がほしいとのこと（許可リストにない正規のアクセスが「Block なら遮断」として出ていないか）。prd を Block にする前に、必要なら coop 側でも影響がないことを確認する（社外からは 403、正規の入口は 200）。Block は 11/12 以降、ユーザーの go を得てから、という認識で一致している。

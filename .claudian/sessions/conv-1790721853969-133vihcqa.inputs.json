@@ -607,7 +607,8 @@
       "canonicalText": "ただ、プロジェクト状況の表にも実現されてないですよ。",
       "images": [],
       "contentDigest": "7ce5be6af3e0b3ba8ceec8052f17ec8f43a9b3e208272c55bbf25e1253f089b3",
-      "providerUserMessageId": "92fe8e6f-0f7c-41ff-bf29-171dead6b311"
+      "providerUserMessageId": "92fe8e6f-0f7c-41ff-bf29-171dead6b311",
+      "providerAssistantMessageId": "114e00c0-a494-47b7-977b-673b96c882c1"
     },
     {
       "schemaVersion": 1,
