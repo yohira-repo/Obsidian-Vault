@@ -751,3 +751,79 @@ coop セッション（coop-2a）から SendMessage で依頼を受けた（coop
     3. 11/12 以降、ユーザーの go を得てから prd を Block にする。
 - prd に Count で適用したことを coop（coop-b9）に連絡した（2026-11-11 11:15 JST ごろ）。観察の結果は、今日の夕方ごろに WAF ログを見てから、ユーザーと coop に伝える。
 - coop（coop-b9）から返信があった。prd を Count にしたことを coop 側の記録（coop PR #31）に反映済み。今日の Count 観察の結果がほしいとのこと（許可リストにない正規のアクセスが「Block なら遮断」として出ていないか）。prd を Block にする前に、必要なら coop 側でも影響がないことを確認する（社外からは 403、正規の入口は 200）。Block は 11/12 以降、ユーザーの go を得てから、という認識で一致している。
+
+## 2026-11-12 AdminIpAllowList: prd を Block 化（案b、coop 経由で go）
+
+- 経緯: [2026-11-11.md](2026-11-11.md)「AdminIpAllowList: stg は即 Block、prd は本日 Count で確認して明日以降に Block」の続き。
+- coop 側セッション（coop-fc）経由で連絡あり: 「管理画面IP制限 prd の Block 化 go（ユーザー承認、案b）」。
+  - 対象: prd WAF `AdminIpAllowList`（Priority 15）を Count → Block。
+  - 自宅回線 113.43.176.74 は許可リストに追加しない（Count 観察で出た唯一の許可外ヒットだが、ユーザーが自宅から意図的にテストしたもので常用しないと確認済み）。許可 IPSet は現状の5件（お客様2拠点＋弊社1拠点＋NAT EIP2、すべて/32）のまま。
+  - 他ルール（Priority 8〜14）は Block 維持。
+  - coop 記録: coop `conversations/2026-11-12.md`「決定: prd 管理画面IP制限を Block 化（案b）」。
+- 本セッションでは coop-fc からの連絡が初見だったため、着手前にユーザーへ直接確認し、上記内容で進めてよいと承認を得た（2026-11-12）。
+- 次の段取り（これまでの運用どおり）:
+  1. ユーザーが prd の変更セットを作成する（`AdminIpAllowListAction=Block`、他 6 ルールの Action も明示的に Block、`AdminAllowedIps` は省略して前回値を維持）。`--no-execute-changeset` を付ける。
+  2. Claude が `list-change-sets`/`get-template --change-set-name` で中身を確認する（変わるのは `AdminIpAllowListAction` だけであること）。
+  3. ユーザーが prd の変更セットを実行する。
+  4. Claude が Priority 15 が Block になったこと、IPSet が引き続き5件であることを確認する。
+  5. `cf/waf-settings.md` の稼働値を更新する。
+  6. coop（coop-fc）に完了を連絡する。
+- 2026-11-12、ユーザーが prd の変更セットを作成した（`awscli-cloudformation-package-deploy-1794444938`）。Claude が `describe-change-set` で中身を確認した。
+  - 変わるパラメータは `AdminIpAllowListAction=Block` のみ。他の6ルールの Action・レート閾値系（`LoginRateLimit`等）は現状どおりで変更なし。
+  - リソース変更は `WebACL`・`WAFLogConfig`・`WebACLAssociation` の3つで、いずれも置き換え（再作成）なし。IPSet・PatternSetの新規作成もなし。
+  - 現在の許可IPSet（`coopcde-prd-admin-allowed-ips`）は実行前時点で5件、すべて/32であることを `get-ip-set` で確認済み（値は見ていない）。
+  - Claude はこの変更セットを実行してよいとユーザーに伝えた。実行はユーザーが行う。
+- 2026-11-12、ユーザーが prd の変更セットを実行。Claude が反映を確認した。
+  - スタック `waf-prd-stack`: `UPDATE_COMPLETE`。
+  - Priority 15 `AdminIpAllowList` = Block。Priority 8〜14 も Block 維持。
+  - 許可IPSet（`coopcde-prd-admin-allowed-ips`）は引き続き5件、すべて/32（変更なし）。
+  - `cf/waf-settings.md` の稼働値を更新し、コミット4a0817dでmainにpush済み。coop（coop-fc）に完了を連絡した。
+- coop（coop-fc）から無害確認OKの返信を受けた（2026-11-12）。
+  - 未許可の作業端末（60.87.89.210）から: `/web/admin/login`=403、`/api/admin/user`=403（遮断）。`/web/`=308・`/web/members`=307・`/api/admin-auth/csrf`=200（組合員ページ・CSRF影響なし）。
+  - WAF ログ裏取り（直近2h、admin系）: 許可済み拠点（106.186.212.11）= ALLOW 31件、未許可（60.87.89.210）= AdminIpAllowList で BLOCK 3件。
+  - **B（管理画面IP制限）は完了**。coop 記録: coop `conversations/2026-11-12.md`「prd 管理画面IP制限 Block化 完了・coop無害確認OK」。
+  - coop は「次は C（WAF日次ダイジェスト）」との認識。確認したところ、PR #54（2026-11-06マージ）の中身は会話記録・LEARNINGSのみで、**ダイジェストのコード実装は未着手**（2026-11-11の記録のとおり）。2026-11-11に承認済みの順番（A→B→C）・仕様（2026-11-06のINBOX_FROM_COOP.md仕様どおり）で、Cの実装着手はユーザーへ確認してから進める。
+
+## 2026-11-12 C: WAF 日次ダイジェストの実装に着手（ユーザー承認）
+
+- **ユーザー承認（2026-11-12）**: 2026-11-06のINBOX_FROM_COOP.md仕様（毎朝7:00 JST、prd中心、要注意シグナルに③SensitivePathBlockとBのAdminIpAllowListの遮断件数を含める）で実装に着手してよい、との回答を得た。
+- ブランチ `feature/waf-daily-digest` を作成し、新規テンプレート `cf/waf-digest-cf.yaml` を実装。Draft PR [#59](https://github.com/alphacmc/coopinf/pull/59)（コミットaa5c0bd）。
+- 構成: EventBridge Scheduler（毎朝7:00 JST、`cron(0 7 * * ? *)`、Asia/Tokyo）→ Lambda（Python 3.12、追加ライブラリなし、コードはテンプレートの`ZipFile`にインライン）→ 既存のエラー通知SNSトピック（prd/stgそれぞれ既存の`coopcde-send-error-alart-topic-<env>`）にpublish。
+- Lambdaは過去24時間のWAFブロックを CloudWatch Logs Insights のクエリ5本で並行集計（最大100秒で打ち切る）。
+  1. ルール別ブロック内訳（`terminatingRuleId`別件数）— 当日分
+  2. 同クエリを前日分の時間窓で実行（前日比の急増判定用）
+  3. `AdminGeoRestrict` の国別ブロック内訳
+  4. 実エンドポイント（`/api/certif/`・`/api/members/getBillInfoByMember/`・`/api/admin/`・`/web/admin/`）への直接アクセス試行（ブロック分）
+  5. `/web/members` への `..`（LFI試行、ブロック分）
+  - クエリ構文は事前に stg の実ログに対し `aws logs start-query`/`get-query-results` で動作確認済み（読み取り専用）。
+  - 要注意シグナルが1件でもあれば件名・本文冒頭に ⚠ を付ける。レート制限3種（Login/AdminSensitive/ApiRateLimit）の発動は①の内訳から拾う。SensitivePathBlock・AdminIpAllowListの遮断件数は専用シグナルを作らず、常に表示されるルール別内訳の中で見える（重複表示を避けるため）。
+- 権限（IAMロール）は、対象WAFロググループへの `logs:StartQuery`/`GetQueryResults`/`StopQuery`、該当SNSトピックへの `sns:Publish`、自身のログ出力のみ。
+- **判明した懸念**: `aws cloudformation validate-template` で、テンプレートの `Description` フィールド内の日本語が実際に `?` へ文字化けすることを確認した（ターミナル表示の問題ではなく、レスポンスの生バイトを直接確認して検証済み）。`migration/LEARNINGS.md`に既に記録済みの、coopbatchテンプレートでの同種の文字化け（A案・対応不要、機能影響なしのため）と同じ現象とみられるが、今回はLambdaのソースコード内の日本語文字列（ダイジェストメールの本文そのもの）でも同じことが起きないかが重要な懸念点。起きれば機能的な不具合（メール本文が読めなくなる）になるため、「対応不要」の前例をそのまま適用せず、stgでの手動実行結果（実際に届くメールの本文）で確認してから先に進む。
+- 段取り（2026-11-06・2026-11-11で承認済みの計画どおり）:
+  1. stgに変更セットを作成・実行 → ②手動実行して本文（文字化けの有無を含む）を確認 → ③問題なければprdの変更セットを作成・実行 → ④prdで手動実行 → ⑤coopに結合確認を依頼。
+- stgの変更セットを作成済み（`awscli-cloudformation-package-deploy-1794479742`、新規スタック`waf-digest-stg-stack`）。Claudeが内容を確認した（追加リソース4つのみ: `WafDigestExecutionRole`・`WafDigestFunction`・`WafDigestSchedulerRole`・`WafDigestSchedule`、いずれも新規追加で既存リソースへの影響なし）。実行はユーザーが行う。
+- ユーザーがPR #59をマージ（2026-11-12 10:53 JST、マージコミット50d3322）。mainをpullしてfast-forward済み。`feature/waf-daily-digest`はmainに完全に取り込み済みであることを`merge-base --is-ancestor`で確認したうえで、ローカル・リモートとも削除した。
+- stgの変更セット実行はまだ（ユーザー実施待ち）。実行後、Claudeが反映を確認し、手動実行でメール本文（文字化けの有無）を確認する段取りは変わらず。
+- ユーザーが変更セットを実行。スタック`waf-digest-stg-stack`が`CREATE_COMPLETE`になったことを確認した（4リソースすべて`CREATE_COMPLETE`）。
+- `aws lambda invoke`で`coopcde-stg-waf-digest`を手動実行した。
+  - 戻り値（生バイトで直接確認、ターミナル表示ではなくファイルから`utf-8`でデコード）: `{"total": 12882, "signals": ["AdminGeoRestrict 遮断（国別）: US=1件", "実エンドポイントへの直接アクセス試行: /api/admin/version=2件, /web/admin/login=1件, /api/admin/config=1件", "前日比の急増: 今日12882件 / 前日508件"]}`。
+  - **日本語の文字化けは発生していない**。懸念していた「CloudFormation経由でLambdaソースコード内の日本語が壊れる」問題は起きなかった。`validate-template`のテンプレート`Description`フィールドの文字化けは、Lambdaの実コード（ZipFile）には影響しない別の現象と判明した。詳細は`migration/LEARNINGS.md`に記録。
+  - SensitivePathBlock・AdminIpAllowList・レート制限系の該当はなし（LFIシグナルも0件）。stgの前日比急増（今日12882件/前日508件）は一連の検証作業によるものとみられ、既知の事象で対応不要。
+  - ユーザーにSNS経由で実際に届いたメールの文字化けの有無を確認依頼中。
+- ユーザーが実際に届いたメールを確認し、問題なし・文字化けなしと回答（2026-11-12）。**stgでの検証は完了**。
+- prdの変更セットを作成済み（`awscli-cloudformation-package-deploy-1794481269`、新規スタック`waf-digest-prd-stack`）。Claudeが内容を確認した（追加リソース4つのみ: `WafDigestExecutionRole`・`WafDigestFunction`・`WafDigestSchedulerRole`・`WafDigestSchedule`、stgと同じく既存リソースへの影響なし）。実行はユーザーが行う。
+- ユーザーが変更セットを実行。スタック`waf-digest-prd-stack`が`CREATE_COMPLETE`になったことを確認した（4リソースすべて`CREATE_COMPLETE`）。
+- `aws lambda invoke`で`coopcde-prd-waf-digest`を手動実行した。
+  - 戻り値（生バイトで直接確認）: `{"total": 1271, "signals": ["AdminGeoRestrict 遮断（国別）: US=1件", "実エンドポイントへの直接アクセス試行: /web/admin/login=3件, /api/admin/user=1件"]}`。
+  - 日本語の文字化けなし。エラーなし（Duration 3.3秒、Timeout 110秒に対し余裕あり）。
+  - `実エンドポイントへの直接アクセス試行`の内訳は、本日実施したB（管理画面IP制限Block化）のcoop無害確認（60.87.89.210からの403試行、`/web/admin/login`=3件・`/api/admin/user`=1件）と一致しており、想定どおり。
+  - **C（WAF日次ダイジェスト）はprd・stgとも実装・デプロイ完了**。次はcoopに結合確認（毎朝7:00 JSTの自動実行でメールが届くこと）を依頼する。
+- coop（coop-fc）にCの完了（構成・本文仕様・stg/prdの手動実行結果）を連絡し、毎朝7:00 JSTの自動実行での結合確認（メールが届くか、本文の体裁、要注意シグナルを検知できるか）を依頼した（2026-11-12）。
+- **これでA（SensitivePathBlock Block化）・B（管理画面IP制限Block化）・C（WAF日次ダイジェスト）すべて完了**。coopからの結合確認結果を待つ。
+- ユーザーがprdの手動実行で届いたメールを確認し、問題なしと回答（2026-11-12）。ユーザー側の確認も完了。
+- coop（coop-fc）からC（WAF日次ダイジェスト）の結合確認OKの返信を受けた（2026-11-12）。
+  - 構成確認: Scheduler `coopcde-{stg,prd}-waf-digest-schedule` = `cron(0 7 * * ? *)` Asia/Tokyo・ENABLED・ターゲットLambda。Lambda環境変数（SNS/WEBACL/ログ群/レート3種/GeoRestrict/機微正規表現）正当。prd通知先 `coopcde-support@` 確認済み。
+  - 動作確認: prd Lambda手動実行で200・エラーなし。戻り値（24hブロック総数=1269、AdminGeoRestrict US=1、実エンドポイント直アクセス `/web/admin/login`=3・`/api/admin/user`=1）を検知。本日実施したBのcoop無害確認403試行が正しくシグナル化されたことを確認。
+  - 残: メール受信・本文体裁・⚠表示の最終確認はcoopがユーザーのmailboxで依頼中（prd手動実行で1通送信済み）。stgは構成同一のため追加送信なし。
+  - coop記録: coop `conversations/2026-11-12.md`「C（WAF日次ダイジェスト）結合確認（coop担当）」。
+- **A（SensitivePathBlock Block化）・B（管理画面IP制限Block化）・C（WAF日次ダイジェスト）、coopinf側・coop側双方の確認がすべて完了**。
