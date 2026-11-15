@@ -868,3 +868,42 @@
 - **stg**: 09:25 から Block（3件）。社内 OK／社外 403／AWS 保守端末（NAT 経由）OK をユーザー確認済み。
 - **今後（coopinf）**: 本日は Count のまま WAF ログで観察。許可リスト外の正規アクセス（保守端末・お客様拠点）が would-be-block で記録されていないかを見て結果連絡。Block 化は 11/12 以降・ユーザー go 後。
 - **coop 側**: go 前に prd の無害確認（社外→403／正規入口→200）を行う用意あり。Count 観察結果とユーザー go を待機。
+
+## 2026-11-12 B（管理画面IP制限）prd Count 観察結果: 許可外の正規回線を1件検出（Block go 保留）
+
+- ユーザーから prd Count 適用状況の確認依頼。実機確認の結果:
+  - prd: `AdminIpAllowList`（Priority 15）は **Count 稼働中**（2026-11-11 11:11 JST 投入）。許可 IPSet `coopcde-prd-admin-allowed-ips` は **5件すべて /32**（第1オクテット 106/124/52/54＝お客様2拠点＋弊社1拠点＋NAT EIP2）。Priority 8〜14 は Block。
+  - stg: Block（3件）。
+- **Count 観察（投入〜11/12 時点、約25h）で許可外から管理画面到達が1件**: `113.43.176.74`（ARTERIA/Vectant、JP）が `/web/admin/login`・`/api/admin-auth/login`・`/api/admin/user` に計4回。既知の弊社 ARTERIA 回線（本番 113.43.176.74／stg 113.42.237.57 と同系列）と一致 → **弊社メンバーが許可リスト外回線から prd 管理画面にログインした可能性が高い**。このまま Block 化すると遮断される。
+- **要判断（ユーザー）**: 113.43.176.74 を (a) 許可 IPSet に追加（prd 5→6件）してから Block 化、か (b) 追加せず Block 化（当該回線は以後不可）。許可外ヒットはこの1件のみ。
+- Block 化の go は未取得（この IP の扱い確定後）。coopinf が Count 観察・ログ集計担当のため、必要なら本検出を連携予定。
+
+## 2026-11-12 追記: 許可外ヒット 113.43.176.74 はユーザーの自宅からの意図的テストと判明
+
+- ユーザー確認: `113.43.176.74`（ARTERIA）は**ユーザーが自宅から意図的に接続して試したもの**。不明なアクセスではなく、IP 制限が効くことの確認だった。
+- 結論: prd Count 観察で出た許可外の管理画面到達はこの1件のみで、身元は判明・良性。**制限は期待どおり機能**（許可外＝自宅は Block 化で遮断される）。
+- 残る判断（ユーザー go 待ち）: 自宅回線を (a) 許可に追加して Block か、(b) 追加せず Block（自宅からの prd 管理画面アクセスは常用しない前提で遮断）。Claude 推奨は (b)（テスト目的の接続であり、prd 管理画面の常時許可に自宅回線を増やさない方が制限の意味が保てる）。
+
+## 2026-11-12 決定: prd 管理画面IP制限を Block 化（案b・自宅回線は許可に追加しない）
+
+- **ユーザー go: (b)**。113.43.176.74（自宅・テスト）は許可に追加せず、prd `AdminIpAllowList`（Priority 15）を **Count → Block** にする。prd 管理画面は許可済み（お客様2拠点＋弊社1拠点＋NAT EIP2＝5件 /32）のみ許可、それ以外は 403。
+- 実作業は coopinf（インフラ担当）。coop は本決定を coopinf セッション/INBOX へ連携し、Block 化後に **無害確認（社外→403／許可済み入口→200）** を coop 側で実施する。
+- stg は既に Block（3件）。
+
+## 2026-11-12 prd 管理画面IP制限 Block化 完了・coop無害確認OK
+
+- coopinf→coop 連絡: prd `AdminIpAllowList`（Priority 15）を **Block 化完了**（変更セット確認後ユーザー実行。他ルール・許可IP5件は不変、自宅113.43.176.74は未追加）。coopinf 記録: conversations/2026-11-12.md・cf/waf-settings.md（コミット4a0817d, main）。
+- **coop 無害確認（未許可の作業端末 60.87.89.210 から curl、prd）**:
+  - `/web/`=308, `/web/members`=307（組合員ページは影響なし）
+  - `/api/admin-auth/csrf`=200（CSRF は admin pathlist 除外で通る＝組合員に影響なし）
+  - `/web/admin/login`=403, `/api/admin/user`=403（未許可からの管理画面は遮断）
+- **WAF ログ裏取り（直近2h, admin系）**: 106.186.212.11（お客様拠点・許可）=ALLOW(Default_Action) 31件、60.87.89.210（未許可）=BLOCK by `coopcde-prd-AdminIpAllowList` 3件。許可済みは通り、未許可は IP 制限ルールで遮断、を確認。
+- **結論**: 管理画面IP制限は stg/prd とも Block で本番稼働。一般利用者（組合員）への影響なし。B（管理画面IP制限）完了。
+
+## 2026-11-12 C（WAF日次ダイジェスト）結合確認（coop担当）
+
+- coopinf→coop: C 実装を stg・prd デプロイ完了（EventBridge Scheduler 毎朝7:00 JST → Lambda → 既存エラー通知SNS）。A/B/C すべて完了の連絡。
+- **coop 結合確認（構成）**: Scheduler `coopcde-{stg,prd}-waf-digest-schedule` = `cron(0 7 * * ? *)` Asia/Tokyo・ENABLED・ターゲット Lambda。Lambda `coopcde-{stg,prd}-waf-digest`（python3.12）環境変数（SNS_TOPIC_ARN/WEBACL/ログ群/レート3種/GeoRestrict/機微エンドポイント正規表現）正当。prd 通知先 coopcde-support@alphacmc.co.jp = 確認済。
+- **coop 結合確認（動作）**: prd Lambda を1回手動実行 → StatusCode 200・FunctionError なし。戻り値: 24hブロック総数=1269、要注意シグナル=「AdminGeoRestrict 遮断（国別）: US=1件」「実エンドポイントへの直接アクセス試行: /web/admin/login=3件, /api/admin/user=1件」。本日の B テスト（60.87.89.210→管理画面403）が正しくシグナル化されており、**要注意シグナル検知は機能**。
+- **要ユーザー確認**: 上記 prd 手動実行で coopcde-support@ に日次ダイジェストのメールが1通届いているはず。(a) 受信できるか (b) 本文体裁・日本語に文字化けがないか (c) 該当シグナルありの回は件名/本文冒頭に⚠が付くか、をメールで確認してほしい。stg は構成同一のため coop からの追加送信はせず（coopinf が手動実行確認済み）。
+- 結論: A(SensitivePathBlock)・B(管理画面IP制限)・C(日次ダイジェスト) 実装・デプロイ完了。C のメール受信/体裁のみユーザー最終確認待ち。

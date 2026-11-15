@@ -532,3 +532,51 @@
 - ユーザー指示で、`ListAgents`/`SendMessage`により稼働中のalphasystemセッション（alphasystem-6f）へ
   直接報告（PR #109完了記録・CodeArtifact/CodeBuild確認結果を踏まえ、conversations.mdのサマリ内容を
   要約して送信）。alphaexapiへはINBOXファイルで申し送り済み・未取り込みである旨も併せて伝達。
+
+## 2026-11-15 alphadb を 0.5.0 に版上げ（本番環境構築のバージョン統一）
+
+- 発端: alphasystem-62 から依頼（ユーザー承認「0.5.0 の統一でお願いします」、2026-11-15）。
+  仕様: `alphasystem/docs/design/2026-11-10-本番環境構築-仕様.md` 3章の手順1。
+- 対応: `feature/version-0.5.0` で `package.json`・`package-lock.json` を 0.2.8 → 0.5.0（スキーマ・マイグレーションの変更なし）。
+  `npm test` 10件 pass。Draft PR（base: staging）を作成。
+- 段取り（確定）: ① ユーザーが PR を `staging` にマージ → ② `staging` → `main` の同期 PR をマージ（**必須**。
+  `alphadb-publish` はデフォルトブランチ `main` を読む）→ ③ `alphadb-publish` を実行 → ④ alphadb が CodeArtifact で
+  0.5.0 の Published・`latest` を確認し alphasystem-62 に連絡（alphasys・alphaexapi の `^0.5.0` 化はこれを待って開始）。
+  マージのタイミングはユーザーに確認する。マイグレーションの追加は無いので `staging-prisma-merge-project-build` は不要。
+- 事前確認（2026-11-15）:
+  - CodeArtifact の dist-tag `latest` は `0.2.8`。版は 0.0.1〜0.2.8 と 1.0.0。`npm publish` は新しく出した版に `latest` を付けるため、
+    0.5.0 の publish 後は `latest` = 0.5.0 になる見込み（1.0.0 より小さいが、`latest` は semver 順ではなく最後の publish で決まる）。
+    `^0.5.0` は 0.5.x のみに一致し 1.0.0 とは干渉しない。publish 後に `latest` の向き先を確認する。
+  - `staging` と `main` は内容の差なし（main 側に同期のマージコミットがあるだけ）。alphadb の未マージ PR は無し。
+    未着手の issue は #99（部分ユニーク索引、ユーザー判断待ち）のみ。
+  - 夜間自動移行: 10/27 の Bastion 置換（i-08f13fc70ac372bde）で 10/28〜11/05 は `STEP init` で失敗していたが、
+    11/06 16:34 JST の手動実行で `RESULT: SUCCESS`、以後 11/07〜11/15 は毎晩 SUCCESS（**復旧済み**）。
+- 気づき: 10/28〜10/30 の記録が日付別ファイルではなくアーカイブの `conversations.md` に追記されている（README の運用と食い違い）。
+  今回は日付別ファイルに記録。移すかどうかはユーザーに確認する。
+- Draft PR **#114** を作成し、alphasystem-62 へ報告（PR・段取り・`latest` の見込み・staging の状況〈未マージ PR なし、0.2.6〜0.2.8 適用済み、
+  夜間移行は 11/06 に復旧済み〉）。
+- issue #99 は 0.5.0 に**含めない**前提で進める（ユーザー判断待ちのため。ユーザーに確認中）。
+- alphasystem-62 返信: 仕様 3.5 の「進行中の作業」は alphadb 側は問題なし。順序は提案どおり（#114 → staging→main 同期 → `alphadb-publish`）で了承。
+  マージのタイミングはユーザーに確認。0.5.0 が Published・`latest` 確認後に alphasystem-62 へ連絡する。
+- **完了**: #114 は staging にマージ済み（03:32Z）、main も 0.5.0。CodeArtifact で 0.5.0 = Published、
+  `npm view alphadb dist-tags` → `latest: '0.5.0'` を確認し、alphasystem-62 へ連絡（alphasys・alphaexapi の `^0.5.0` 化の開始可）。
+
+## 2026-11-15 本番の夜間移行のロググループ名（alphasyscdk-ec から連絡）
+
+- 内容: 本番の夜間移行のロググループは `/alphasys/prod/nightly-migration`（alphasyscdk PR #144。`ssm-ec2.ts` が staging 名を固定で持っていて
+  本番 deploy が失敗したため環境別に修正）。本番 Bastion のロールの書き込み権限はこの名前のみ。staging は `/alphasys/staging/nightly-migration` のまま。
+- 本番配備（仕様 6.4）の際は `/etc/alphadb-migration.env` の `LOG_GROUP` を `/alphasys/prod/nightly-migration` にする。
+- alphadb の現状: `nightly_automation.md` の staging 名の記述（§7 表・§9.4 の確認コマンド）はすべて staging 向けで誤りではない。本番向けの手順はまだ無い。
+  本番向けの記述（ロググループ名・`--profile` の違い）を追加するかはユーザーに提案中。
+
+## 2026-11-15 本番の夜間移行の手順追加・issue ＃99・10/28〜10/30 記録の移動（ユーザー回答）
+
+- **本番の夜間移行の手順**: ユーザー承認（「お願いします」）。`nightly_automation.md` に「10. 本番への配備」を追加
+  （staging と本番の違いの表〈プロファイル・`DST_PGHOST`/`SECRET_ID` の CFN export・`LOG_GROUP=/alphasys/prod/nightly-migration`・
+  S3 バケットポリシーへの本番ロール追加〉、仕様 6.4 の順序に沿った手順、翌朝の CloudWatch 確認、カットオーバー時に止める注意）。
+  夜間移行キット（スクリプト・`nightly.env.example`）は変更しない。本番アカウントへの AWS 照会は権限で拒否されたため、本番の値は
+  CFN export 名・プレースホルダーで記載（本番 Bastion のロール ARN は ProductionStack のデプロイ後に調べる）。
+- **issue #99（部分ユニーク索引）**: ユーザー判断「そのまま残す。ただし実運用上はありえないと思われる」。
+  **0.5.0 には含めず、issue は OPEN のまま残す**（着手しない）。
+- **10/28〜10/30 の記録**: ユーザー指示「日付ごとのファイルに移す」。アーカイブ `conversations.md` から
+  `conversations/2026-10-28.md`（2 件）・`2026-10-29.md`（4 件）・`2026-10-30.md`（1 件）へ移動（内容は変更なし、差分で一致を確認）。

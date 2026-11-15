@@ -4,7 +4,7 @@
   "title": "Daily syncこのターンを確認しました。\n\n**このターンの内容:**\n- `/dail...",
   "titleGenerationStatus": "success",
   "createdAt": 1790208481851,
-  "lastActivityAt": 1794286608899,
+  "lastActivityAt": 1794784354634,
   "sessionId": "8e6ff3ee-c2cc-4297-b3e4-16d94e4a97a6",
   "selectedModel": "sonnet",
   "providerState": {
@@ -15,9 +15,9 @@
     "model": "sonnet",
     "inputTokens": 1,
     "cacheCreationInputTokens": 927,
-    "cacheReadInputTokens": 238071,
+    "cacheReadInputTokens": 239355,
     "contextWindow": 967000,
-    "contextTokens": 238999,
+    "contextTokens": 240283,
     "percentage": 25,
     "contextWindowIsAuthoritative": true
   }

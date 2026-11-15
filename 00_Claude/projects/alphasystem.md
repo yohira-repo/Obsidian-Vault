@@ -4263,3 +4263,408 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
   - 曖昧さ: 8-3 の「削除**または改訂**」を**削除する**に確定（版数を上げる通常運用に移行済みで 0.5.0 以降は該当しないため）。
   - 事実の更新: **alphasys #324（`/unauthorized`）はマージ済み**（2026-11-10 06:05 UTC）だったので反映。
 - **次**: ユーザーの仕様書レビュー → 承認後に実装計画（どのリポジトリに何をどの順で依頼するか）を作成する。
+
+## 2026-11-14 本番 DB はリリースまで 1 インスタンス、リリース時に 2 インスタンスへ（ユーザー承認）
+
+- **確認の内容**: 本番環境構築にあたり、DB を、リリースまで staging 同様の 1 インスタンスとし、リリース時に 2 インスタンス構成にしたい。容易にできるか。
+- **回答（alphasystem、コードを読んだ範囲）**: 容易にできる。DB は Aurora PostgreSQL のクラスタで、インスタンス数は環境ごとの `instanceCount`（staging は `lib/staging-stack.ts:187` で 1、本番は `lib/prod-stack.ts:186` で 2）。Aurora はストレージがクラスタ共有のため、データ移行は不要で、書き込みエンドポイントも変わらない。停止なしで、追加に 10 分程度の見込み。`cdk diff` での確認は、まだしていない。
+- **決定（ユーザー承認、2026-11-14）**: alphasyscdk に、本番スタックの `instanceCount` を 1 にする修正を依頼する。リリース時に 2 へ戻して `cdk deploy` する。
+- **依頼**: `ListAgents` に alphasyscdk-ec が居たため、`SendMessage` で依頼した。ブランチ作成と Draft PR（base=staging）、`cdk diff` で 1→2 がインスタンスの追加のみ（置換なし）であることの確認、リリース時に 2 へ戻す手順の docs 化、PR リンクの報告。
+- **留意点**: 1 インスタンスの間は、障害時の自動切り替えがない（バックアップ復旧のみ）。2 台目の AZ 配置は、デプロイ後に確認する。
+- **リリース時の作業（日付は未定）**: `instanceCount: 2` に戻して `cdk deploy`。
+
+## 2026-11-14 alphasyscdk が本番 DB 1 インスタンス化の Draft PR ＃132 を作成
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。[alphasyscdk PR #132](https://github.com/alphacmc/alphasyscdk/pull/132)（Draft、base=staging）。
+- **変更**: `lib/prod-stack.ts` の `instanceCount` を 2 → 1。`docs/構築・メンテナンス手順.md` に「5-2-1 本番の DB を 2 台にする（リリース時）」を追加。手順は、2 に戻す PR → `diff:prod` → `deploy:prod` → 2 台目の AZ の確認 → フェイルオーバー試験をするかの判断、の順。1 台の間の注意も記載。
+- **1→2 の diff の確認**: 本番スタックは未作成のため、同じ RdsConstruct を使う staging で一時的に 2 台にして、変更セットで diff を取った（すぐ元に戻した）。追加は `RDS/DBCluster/Instance2` のみで、Instance1 とクラスタは置き換わらない。ほかの差分は、MigrateTrigger とその IAM ポリシーの DependsOn に Instance2 が加わるだけ（中身は変わらない）。これで、私が先に「未確認」とした `cdk diff` の点が確認できた（staging での代替確認）。
+- **本番の初回デプロイ前の作業**: `synth ProductionStack` は `templates/template-ids.prod.json` が空で止まる（DB とは無関係）。初回デプロイ前に `templates:deploy --env prod` で本番のテンプレートを作る必要がある。
+- **次**: ユーザーが PR #132 の Draft を解除してマージする。リリース時に 2 台へ戻す作業（日付は未定）は、PR #132 の手順 5-2-1 に従う。
+
+## 2026-11-14 alphasyscdk PR ＃132 マージ（ユーザー）。次の作業の洗い出し
+
+- **事実（ユーザー報告）**: alphasyscdk PR #132（本番 DB をリリースまで 1 台にする）をマージした。これで本番スタックは `instanceCount: 1`。リリース時に 2 へ戻す手順は alphasyscdk の `docs/構築・メンテナンス手順.md` 5-2-1。
+- **次の作業の洗い出し（本番環境構築 仕様、[2026-11-10-本番環境構築-仕様.md](../design/2026-11-10-本番環境構築-仕様.md) 10 章）**: 各リポジトリの `origin/staging`（fetch 後）を確認した。仕様の次の項目は、いずれも未着手に見える。
+  - バージョン: alphadb `0.2.8`、alphaexapi `0.1.0`、alphasys `0.1.0`（0.5.0 への統一は未着手）。
+  - コード修正 8-1（alphasyscdk の DnsConstruct を apex 対応）、8-2（alphaexapi の営業メール取り込みの on/off）、8-3（alphasyscdk 文書のシークレット件数 26 件）: 該当するコミットは見当たらない。
+  - 8-4（alphasystem のブランチ運用ルールに alphadb の `main` 先行の例外を追記）: 私の担当で未実施。
+- **次**: ユーザーの了解を得て着手順を決める（ユーザー作業の待ち時間が長い前提作業 = DNS 委譲・SES 本番アクセス申請・`cdk bootstrap`・Parameter Store 26 件を先に、が仕様 4 章の方針）。
+
+## 2026-11-14 本番前提作業 1 は作成済み。2（SES 申請）と 3（cdk bootstrap）の手順を案内。本番の SES 構成が ProductionStack に無いことが判明
+
+- **ユーザー報告**: 前提作業 ①（DNS 委譲）は「作成済み」。②（SES 本番アクセス申請）の具体的な手順と、③（`cdk bootstrap`）のコマンドを、教えてほしい。着手順の私の提案（各セッションへの依頼）への、了解の返事は、まだ無い。
+- **案内した内容**: ③は alphasyscdk で `npm run bootstrap:prod`（`cdk bootstrap aws://938812705475/ap-northeast-1 --profile prod`）。②は本番アカウント（938812705475、ap-northeast-1）の SES コンソールから申請する。文面は、alphasyscdk の SES 設計書 4.2 の下書きを、本番用（URL を `https://alphasys.alphacmc.com`、末尾の「staging 環境」の一文を本番に）に直したものを使う。
+- **判明した事実（コード確認）**: `lib/prod-stack.ts` に SES の構成（`SesConstruct`、`MAIL_FROM`、タスクロールへの送信許可）が**無い**。`staging-stack.ts` にだけある。SES 設計書の 5 章は「本番（設計のみ・着手しない）」のまま。本番構築の仕様（11/10）の 8 章にも載っていない。送信元の想定ドメインも、設計書 5 章は `alphasystem.alphacmc.com` 系、実際の本番ドメインは `alphasys.alphacmc.com` で食い違っている。
+- **未決（要ユーザー判断）**: 本番スタックに SES を入れるか（4_7_1 のメールを本番で使うなら必要）。入れるなら alphasyscdk へ依頼し、仕様の 8 章へ追記する。送信元ドメインも決める。
+- **未確認**: ①の「作成済み」が、ホストゾーンの作成のみか、`alphacmc.com` 側の NS 委譲まで済んでいるか。確認コマンドを案内した。
+
+## 2026-11-14 本番に SES を入れる（ユーザー承認）。送信元は alphasys.alphacmc.com。cdk bootstrap（本番）は完了
+
+- **ユーザー報告**: 前提作業 ③（`cdk bootstrap`、本番アカウント）は**完了**。
+- **決定（ユーザー承認、2026-11-14）**:
+  1. 4_7_1 のメールを本番で使うため、alphasyscdk に、本番スタック（ProductionStack）へ SES の構成を入れてもらう。
+  2. 送信元ドメインは **`alphasys.alphacmc.com`** に統一する（本番の実ドメイン）。SES 設計書 5 章の `alphasystem.alphacmc.com` 系は誤記として直す。
+- **依頼**: `ListAgents` に alphasyscdk-ec が居たため、`SendMessage` で依頼した。ブランチ作成と Draft PR（base=staging）、DKIM・MAIL FROM・DMARC の DNS レコードが本番のホストゾーンに作られることの確認、SES 設計書 5 章の更新、PR リンクの報告。
+- **まだ依頼していないもの**: 仕様 8-1（alphasyscdk の DnsConstruct の apex 対応）、8-3（シークレット件数の文書修正）、8-2（alphaexapi のメール取り込みの on/off）、alphacdk の本番デプロイ。前回の私の提案への了解は、まだ受けていない。
+- **本番仕様への追記（私の作業、未実施）**: 仕様書 8 章に「本番スタックへの SES の追加」を足す。
+- **ユーザー作業（未）**: 本番アカウントでの SES 本番アクセス申請（②）。DNS 委譲（①）は「作成済み」とのこと（NS 委譲の完了までは未確認）。
+
+## 2026-11-14 alphasyscdk の返信: 本番 SES は 8-1（DNS の apex 対応）に依存。NS 委譲は通っている
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。
+- **確認できた事実**: 本番アカウントの `alphasys.alphacmc.com` のホストゾーン（`Z01029762HO9GEN1GXBMI`）はあり、**NS 委譲も通っている**（前提作業 ① が完了と確認できた）。
+- **依存関係**: `cdk.json` の本番は `alphacmc.com` + `alphasys` のまま。`SesConstruct` は `DnsConstruct` のゾーンを使うため、**8-1（apex 対応）が入る前は、`alphasys.alphacmc.com` にレコードを置く `diff:prod` が取れない**。alphasyscdk のユーザーに、「8-1 を同じ PR に含める」か「8-1 の後に SES を載せる」かを確認中。
+- **新たに判明した食い違い**: alphasyscdk の `.env.prod` の `AUTH_URL` が `https://alphasystem.alphacmc.com` のまま。送信元ドメインを `alphasys.alphacmc.com` に統一した決定（上の節）と食い違う。直す必要がある（認証の戻り先の URL なので、誤ると本番のログインに影響する見込み）。
+- **`diff:prod` の制約**: `templates/template-ids.prod.json` が空だと synth で止まる（既知）。確認の間だけ、ローカルでダミーの ID を入れる案（コミットしない）を、alphasyscdk のユーザーに出している。
+- **次**: alphasyscdk からの PR リンクを待つ。8-1 は、仕様上すでに alphasyscdk の作業のため、SES と同じ PR になるか別 PR になるかの方式は、alphasyscdk 側の確認結果に従う。
+
+## 2026-11-14 本番前提作業 ① DNS 委譲の完了を確認（nslookup と Route53 の突き合わせ）
+
+- **ユーザー提供**: `nslookup -type=NS alphasys.alphacmc.com` の結果。`ns-1034.awsdns-01.org`、`ns-1540.awsdns-00.co.uk`、`ns-195.awsdns-24.com`、`ns-866.awsdns-44.net` の 4 つが返った。
+- **確認（alphasystem、読み取りのみ）**: 本番アカウントのホストゾーン `Z01029762HO9GEN1GXBMI` の `DelegationSet.NameServers` と**4 つとも一致**した。委譲は完了。
+- **本番前提作業の現在地**: ① DNS 委譲 完了、③ `cdk bootstrap`（本番）完了。② SES の本番アクセス申請、④ Parameter Store 26 件、⑤ alphacdk 一式、⑥ ECR の pull 許可の確認は、未確認または未実施。
+
+## 2026-11-14 本番 SES のアクセス申請を CLI で提出（ユーザー承認）。審査 PENDING
+
+- **経緯**: 本番アカウント（938812705475）の SES コンソールで「本番アクセスをリクエスト」がグレーアウトし、押せなかった（管理者権限、アカウント ID・東京リージョンは正しい。VDM の「使用を開始」だけが押せる状態）。原因は画面からは特定できなかった。審査中の申請は無く、サンドボックスのままだった（`ProductionAccessEnabled: false`）。
+- **承認（ユーザー、2026-11-14）**: CLI で申請してよい。追加の連絡先メールは `yohira@alphacmc.co.jp`。
+- **実行（alphasystem）**: `aws sesv2 put-account-details`（profile `prod`、`ap-northeast-1`）。Mail type は Transactional、Website URL は `https://alphasys.alphacmc.com`、言語は JA。コマンドはエラーなく通り、`get-account` で `ReviewDetails.Status: PENDING` を確認した。
+- **申請文**: 先の案内の英文の末尾を「This is our production environment.」に直し、さらに 2 文を足した（URL は社内専用で、公開前のため社外から届かない可能性があること。送信元ドメイン `alphasys.alphacmc.com` は本番の Route 53 のホストゾーンに委譲済みであること）。ユーザーは、この一文を入れるかの質問に答えていなかったため、私が入れる判断をした。ユーザーへ報告する。
+- **次**: 審査の結果（おおむね 1 日）を待つ。結果は、連絡先メールか、`aws sesv2 get-account --profile prod --region ap-northeast-1` の `ProductionAccessEnabled` で確認できる。本番スタックへの SES の構成（alphasyscdk 依頼中）は、別作業。
+
+## 2026-11-14 本番 SES のサンドボックス解除が承認された（GRANTED）
+
+- **ユーザー報告**: コンソールで「本番アクセスをリクエスト」が有効になった。
+- **確認（alphasystem、読み取りのみ）**: `aws sesv2 get-account`（profile `prod`、`ap-northeast-1`）で、`ProductionAccessEnabled: true`、`ReviewDetails.Status: GRANTED`、ケース ID `179466012600694`。送信上限は 24 時間に 50,000 通、毎秒 14 通になった（サンドボックスは 200 通、毎秒 1 通）。CLI で出した申請が、そのまま承認された。ボタンが有効になったのは、承認後の表示とみられる（確認していない）。
+- **やらないこと**: コンソールから再度申請しない（承認済みのため）。
+- **残り**: 本番スタックへの SES の構成（送信元ドメインの ID、`MAIL_FROM`、送信許可）。alphasyscdk に依頼済みで、8-1（DNS の apex 対応）の方式をユーザーに確認中。承認だけでは、本番のアプリはメールを送れない。
+
+## 2026-11-14 本番環境構築の次の作業を進める（ユーザー承認「進めてください」）。3 セッションへ依頼、8-4 を実施
+
+- **承認（ユーザー、2026-11-14）**: 先の私の提案（alphacdk の本番デプロイ、alphasyscdk の 8-1・8-3、alphaexapi の 8-2）を「進めてください」。
+- **依頼（`ListAgents` に全員が居たため `SendMessage`）**:
+  - **alphasyscdk-ec**: 8-1（DnsConstruct の apex 対応、`cdk.json` の本番コンテキスト更新）、8-3（シークレット件数 26 件、付録 A の 1.0.0 上書き運用の削除）、`.env.prod` の `AUTH_URL` を `alphasys.alphacmc.com` に統一。8-1 と SES は、同じ PR か別 PR かは alphasyscdk に任せる（別なら 8-1 を先に）。
+  - **alphacdk-bd**: 本番アカウントへ KeyPairs → Network → LaunchTemplates をデプロイし、`TrainingInstanceRoleArn` を alphasystem と alphasyscdk に渡す。実デプロイの前に確認を取る。
+  - **alphaexapi-16**: 8-2（営業メール取り込みの on/off）。コード修正なので、**方式案を先に出して、ユーザーの了解を得てから着手**する。本番構築時は OFF、staging は ON。
+- **実施（alphasystem、文書のみ）**: 8-4 としてブランチ運用ルールに alphadb の `main` 先行の例外を追記。本番環境構築の仕様 8 章に、5（本番スタックへの SES の追加、送信元は `alphasys.alphacmc.com`）と 6（`AUTH_URL` の統一）の行を追加し、4 に実施済みを付記した。
+- **留意**: 8-2 は方式案の承認が要る。alphacdk の本番デプロイは、実行前に確認を取る。
+- **未着手（時期待ち）**: 0.5.0 への版の統一（alphadb / alphaexapi / alphasys）。進行中の作業が `staging` に入り終えてから切る（仕様 3.5）。
+- **ユーザー作業（残り）**: ④ Parameter Store 26 件の登録（未確認）。
+
+## 2026-11-14 alphaexapi が 8-2（営業メール取り込みの on/off）の方式案を提示。ユーザーの了解待ち
+
+- **報告者**: alphaexapi-16（別セッション）。ユーザーの承認ではない。コードはまだ直していない。記録だけの [alphaexapi PR #215](https://github.com/alphacmc/alphaexapi/pull/215)（Draft）。了解が出たら同じ PR にコードを足す。
+- **方式案**:
+  1. 環境変数 `SALES_MAIL_POLLING_ENABLED`。値が `true` のときだけ取り込む。未設定・`false`・その他は OFF（既定は OFF）。
+  2. `true`・`false` 以外の値（例: `ture`）は、起動時に warn を出して OFF 扱い。
+  3. ログは、起動時に 1 回だけ ON/OFF を出す。10 分ごとの呼び出しは、OFF のとき何も出さずに戻る。
+  4. `@Cron` は残し、`runPolling` の先頭で設定を見て OFF なら戻る（DB のロックも取らない）。値は起動時に 1 回だけ読む（ECS の環境変数はタスクの再起動で変わるため）。
+  5. `.env.example` に `SALES_MAIL_POLLING_ENABLED=false` を足す。ローカル開発も、`true` にしない限り取り込まない。
+  6. テスト: OFF で取り込みもロック取得もしない、ON で取り込む、想定外の値で warn。
+  7. **切り替えの順番（重要）**: 先に alphasyscdk が staging に `SALES_MAIL_POLLING_ENABLED=true` を渡し、そのあとで alphaexapi の修正を staging にデプロイする。逆だと、その間 staging の取り込みが止まる。本番は渡さないか `false`。
+- **状態**: ユーザーの了解待ち。了解が出たら、alphaexapi が変数名を alphasyscdk-ec に伝え、alphasyscdk の PR → staging へ反映 → alphaexapi の修正をデプロイの順に進める。
+
+## 2026-11-14 alphacdk が本番デプロイの前に決めること 2 点を提示。仕様 4.3 を訂正
+
+- **報告者**: alphacdk-bd（別セッション）。ユーザーの承認ではない。デプロイはまだ始めていない。alphacdk のユーザーの判断待ち。
+- **確認できたこと**: 本番の CDKToolkit は、既定の qualifier `hnb659fds`・バージョン 32 で作成済み。alphacdk も既定を使うため、alphacdk 用の `cdk bootstrap` は不要。
+- **仕様 4.3 の訂正（alphasystem、コードで確認して反映）**: 環境の指定は `-c environment=prod` ではなく **`NODE_ENV=prod`**（`deploy:key:prod` / `deploy:net:prod` / `deploy:lts:prod`、profile `prod`）。ロールを作るのは `MMSInstanceRoleConstruct` ではなく **`TrainingInstanceConstruct`**。ロール名は `alphacmc-prod-training-instance-role`、ARN は `arn:aws:iam::938812705475:role/alphacmc-prod-training-instance-role` となる見込み（確定値はデプロイ後に alphacdk から）。
+- **デプロイ前に決める必要がある 2 点（alphacdk がユーザーに確認中）**:
+  1. **VPC の CIDR**: 既定は staging と同じ `10.50.0.0/16`。本番は社内と VPC ピアリングする予定があり、後から変えると VPC の作り直しになる（ProductionStack も `Fn.importValue` でこの VPC を参照するため、影響が大きい）。
+  2. **NAT 方式**: 既定は NAT インスタンス。ProductionStack の ECS がプライベートサブネットから外に出る場合は、本番の可用性に関わる。
+- **留意**: 本番に対する `cdk diff` は、alphacdk の自動承認のチェックで拒否され、ユーザーに判断を仰いでいる。`deploy:net:prod` は `--require-approval never` のため、IAM の変更の確認なしで実行される（コードで確認）。
+
+## 2026-11-14 alphasyscdk が 8-1 と本番 SES を Draft PR ＃134 にした
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。[alphasyscdk PR #134](https://github.com/alphacmc/alphasyscdk/pull/134)（Draft、base=staging）。8-1 と本番 SES を 1 つの PR にした。
+- **内容**: `cdk.json` の本番は `{"domainName":"alphasys.alphacmc.com","subDomain":""}`。`DnsConstruct` は、`subDomain` が空ならゾーン apex をホスト名にする。staging は影響なし（`diff:staging` は差分なし）。
+- **`diff:prod` の確認**（`template-ids.prod.json` だけ、確認中にダミーの ID を入れ、終わって元に戻した）: 証明書の検証、A レコード（apex）、DKIM の CNAME 3 件、`bounce.alphasys.alphacmc.com` の MX と SPF、`_dmarc` の TXT が、すべてゾーン `Z01029762HO9GEN1GXBMI` に作られる。`MAIL_FROM` は `no-reply@alphasys.alphacmc.com`、`ALPHASYS_BASE_URL` は `https://alphasys.alphacmc.com`。
+- **送信の許可**: staging と同じく `identity/*` を対象にし、`ses:FromAddress` で絞っている。本番はサンドボックスを解除済みなので、送信元 ID の ARN だけに絞れるが、staging と共通の construct なので今回は据え置き（SES 設計書 5 章に記載）。
+- **`.env.prod` の `AUTH_URL`**: 確認時点で、すでに `https://alphasys.alphacmc.com` になっていた（同日 21:54 に誰かが直したとのこと。私の依頼の前後かは不明）。`API_URL` は共通値 `http://localhost:3001`（フロントとバックが同じタスクにいるため、staging と同じ）。ほかの URL 系に食い違いはない。
+- **8-3（手順書の件数）**: alphasyscdk のユーザーの了解を得てから、別の PR にする。
+- **次**: ユーザーが PR #134 のレビュー・Draft 解除・マージ（本番スタックのデプロイ前に、マージするか）を判断する。8-3 の PR を待つ。
+
+## 2026-11-14 alphasyscdk が 8-3 を Draft PR ＃135 にした。ECS が読むシークレットは 27 件
+
+- **報告者**: alphasyscdk-ec（別セッション）。[alphasyscdk PR #135](https://github.com/alphacmc/alphasyscdk/pull/135)（Draft、base=staging。alphasyscdk のユーザーが了解済み）。
+- **内容**: 手順書 1-3-A-3 の表に、抜けていた MF クラウド連動の 15 件を追加。付録 A のゲート②-1（1.0.0 上書き運用）を削除。ただし、その中の「スキーマを変更したらマイグレーションも必要」の項は、上書き運用と無関係に今も当てはまるので、ゲート②の注意として残した。
+- **新たに判明（ユーザー作業の前提に影響）**: 登録スクリプトの `MAPPING` は 26 件で仕様どおりだが、**ECS が読むのは 27 件**（`ecs.ts` の `secureParam`）。26 件にスクリプトの対象外の `alphaexapi/GOOGLE_CREDENTIALS_JSON` が加わり、**手で登録する**。本番でも、これを登録しないと ECS タスクが起動しない。
+- **対応（alphasystem）**: 仕様書 4.2 に、27 件目の注記を追加した。④ Parameter Store の作業（ユーザー）は、26 件に加えて、この 1 件が要る。
+- **補足**: 先の「本番の `GOOGLE_CREDENTIALS_JSON`」（未決の旧課題）は、この 1 件のこと。値の出どころ（staging と同じ鍵を使うか、本番用を作るか）は、まだ決まっていない。
+- **次**: ユーザーが PR #135 をレビュー・マージする。
+
+## 2026-11-14 alphacdk の本番デプロイ途中経過。本番 VPC の CIDR は 10.100.0.0/16、NAT はインスタンス（ユーザー決定、alphacdk 報告）
+
+- **報告者**: alphacdk-bd（別セッション）。決定は、alphacdk のセッションで、ユーザーが行ったとの報告（私のセッションでの承認ではない）。
+- **決定（ユーザー、alphacdk 経由）**: 本番 VPC の CIDR は **`10.100.0.0/16`**（社内との VPC ピアリングのため、staging の `10.50.0.0/16` とは別の範囲）。alphacdk の PR #33 で、コード上の既定値としても固定。NAT は **NAT インスタンス**。
+- **実施状況**: KeyPairsStack と NetworkStack は `CREATE_COMPLETE`（2026-11-14）。**確認（alphasystem、読み取りのみ）**: 本番アカウントで、`NetworkStack`・`KeyPairsStack`・`CDKToolkit` が `CREATE_COMPLETE`、VPC `vpc-0941a4778168de668` の CIDR が `10.100.0.0/16`。`TrainingInstanceRoleArn` は `arn:aws:iam::938812705475:role/alphacmc-prod-training-instance-role`（alphasyscdk-ec にも連絡済みとのこと）。LaunchTemplatesStack は確認中。
+- **対応（alphasystem）**: 仕様書 4.3 の「デプロイ前に決めること」を、決定と実施状況に書き換えた。
+- **留意**: PR #152 がマージ済みだったため、`origin/staging` から新しいブランチ `docs/prod-vpc-decision-1114` を作った。
+- **次**: alphacdk から LaunchTemplatesStack の完了の連絡を待つ。alphasyscdk は `.env.prod` の `MMS_INSTANCE_ROLE_ARN` に ARN を入れる。
+
+## 2026-11-14 alphacdk の本番デプロイ完了。前提作業 ⑤ 完了
+
+- **報告者**: alphacdk-bd（別セッション）。記録は alphacdk の conversations.md（PR #33、Draft）。
+- **結果**: 本番アカウント（938812705475）に、KeyPairsStack（windows-admin / linux-admin）、NetworkStack（`vpc-0941a4778168de668`、`10.100.0.0/16`、NAT インスタンス 2 台）、LaunchTemplatesStack `alphasys-launch-templates`（alphacmc-windows / alphacmc-linux。本番のキーペア・ロール・SG を参照）が、すべて `CREATE_COMPLETE`。**確認（alphasystem、読み取りのみ）**: 本番アカウントで `NetworkStack`・`KeyPairsStack`・`alphasys-launch-templates` が `CREATE_COMPLETE`。
+- **`TrainingInstanceRoleArn`**: `arn:aws:iam::938812705475:role/alphacmc-prod-training-instance-role`。alphasyscdk-ec は Export の値とロールを確認済みで、`.env.prod` の `MMS_INSTANCE_ROLE_ARN` も、すでにこの値だった。
+- **alphacdk からの参考（研修インスタンス作成時のサブネット）**: 本番で alphaexapi が研修インスタンスを作るとき、`SubnetIdParam` に本番のサブネット（プライベート `subnet-07d397c21e136303f` / `subnet-01443a26a736d5872`）を渡す必要がある。**確認（alphasystem、コード）**: alphaexapi は `CDK_SUBNET_ID_PUBLIC` / `CDK_SUBNET_ID_PRIVATE` を読み、alphasyscdk の `ecs.ts` が `Fn.importValue("NetworkStack-…")` から ECS の環境変数に自動で入れる。本番で手で設定する必要はない（NetworkStack が本番アカウントにあるため）。`CDK_INSTANCE_TYPE_SMALL/BIG` は `.env` の値（`.env.prod` に要る）。
+- **前提作業の現在地**: ① DNS 委譲、② SES 申請・承認、③ `cdk bootstrap`、⑤ alphacdk 一式は完了。④ Parameter Store 27 件はユーザー作業で未確認。⑥ ECR の pull 許可は確認のみ（未実施）。
+- **次**: alphasyscdk の PR #134・#135 のマージ、④の登録、0.5.0 の統一（仕様 3 章）、ProductionStack のデプロイ（仕様 5 章）。
+
+## 2026-11-15 本番の Parameter Store 登録は staging と同じスクリプトでできるが、alphaexapi の `.env.prod` が無く、そのままでは開発用の値が入る
+
+- **ユーザーの質問**: Parameter Store の 27 件を、staging と同様に `.env*` から作れるか。
+- **回答**: できる。`scripts/register-secret-parameters.py --env prod` は、各値を「参照元リポジトリの `.env.prod` → `.env`」の順で探し、`/alpha/prod/...` に SecureString で登録する。既定はドライランで、`--apply` と `--expect-account 938812705475` を付けたときだけ書き込む。値は表示しない。
+- **確認（alphasystem、値を出さず、スクリプトの読み取りの判定をシェルで再現）**: 26 件のうち、`alphasyscdk/.env.prod` から読まれるのは 3 件（Google OAuth の ID とシークレット、`AUTH_SECRET`）。**alphaexapi には `.env.prod` が無く**、22 件は `alphaexapi/.env`（ローカル開発用の値）にフォールバックする。残り 2 件（`SHARED_DRIVE`、`ANTHROPIC_API_KEY`）は、どちらのファイルにも無いか空。
+- **問題**: このまま `--apply` すると、本番に開発用の値が登録される。特に、スクリプト自身の注記で「環境で異なる値」とされている `MF_OAUTH_REDIRECT_URI`（本番 URL にすべき）と `MF_TOKEN_ENCRYPTION_KEY`（本番専用の鍵にすべき）が該当する。MF のクライアント ID・シークレットなども、本番用のアプリ登録の値を使うかを決める必要がある。
+- **27 件目**: `alphaexapi/GOOGLE_CREDENTIALS_JSON` はスクリプトの対象外で、手で登録する。
+- **この PC の制約**: 実体のある Python が入っていない（`python3` は Windows ストアの空のスタブ）。スクリプトは、Python が使える PC で実行するか、Python を入れてから実行する。
+- **決定待ち（ユーザー）**: ①`alphaexapi/.env.prod` を作る（本番の値を書く）。②`SHARED_DRIVE`、`ANTHROPIC_API_KEY` の本番の値。③営業メール取り込みは本番 OFF だが、ECS の起動にはパラメータが要るため、`SALES_MAIL_IMAP_*` の値（ダミーか、staging と同じか）。
+- **訂正（alphasystem の記録の誤り）**: 昨日（11/14）の「本番 VPC の CIDR・NAT 方式の決定」の対応で、仕様書 4.3 を書き換えたと記録・報告したが、`python3` がスタブだったため**書き換えは反映されていなかった**（記録の文書だけがコミットされていた）。今回、編集ツールでやり直して反映した。
+
+## 2026-11-15 本番アカウントに GitHub 接続を作る（alphasyscdk Draft PR ＃139）。仕様 4・5 章を訂正
+
+- **報告者**: alphasyscdk-ec（別セッション）。[alphasyscdk PR #139](https://github.com/alphacmc/alphasyscdk/pull/139)（Draft）。「ユーザー承認済み、2026-11-15」との報告（alphasyscdk のセッションでの承認）。
+- **問題**: 本番の CodePipeline が、GitHub 接続を SharedStack の Export `pipeline-connection-arn` から引いていた。この Export は共有アカウントにしか無く、別アカウントからは引けないため、`deploy:prod` が失敗する見込みだった。本番アカウントにも GitHub 接続は無かった。仕様 4 章の「GitHub 接続の承認は不要。SharedStack の接続を使う」は**誤り**だった（私の確認不足。SharedStack が `AVAILABLE` であることしか見ていなかった）。
+- **対応（決定、ユーザー）**: `ProductionStack` が本番アカウントに `prod-github-connection` を作り、パイプラインに渡す。staging は変わらない。「本番のパイプラインをやめる」案ではなく、こちらを選んだ。本番の接続は、`alphasysdeploy` の `main` の `version.json` を読むためのもの（仕様 6.2 の手順 5）。
+- **ユーザー作業（ProductionStack の初回デプロイ後）**: 本番のコンソールで `prod-github-connection` を 1 回承認する（`PENDING` → `AVAILABLE`）。そのあと `MainEcsDeployPipeline` を手動で 1 回動かす。
+- **対応（alphasystem）**: 仕様書の 2.1 付近（SharedStack の記述）、4.1（GitHub 接続の項）、5 章（デプロイ後の作業、④の前提を 27 件）を訂正した。
+- **報告のあった状態**: alphasyscdk の PR #134（8-1 と SES）・#135（8-3）・#137（記録）は、マージ済み。
+
+## 2026-11-15 `.env.prod`（alphasyscdk・alphaexapi）を設定済み。確認で、本番に使えない値が見つかった
+
+- **ユーザー報告**: alphasyscdk と alphaexapi に `.env.prod` を設定した。
+- **確認（alphasystem、値は出さず、取得元・文字数・他環境と同一かだけを比較）**: `.env.prod` から読まれるのは 26 件中 22 件。**4 件は `.env.prod` に無い**（`SALES_MAIL_IMAP_HOST`・`PORT`・`USER`・`PASSWORD`）。この 4 件は、スクリプトが開発用の `alphaexapi/.env` にフォールバックして登録してしまう。
+- **本番に使えない値（要修正）**: `MF_OAUTH_REDIRECT_URI` が、**staging と同じ値で、ホストが `https://alphasys.alphacmc-test.com`**（本番は `https://alphasys.alphacmc.com` のはず。このまま登録すると、MF の認可の戻り先が staging になる）。MF の本番用 redirect URI は、MF 側に登録済み（11/10 のユーザー確認）。
+- **staging と同じ値のもの（意図かの確認が要る）**: `AUTH_SECRET`（本番のセッション署名鍵が staging と共有になる）、`MF_TOKEN_ENCRYPTION_KEY`（スクリプト自身の注記で「環境で異なる値」）、`ANTHROPIC_API_KEY`。`MF_*_CLIENT_ID/SECRET` なども staging と同じ（同じ MF アプリに本番の redirect URI も登録した前提なら、問題ない）。`BANKCODE_API_KEY`・`CORPORATION_APPLICATION_ID` は外部サービスの値で、共有でよい見込み。
+- **本番の値として確認できた**: `alphasyscdk/.env.prod` の `AUTH_URL` は `https://alphasys.alphacmc.com`。`SHARED_DRIVE` は、今回の `.env.prod` で初めて入った。
+- **次**: ユーザーが、`MF_OAUTH_REDIRECT_URI` を本番の URL に直し、`AUTH_SECRET`・`MF_TOKEN_ENCRYPTION_KEY` を本番専用にするかを決め、`SALES_MAIL_IMAP_*` の 4 件の扱い（ダミー、または staging と同じ値）を決める。そのあと、ドライランで確認してから `--apply` で登録する。
+
+## 2026-11-15 `MF_OAUTH_REDIRECT_URI` を本番 URL に修正。`ANTHROPIC_API_KEY` は staging と共有で意図どおり。`AUTH_SECRET`・`MF_TOKEN_ENCRYPTION_KEY` の共有の可否を回答
+
+- **ユーザー報告（2026-11-15）**: `MF_OAUTH_REDIRECT_URI` を修正した。`ANTHROPIC_API_KEY` は staging と同じで意図どおり。`AUTH_SECRET` と `MF_TOKEN_ENCRYPTION_KEY` が同じだと支障があるか、という質問。
+- **確認（alphasystem、値は出さずホスト部とパスのみ）**: `alphaexapi/.env.prod` の `MF_OAUTH_REDIRECT_URI` のホストは `https://alphasys.alphacmc.com`、パスは `/money-forward/oauth/callback`。**修正を確認した**。
+- **決定（ユーザー）**: `ANTHROPIC_API_KEY` は staging と共有する（意図した設定）。
+- **未解決**: `SALES_MAIL_IMAP_HOST`・`PORT`・`USER`・`PASSWORD` の 4 件が、まだ `alphaexapi/.env.prod` に無い（このままだと、開発用の `.env` の値が登録される）。ユーザーの返事待ち。
+- **`AUTH_SECRET`・`MF_TOKEN_ENCRYPTION_KEY` は、どちらも staging と同じ値のまま**（`.env.prod` と `.env.staging` を比較して確認）。支障の有無を回答した。推奨は、どちらも本番専用に分けること。`MF_TOKEN_ENCRYPTION_KEY` は 64 桁の 16 進数（AES-256 の鍵）。MF のトークンを DB に暗号化して保存する鍵で、本番はまだトークンが無いため、今が最も安く変えられる時期。後から変えると、保存済みのトークンが読めなくなり、全員が再認可になる。
+- **ユーザーの決定待ち**: 上の 2 つを分けるか、共有のままにするか。`SALES_MAIL_IMAP_*` の 4 件の扱い。
+
+## 2026-11-15 `MF_TOKEN_ENCRYPTION_KEY` は本番専用に分離済み。`AUTH_SECRET` は alphasyscdk の `.env.prod` の値で、まだ staging と同じ
+
+- **ユーザー報告（2026-11-15）**: `MF_TOKEN_ENCRYPTION_KEY` を分離した。alphaexapi の `NEXTAUTH_SECRET` も分離した。`AUTH_SECRET` は alphasyscdk のものか、という質問。
+- **確認（alphasystem、値は出さず比較）**:
+  - `alphaexapi/.env.prod` の `MF_TOKEN_ENCRYPTION_KEY` は、staging・開発（`.env`）と**別の値**になり、形式（64 桁の 16 進数）も正しい。分離を確認した。
+  - **`AUTH_SECRET` は、登録スクリプトが `alphasyscdk/.env.prod` の `AUTH_SECRET` を読む**（`/alpha/<env>/alphasys/AUTH_SECRET`、ECS が注入）。その値は staging と**まだ同じ**。分離は未完了。
+  - alphaexapi の `NEXTAUTH_SECRET` は、登録の対象外（2026-08-25 に削除。alphaexapi のコードに参照が無い）で、ECS にも注入されていない。分離しても本番の動作には影響しない。
+  - 参考: alphasys の `src/lib/auth.ts` は `secret: process.env.NEXTAUTH_SECRET` と書いているが、ECS が渡すのは `AUTH_SECRET` だけ。Auth.js v5 は `secret` が未指定のとき `AUTH_SECRET` を使うため、実際の鍵は `AUTH_SECRET` になる見込み（staging で動いている事実による。コードでは未検証）。
+- **未解決**: `alphasyscdk/.env.prod` の `AUTH_SECRET` を本番専用に変える（ユーザー作業、または共有のままにする決定）。`SALES_MAIL_IMAP_HOST`・`PORT`・`USER`・`PASSWORD` の 4 件が、まだ `alphaexapi/.env.prod` に無い。
+
+## 2026-11-15 `AUTH_SECRET` は staging と prod で長さは同じだが、値もまだ同じ
+
+- **ユーザー報告**: 現在の `AUTH_SECRET` は、staging・prod とも 64 桁の数字になっている。
+- **確認（alphasystem、値は出さず比較）**: `alphasyscdk/.env.prod` と `.env.staging` の `AUTH_SECRET` は、どちらも 64 文字（16 進のみ）で、**値も同じ**。`.env.prod` の最終更新は 2026-11-14 21:54、`.env.staging` は 2026-10-19 で、分離のための書き換えはまだ反映されていない。
+- **未解決**: `alphasyscdk/.env.prod` の `AUTH_SECRET` を、staging と別の値にするか（推奨）、共有のままにするかの、ユーザーの決定。`SALES_MAIL_IMAP_*` の 4 件も、引き続き未決。
+
+## 2026-11-15 `AUTH_SECRET` の分離を確認。alphaexapi の `NEXTAUTH_SECRET` は使われていない
+
+- **ユーザー報告**: `AUTH_SECRET` を修正した。alphasyscdk の `AUTH_SECRET` と alphaexapi の `NEXTAUTH_SECRET` は、形式・桁数が異なっていたので、問題ないかの確認だった。alphaexapi の `NEXTAUTH_SECRET` は使っていないのか、という質問。
+- **確認（alphasystem、値は出さず）**: `alphasyscdk` の `AUTH_SECRET` は、prod と staging で**別の値**になった（どちらも 64 文字）。分離を確認した。
+- **`NEXTAUTH_SECRET` の使用**: alphaexapi のソース・設定・テストに参照は**ゼロ**（`node_modules` と `dist` を除く）。alphasyscdk の `ecs.ts` も、以前は注入していたが、参照が無いため外している（コメントで明記）。登録スクリプトの対象からも 2026-08-25 に外れている。**使われていない**。桁数や形式が `AUTH_SECRET` と違っても問題ない（`.env.prod` に残っているだけの値）。
+- **補足**: alphasys の `src/lib/auth.ts` は `secret: process.env.NEXTAUTH_SECRET` と書いているが、ECS は `NEXTAUTH_SECRET` を注入しないため未設定になり、Auth.js v5 の既定の `AUTH_SECRET` が使われる見込み（staging で動いている事実による）。コード修正は不要と見ているが、将来の混乱を避けるなら、alphasys 側を `AUTH_SECRET` に揃える案がある（未提案、未承認）。
+- **未解決**: `SALES_MAIL_IMAP_HOST`・`PORT`・`USER`・`PASSWORD` の 4 件が、`alphaexapi/.env.prod` に無い（ユーザーの決定待ち）。
+
+## 2026-11-15 `SALES_MAIL_IMAP_*` の 4 件は staging と同一でよい（ユーザー回答）。`.env.prod` への追記は不要
+
+- **ユーザー回答（2026-11-15）**: 入力が途中で中断され、「（staging）と同一です。」の断片だけが届いた。質問の流れ（`SALES_MAIL_IMAP_*` の 4 件の扱い）から、**「staging と同じ値にする」という回答**と解釈した。解釈違いなら訂正してもらう。
+- **確認（alphasystem、値は出さず）**: 4 件（`HOST`・`PORT`・`USER`・`PASSWORD`）は、`alphaexapi/.env.prod` にも `.env.staging` にも**無く**、`alphaexapi/.env` にだけある。つまり staging の登録時も `.env` から読まれていた。登録スクリプトは「`.env.prod` → `.env`」の順に探すため、**本番も `.env` の値（staging と同じ値）が登録される**。`.env.prod` への追記は不要。
+- **決定**: 4 件は staging と同じ値で登録する。営業メール取り込み自体は本番 OFF（8-2 の対象。方式案はユーザーの了解待ち）。
+- **登録前の確認の現状（`.env.prod`、値は出さず）**: `MF_OAUTH_REDIRECT_URI` は本番 URL に修正済み。`MF_TOKEN_ENCRYPTION_KEY` と `AUTH_SECRET` は本番専用に分離済み。`ANTHROPIC_API_KEY` は staging と共有（意図）。`SALES_MAIL_IMAP_*` は staging と同一（`.env` から）。**登録の実行（Python のある PC で `--apply`）と、27 件目 `GOOGLE_CREDENTIALS_JSON` の手登録が残り**。
+
+## 2026-11-15 Python が動かない PC では `uv run` で登録スクリプトを実行する。本番向けドライランが通った
+
+- **ユーザー報告**: `AWS_PROFILE=prod python3 scripts/register-secret-parameters.py --env prod` が、`Python` と出るだけで動かない（Windows ストアの空のスタブ）。
+- **対応（alphasystem）**: `uv` が入っているため、Python を別に入れずに実行できる。`AWS_PROFILE=prod PYTHONIOENCODING=utf-8 uv run --no-project --python 3.12 scripts/register-secret-parameters.py --env prod`。この PC で、本番向けのドライラン（AWS へ書き込まない）を実行し、通った。
+- **ドライランの結果**: 現在のアカウントは `938812705475`。26 件すべて成功（スキップ 0、失敗 0）。取得元は想定どおり。`alphasyscdk/.env.prod` から 3 件（Google OAuth の ID とシークレット、`AUTH_SECRET`）、`alphaexapi/.env.prod` から 19 件、`alphaexapi/.env` から 4 件（`SALES_MAIL_IMAP_HOST`・`PORT`・`USER`・`PASSWORD`。staging と同一とのユーザー回答どおり）。`MF_OAUTH_REDIRECT_URI` は 58 文字（修正後の本番 URL の長さ）。
+- **実行していないもの**: `--apply`（本番の Parameter Store への書き込み）。ユーザー自身が実行する作業として残してある。27 件目の `GOOGLE_CREDENTIALS_JSON` の手登録も未実施。
+- **次**: ユーザーが `--apply --expect-account 938812705475` で登録し、27 件目を手で登録する。登録後に、alphasystem が読み取りで 27 件あることを確認する。
+
+## 2026-11-15 本番 Parameter Store に 26 件を登録（ユーザー実行）。27 件目 `GOOGLE_CREDENTIALS_JSON` は本番用に別の鍵を発行する
+
+- **ユーザー実行（2026-11-15）**: `register-secret-parameters.py --env prod --apply --expect-account 938812705475` を、`uv run` で実行した。26 件すべて成功（スキップ 0、失敗 0）。取得元は、ドライランどおり。
+- **確認（alphasystem、読み取りのみ、本番アカウント）**: `/alpha/prod/` 配下に **26 件**あり、すべて SecureString。27 件目の `GOOGLE_CREDENTIALS_JSON` は**まだ無い**。
+- **ユーザーの質問**: `GOOGLE_CREDENTIALS_JSON` は staging と同じものを使っているが、分離した方がよいか。
+- **回答の要点**: 手順書（alphasyscdk の `docs/google-service-account-key.md`）に、すでに方針がある。**サービスアカウントは `googledrivemanager` を共通で使い、鍵は staging と本番で別々に発行する**（片方だけを無効にできるように）。本番は「本番デプロイの前に別の鍵で登録する」とされている。本番の `SHARED_DRIVE` は staging と別の値（`.env.prod` が 33 文字、staging が 19 文字）のため、サービスアカウントが本番の共有ドライブにアクセスできる権限も要る。
+- **私の誤りの訂正**: ①先に案内した件数の確認コマンド（`--query "length(Parameters)"`）は、ページごとに数えるため 10 しか返らず、誤っていた。名前を一覧して数える方法（`--query "Parameters[].Name"` を `wc -l`）が正しい。②27 件目の登録コマンドに、Git Bash のパス変換を防ぐ `MSYS_NO_PATHCONV=1` と、`AWS_CLI_FILE_ENCODING=UTF-8` を付け忘れていた（手順書の方が正しい）。
+- **決定待ち／ユーザー作業**: 本番用の鍵を発行して登録する（手順書の 2〜4 章）。登録後、鍵のファイルを削除する。
+
+## 2026-11-15 本番 Parameter Store の 27 件が揃った（本番用の鍵を登録）。前提作業 ④ 完了
+
+- **ユーザー実行（2026-11-15）**: 本番用に新しく発行した鍵を、`/alpha/prod/alphaexapi/GOOGLE_CREDENTIALS_JSON` に登録した（`--overwrite` 付き、Version 1）。件数の確認で 27 件。
+- **確認（alphasystem、読み取りのみ。非機密の項目だけ表示）**: 本番アカウントの `/alpha/prod/` 配下は **27 件**。本番の `GOOGLE_CREDENTIALS_JSON` は、`type=service_account`、`client_email=googledrivemanager@alphadevs-348511.iam.gserviceaccount.com`、`private_key_id=da59bae1cc7d…`。staging の鍵は `private_key_id=efee06b006db…` で**別の鍵**。同じサービスアカウントで、鍵が環境ごとに別になっている（手順書の方針どおり）。
+- **前提作業の現在地**: ①DNS 委譲、②SES の申請・承認、③`cdk bootstrap`、④Parameter Store 27 件、⑤alphacdk 一式は完了。⑥ECR の pull 許可は確認のみ（未実施）。
+- **要対応（ユーザー）**: 鍵の JSON ファイル `alphadevs-348511-da59bae1cc7d_prod.json` が、**git の作業フォルダ `~/git/alphasystem` の中に残っている**（未追跡、`.gitignore` の対象外）。誤ってコミット・push されると、鍵が漏れる（過去に同じ事故で鍵を無効にした経緯がある）。手順書は「ダウンロードフォルダのままにする」「登録後に削除する」としている。ユーザーが削除する。
+- **次**: 本番サービスアカウントの、本番の共有ドライブへのアクセス権の確認（ユーザー）。ProductionStack のデプロイの前提（仕様 5 章）の残り: ECR に 0.5.0 のイメージ（0.5.0 の統一は未着手）、alphasyscdk PR #139 のマージ、8-2。
+
+## 2026-11-15 0.5.0 の統一を始める（ユーザー承認）。ECR が MUTABLE のままと判明。8-2 を 0.5.0 に含める必要
+
+- **承認（ユーザー、2026-11-15）**: 0.5.0 の統一（alphadb・alphaexapi・alphasys）を進める。
+- **確認（alphasystem、読み取り）**:
+  - **手順 0 が満たされていない**: 共有アカウントの ECR `alphasys-backend`・`alphasys-frontend` が **MUTABLE**（仕様 6.5「必ず immutable に戻す」に反する）。既存タグは `0.1.0` とコミットハッシュ。
+  - alphadb の CodeArtifact の公開版: 0.0.1〜0.2.8 と `1.0.0`（上書き運用の名残）。`^0.5.0` は 0.5.x だけに一致するため干渉しない見込み。
+  - 各リポジトリの `staging` と `main` の版: alphadb `0.2.8`、alphaexapi `0.1.0`、alphasys `0.1.0`（未着手）。
+- **依頼（`SendMessage`、全員が起動中）**:
+  - **alphadb-86**: 0.5.0 にして、`staging` → `main` へマージ（必須）、`alphadb-publish` を実行。publish 後に alphasystem へ報告。`latest` の向き先への影響も確認。進行中の作業が staging に入っているかも報告。
+  - **alphasyscdk-ec**: ECR が MUTABLE の経緯の確認と、IMMUTABLE に戻す対応（コードの修正が要るなら方式案を先に出す）。「webhook が届かなかった件」の原因も、分かれば報告。`.env` の `FRONTEND/BACKEND_PACKAGE_VERSION` の更新時期は別途知らせる。
+  - **alphasys-1e**・**alphaexapi-16**: 予告のみ。**alphadb の publish 完了の連絡を待ってから着手**（`alphadb` 依存 `^0.5.0`、lockfile も一緒にコミット、Draft PR base=staging）。
+- **8-2 の扱い（ユーザーの判断が要る）**: ECR を immutable に戻すと、0.5.0 を 1 度 push したら上書きできない。本番は、8-2（取り込みの on/off）が入っていないイメージで起動すると、登録済みの `SALES_MAIL_IMAP_*` で取り込みが動いてしまう（仕様は本番 OFF）。そのため **8-2 を 0.5.0 に含めたい**。8-2 の方式案は、ユーザーの了解待ち。alphaexapi-16 には、了解が出るまで版上げの PR を作らないよう伝えた。
+- **順序（仕様 3.3）**: ①alphadb の publish → ②alphaexapi・alphasys を 0.5.0 に（staging にマージ → CI が 0.5.0 を ECR へ push）→ ③alphasyscdk の `.env` を 0.5.0 にして StagingStack をデプロイ → ④`alphasysdeploy` の staging の `version.json` を 0.5.0 に。
+
+## 2026-11-15 alphaexapi の返答: 0.5.0 の予告を了解。8-2 の了解が出るまで版上げの PR は作らない
+
+- **報告者**: alphaexapi-16（別セッション）。ユーザーの承認ではない。記録は [alphaexapi PR #217](https://github.com/alphacmc/alphaexapi/pull/217)（Draft）。
+- **状態**: staging に入っていない作業は無い（開いている PR なし、staging に未反映のブランチなし）。8-2 の方式案の記録（PR #215）はマージ済みで、**8-2 のコードはまだ書いていない**。version は `0.1.0`、`alphadb` の依存は `^0.2.8`。
+- **alphaexapi の進め方（了解が出たあと）**: ①alphasyscdk-ec に変数名 `SALES_MAIL_POLLING_ENABLED` を伝える（staging は `true`、本番は渡さないか `false`）。②alphasyscdk が staging に反映したのを確かめてから、PR を 1 つ作る（8-2 のコード、version を 0.5.0、`alphadb` を `^0.5.0`、lockfile の更新）。③この作業は、alphadb 0.5.0 の publish の連絡を受けてから始める。
+- **参考**: #208 により、ECR のイメージにコミットハッシュのタグも付くようになった（例 `0.1.0,e19e5cb`）。ECR は今も MUTABLE。
+- **次**: ユーザーが 8-2 の方式案に了解するのを待つ。alphadb の publish と、ECR を immutable に戻す対応の報告を待つ。
+
+## 2026-11-15 alphasys の指摘: ECR を immutable に戻すと、コードを staging にマージするたびにビルドが失敗する。運用の見直しをユーザーに確認する
+
+- **報告者**: alphasys-1e（別セッション）。ユーザーの承認ではない。0.5.0 の予告を了解（alphadb の publish を待つ）。alphasys に進行中の作業は無い（open の PR 0 件、staging と main の差分なし、`#326` まで main）。`version` は `0.1.0`、`alphadb` は `^0.2.7`。alphaexapi #213 は、alphasys 側の対応が #326 で済んでいる。
+- **指摘（2 点）**:
+  1. 11/10 時点で `next build` に既存の型エラー（`contract.repository.ts` の `scheduledPaymentDate`）があった。`alphadb` を `^0.5.0` に上げると解消または変化する可能性がある。上げたときに tsc と build を確認し、結果を PR に書く（私から了承）。
+  2. **ECR を immutable に戻すと、0.5.0 を 1 度 push したあとは、version を上げないままコードを staging にマージするたびに、ビルドが失敗する**（docs だけの push はスキップなので影響なし。コミットハッシュのタグは毎回違うので問題ない）。「コードをマージするたびに version を上げる」運用で合っているかの確認。
+- **評価（alphasystem）**: 指摘は正しい。仕様 6.2 は「区切りごとに版を上げる」前提で、区切りの間の staging へのマージを想定していなかった。immutable のままだと、マージのたびに版を上げることになり、仕様 2 章の決定 2「3 プロジェクトを常に同じ番号で揃える」とも食い違う。
+- **対応（保留）**: alphasyscdk-ec への「ECR を IMMUTABLE に戻す」依頼は、経緯の確認までにして、実際の変更は**保留**にした。alphasyscdk に、CI のタグの push の仕方（版とハッシュのタグが 1 回の push か別か）も確認依頼。0.5.0 を切る作業自体は、この判断に影響されないので、予定どおり。
+- **設計の選択肢（ユーザーに提示する）**: A) ECR を immutable に戻し、コードのマージのたびに版を上げる（番号の統一が崩れる）。B) ECR は MUTABLE のままにし、本番はコミットハッシュのタグか digest で固定して、「staging で検証したイメージ＝本番のイメージ」の同一性を保つ（`alphasysdeploy` の `version.json` の仕組みの見直しが要る）。C) staging の ECR だけ MUTABLE のまま、本番に渡すときに immutable なリポジトリへ版タグでコピーする（構成が増える）。
+- **次**: ユーザーの判断を得る。8-2 の方式案の了解も、引き続き待つ。
+
+## 2026-11-15 alphasyscdk の調査: ECR が MUTABLE の経緯と、CI の push の失敗が気づかれない問題
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。ECR を IMMUTABLE に戻す変更は保留。[alphasyscdk PR #141](https://github.com/alphacmc/alphasyscdk/pull/141)（Draft）には、調査の記録だけを入れた（`cdk.json` は触っていない）。
+- **MUTABLE の経緯**: 手作業ではなく CDK の設定。`cdk.json` の context `"imageTagMutability": "MUTABLE"`（`8ac9443`、2026-09-24）。当時の ECR がすでに MUTABLE で、同じ版のタグを上書きする運用だったため、SharedStack のデプロイで既定値の IMMUTABLE に戻らないよう明示した。`shared-stack.ts` のコメントに「正式運用を始めたら IMMUTABLE に変える」とある。
+- **CI のタグの push（alphaexapi・alphasys とも同じ形）**: 別々の `docker push` を 2 回（版のタグ → コミットハッシュのタグ）。2 つは `post_build` の 1 つの複数行ブロックにあり、**`set -e` が無い**。
+- **重大な点**: alphasys の指摘の「CI のビルドが失敗する」は、今の buildspec では**起きない**。ブロックの終了コードは最後の `printf`（`imagedefinitions` の書き出し）のものになるため、版のタグの push が拒否されても、ビルドは「成功」になる。その後のパイプラインは版のタグでデプロイするので、**ECR に残った古い `<version>` のイメージが、そのまま出る**。失敗に気づけないまま、古いイメージがデプロイされる。結果として、ECR には新しいイメージがハッシュのタグだけで入り、版のタグは古いイメージを指したまま。
+- **alphasyscdk の推奨**: 運用をどう決めても、buildspec で push の失敗をビルドの失敗にする（`docker push ... || exit 1`、または `set -e`）のを先にやる。MUTABLE のままでも、ネットワークなどで push が失敗すれば同じことが起きる。
+- **評価（alphasystem）**: この推奨は妥当。IMMUTABLE への変更の有無に関わらず、価値がある。ECR の運用（A・B・C）の判断とは独立に、先に直せる。ただし buildspec（alphasyscdk、alphaexapi・alphasys 向け CodeBuild の定義）の修正は、コード修正のため、ユーザーの了解を得てから依頼する。
+- **関連（確認不足）**: 11/09 の「#203 マージ後に古いイメージ（11/06 の 0.1.0）がデプロイされた」件は、webhook が届かなかったことが原因とされていた。今回の指摘は別の経路（push の失敗が見えない）で、同じ症状を起こしうる。
+- **次**: ユーザーの判断を得る（ECR の運用 A・B・C、buildspec の修正、8-2 の方式案）。
+
+## 2026-11-15 8-2（営業メール取り込みの on/off）: staging ON・本番 OFF で、リリース時に逆転する（ユーザー決定）
+
+- **決定（ユーザー、2026-11-15、本セッションでの回答）**: 営業メール取り込みは機能がまだ開発途中のため、**しばらくは staging=ON、本番=OFF。リリース時に逆（staging=OFF、本番=ON）にする**。
+- **解釈（alphasystem）**: 私の「8-2 の方式案（環境変数 `SALES_MAIL_POLLING_ENABLED`、`true` のときだけ取り込む、既定 OFF）で進めてよいか」への回答として、**方式案への了解**と受け取った。方式案への「了解」の言葉は無く、運用の方針のみが述べられているため、解釈違いなら訂正してもらう。仕様 6.3・7 章（本番は構築時 OFF、カットオーバー後は本番 ON・staging OFF）とも整合する。
+- **alphaexapi-16 への伝達**: 運用は、今は staging=`true`、本番=`false`（または渡さない）。リリース時に staging=`false`、本番=`true`（環境変数の値の変更とタスクの再起動のみ。コードの変更は不要）。進め方は、alphaexapi の提案どおり（alphasyscdk に変数名を伝える → alphasyscdk が staging に反映 → 8-2 のコード・version 0.5.0・`alphadb` `^0.5.0`・lockfile を 1 つの Draft PR に。alphadb の publish を待つ）。リリース時の逆転の手順を、PR の説明か docs に書くよう依頼。
+- **alphadb の報告（alphadb-86）**: [alphadb PR #114](https://github.com/alphacmc/alphadb/pull/114)（Draft、base=staging）。`package.json` と `package-lock.json` の version を 0.2.8 → 0.5.0 にするだけ（スキーマ・マイグレーションの変更なし。staging DB への適用ビルドは不要）。進め方: #114 を staging にマージ → staging → main の同期 PR をマージ → `alphadb-publish` を実行（マージの時期はユーザーに確認中）。`latest` は現在 0.2.8 で、0.5.0 を出すと `latest` は 0.5.0 になる見込み（版の大小では決まらない）。`^0.5.0` は 0.5.x にしか一致せず、`1.0.0` と干渉しない。
+- **仕様 3.5 の「進行中の作業」の確認**: alphadb は未マージの PR なし、staging と main は同じ内容（0.2.8）。alphaexapi・alphasys も、staging に入っていない作業は無い。**4_7_1 の締めの、staging の夜間移行の復旧は、復旧済み**（10/27 の Bastion 置換で 10/28〜11/05 は失敗していたが、11/06 16:34 JST の手動実行で `RESULT: SUCCESS`。11/07〜11/15 は毎晩 SUCCESS。CloudWatch `/alphasys/staging/nightly-migration` で確認したとの alphadb の報告）。未着手の issue は #99（未完了の依頼に付ける部分ユニーク索引、ユーザーの判断待ち、急ぎではない）。
+- **次**: ユーザーが alphadb の PR #114 のマージ（staging → main の同期を含む）と `alphadb-publish` の実行を判断する。ECR の運用（A・B・C）、buildspec の push 失敗の扱いの修正は、引き続きユーザーの判断待ち。
+
+## 2026-11-15 alphaexapi が 8-2 の了解を受けて、alphasyscdk へ変数名と値を伝達
+
+- **報告者**: alphaexapi-16（別セッション）。ユーザーの承認ではない。記録は alphaexapi PR #217。
+- **実施**: alphasyscdk-ec に、変数名 `SALES_MAIL_POLLING_ENABLED` と値（staging=`true`、本番=`false`）を伝えた。リリース時は、値を変えてタスクを起動し直すだけで切り替えられるよう、**環境ごとの設定で値を持つ**ことも依頼した。alphasyscdk が staging に反映したら、alphaexapi-16 に連絡が入る。
+- **alphaexapi の次の作業**: 8-2 のコードと PR（8-2、version 0.5.0、`alphadb` `^0.5.0`、lockfile）は、**alphasyscdk の staging への反映**と、**alphadb 0.5.0 の publish** の、両方の連絡を受けてから始める。リリース時の切り替え手順（どの環境で、どの環境変数を、何に変えるか）は、PR の説明と docs の両方に書く。
+- **待ち**: alphasyscdk の staging への反映（alphasyscdk 側の PR が要る）。alphadb の PR #114 のマージと publish（ユーザー）。
+
+## 2026-11-15 本番の初回デプロイ（ProductionStack）の段取りを提示（ユーザーの承認は未了）
+
+- **ユーザーの質問**: 本番環境には何も入っていない。どこから deploy すればよいか。
+- **現状（alphasystem、読み取り）**: 本番アカウントに、CDKToolkit・KeyPairsStack・NetworkStack・alphasys-launch-templates・ホストゾーン `alphasys.alphacmc.com.`・Parameter Store 27 件・SES の本番アクセス（承認済み）がある。alphasyscdk の PR #134・#135・#139 はマージ済み。open は #141（ECR を IMMUTABLE に戻す、Draft、保留）。`ProductionStack` は未デプロイ。
+- **新たに判明（デプロイ前に必要）**: `templates/template-ids.prod.json` が空（`{}`）のため、本番は synth で止まる。`npm run templates:deploy -- --env prod` で、本番のスプレッドシートのテンプレートを配置し、生成された ID を PR でコミットする必要がある（本番のサービスアカウントが本番の共有ドライブにアクセスできることが前提）。また、本番の `FRONTEND/BACKEND_PACKAGE_VERSION` は `.env` から読まれ（`.env.prod` に行が無い）、`ProductionStack` のデプロイにも `.env.staging` が要る。
+- **提示した段取り（未承認）**: ①`templates:deploy --env prod`（0.5.0 を待たずに着手できる）。②0.5.0 の統一（alphadb の PR #114 のマージと publish → alphaexapi・alphasys を 0.5.0 に → CI が ECR へ push）。**0.5.0 より前にデプロイしない**（8-2 が入っていない 0.1.0 のイメージだと、登録済みの `SALES_MAIL_IMAP_*` で営業メールの取り込みが動いてしまうため）。③`.env` のバージョンを 0.5.0 に。④`npm run diff:prod`。⑤`npm run deploy:prod`（初回のみ DB マイグレーションが自動実行）。⑥デプロイ後に、`prod-github-connection` を 1 回承認し、`MainEcsDeployPipeline` を手動で 1 回動かす。⑦ECS の `running == desired`、`https://alphasys.alphacmc.com` の表示、SES の DKIM の検証を確認。⑧本番の夜間自動移行の配備（旧システム側の S3 のバケットポリシーに本番アカウントを追加 → `deploy.sh` → `setup_bastion.sh` → 環境ファイル → タイマー）。
+- **ユーザーの判断待ち（変わらず）**: alphadb の PR #114 のマージと `alphadb-publish`。ECR の運用（A・B・C）。CI の push 失敗が気づかれない問題の修正の依頼。
+
+## 2026-11-15 SharedStack は共有アカウントにだけある（設計どおり）。前提作業 ⑥（ECR の pull 許可）を確認
+
+- **ユーザーの質問**: 本番に SharedStack も入っていないのではないか。
+- **回答**: 入っていない。**設計どおり**（仕様 2.1・2 章の決定: SharedStack は共有アカウントに 1 つだけ）。本番は ECR を ARN の直接指定でクロスアカウント参照する。GitHub 接続のみ、本番のパイプライン用に `ProductionStack` が本番アカウントに作る（仕様 4.1 の訂正、11/15）。CodeArtifact は、ビルド時に共有アカウントの CI が使うだけで、本番は使わない。
+- **確認（alphasystem、読み取り）**: 共有アカウント（570024666076）に `SharedStack` が `UPDATE_COMPLETE`。本番アカウントには、`CDKToolkit`・`KeyPairsStack`・`NetworkStack`・`alphasys-launch-templates`・`cm-Initial-IAM` の 5 つで、`SharedStack` は無い。
+- **⑥ECR の pull 許可（確認済み）**: 共有アカウントの ECR `alphasys-backend`・`alphasys-frontend` のリポジトリポリシーに、`AllowProdAccountPull`（`arn:aws:iam::938812705475:root`、`BatchCheckLayerAvailability`・`BatchGetImage`・`DescribeImages`・`GetDownloadUrlForLayer`）がある。
+- **未確認**: 本番の ECS タスク実行ロール側の ECR の権限（`ProductionStack` が付与する設計。デプロイ後に、イメージの pull が通るかで確認する）。
+- **前提作業の現在地**: ①〜⑥ がすべて完了（⑥は今回確認）。残りは、`templates:deploy --env prod`、0.5.0 の統一、`deploy:prod`。
+
+## 2026-11-15 本番デプロイ前の作業の実施場所を整理。`templates:deploy --env prod` のドライランが通った
+
+- **ユーザーの質問**: 「デプロイ前（今から始められるもの）」は alphasyscdk で実施するのか。
+- **回答**: `templates:deploy`・`.env` の編集・`diff:prod`・`deploy:prod` は alphasyscdk で（ユーザーが実行）。0.5.0 の統一は、alphadb・alphaexapi・alphasys の各セッションが、それぞれのリポジトリで行う。
+- **確認（alphasystem、Google API は呼ばず、書き込みなし）**: `AWS_PROFILE=prod npm run templates:deploy -- --env prod --dry-run` が通った。3 つのテンプレート（`skillsheet`・`order-matching`・`bill-profit`）が、いずれも**新規作成**になる。`templates/drive-folders.json` の `prod`（配置先フォルダ）が**空**のため、deploy が初回に、`parent`（`04_resource/templates/`）の下に deploy 専用フォルダを作って書く。認証は、Parameter Store の `/alpha/prod/alphaexapi/GOOGLE_CREDENTIALS_JSON`（登録済みの本番の鍵）を、`prod` の profile で読む。
+- **実行時の前提**: 本番のサービスアカウント `googledrivemanager` が、`parent` フォルダに書き込める（共有ドライブのメンバー、またはフォルダの編集権限）こと。無いと deploy が失敗する。実行後は、`template-ids.prod.json`（と `drive-folders.json` の `prod`）が更新されるので、コミットして PR にする。
+- **実行は未**（ユーザー作業）。
+
+## 2026-11-15 alphadb 0.5.0 の publish 完了。alphasys・alphaexapi の版上げを開始
+
+- **報告者**: alphadb-86（別セッション）。**確認（alphasystem、読み取り）**: CodeArtifact（`alphadb-npm`）で alphadb 0.5.0 が `Published`、`defaultDisplayVersion` も 0.5.0。alphadb の `main`・`staging` とも `package.json` が 0.5.0。PR #114 は staging にマージ済み（2026-11-15 03:32Z）。スキーマ・マイグレーションは変わっていないため、`staging-prisma-merge-project-build` の実行は不要。`latest` は 0.5.0（alphadb の報告）。
+- **alphasys-1e への連絡**: 版上げを開始してよい。`version` を 0.5.0、`alphadb` を `^0.5.0`、lockfile も一緒にコミット、Draft PR（base=staging）。tsc と build の結果（`scheduledPaymentDate` の型エラー）を PR に書く。ECR は当面 MUTABLE のまま。
+- **alphaexapi-16 への連絡**: 着手条件 2 つのうち、alphadb の publish は満たされた。残りは、alphasyscdk が staging に `SALES_MAIL_POLLING_ENABLED=true` を反映すること。揃ったら、8-2・version 0.5.0・`alphadb` `^0.5.0`・lockfile を 1 つの Draft PR に。
+- **次**: alphasys・alphaexapi の PR のマージ（ユーザー）→ CI が 0.5.0 を ECR に push → alphasyscdk の `.env` を 0.5.0 にして StagingStack をデプロイ → `alphasysdeploy` の staging の `version.json` を 0.5.0 に（仕様 3.3 の手順 2〜4）。
+
+## 2026-11-15 alphaexapi が 8-2 と 0.5.0 の Draft PR ＃218 を作成。本番の `deploy:prod` が 2 回失敗していた。順序の循環を alphasyscdk へ確認
+
+- **報告者**: alphaexapi-16（別セッション）。ユーザーの承認ではない。[alphaexapi PR #218](https://github.com/alphacmc/alphaexapi/pull/218)（Draft、base=staging）。内容: 8-2（`SALES_MAIL_POLLING_ENABLED` が `true` のときだけ取り込む）、version 0.5.0、`alphadb` `^0.5.0`、lockfile（alphadb の箇所だけ）。`npm ci`・ビルドが通り、テスト 703 件すべて成功。切り替えの手順は、PR の説明と `docs/design/2026-11-15-営業メール取り込みのon-off.md` に記載。**マージは alphasyscdk が staging に反映してから**（タイトルに明記）。
+- **カットオーバーに関わる注意（alphaexapi の指摘）**: 取り込みは INBOX の未読メールだけを読み、取り込んだメールを既読にする（除外ルールに一致したメールは削除する）。staging・本番・ローカルは同じメールボックスを読む。①リリース時は、**staging を先に OFF にしてから本番を ON にする**（両方 ON の時間があると、メールが両環境に分かれる。両方 OFF の間に届いたメールは未読のまま残り、本番の ON 後に取り込まれる）。②staging が ON の間（今）に取り込んだメールは既読になっているため、本番を ON にしても本番には入らない。それまでのメールを本番に入れたいなら、データ移行の計画で扱う。**仕様 7 章に追記した。**
+- **新たに判明（本番の状況、alphasystem の確認）**: 本番の `deploy:prod` は、2026-11-15 にすでに **2 回失敗**していた（[alphasyscdk PR #144](https://github.com/alphacmc/alphasyscdk/pull/144)、マージ済み）。原因は、①パイプラインのバケット名が他のアカウントにあった（`BucketAlreadyExists`。本番のバケット名にアカウント ID を入れて解消）、②夜間移行のロググループ名が `/alphasys/staging/...` の固定で、1 回目の失敗で本番に作られ RETAIN で残り、2 回目が止まった（名前を環境ごとにした。残っていた空のロググループは、ユーザーの了解を得て削除済み）。マージ後に `deploy:prod` を流し直す予定。現状は `ProductionStack` が `REVIEW_IN_PROGRESS`（作成されておらず、ECS クラスタは無い）。
+- **懸念（未解決）**: 本番を、8-2 の入っていないイメージで起動すると、登録済みの `SALES_MAIL_IMAP_*` で営業メールの取り込みが動き、staging と同じメールボックスを取り合う。かつ、**順序が循環する**: alphaexapi #218 のマージは「alphasyscdk が staging に反映してから」、alphasyscdk の `deploy:staging` は「`deploy:prod` のあと」とされている一方、本番は 0.5.0 のイメージが ECR に入ってからデプロイしたい。必要な順序は、**`deploy:staging`（環境変数の反映）→ alphaexapi #218 のマージ → CI が 0.5.0 を push → `.env` を 0.5.0 に → `deploy:prod`**。alphasyscdk-ec に、deploy:staging を後にする理由と、この順序への支障の有無を確認し、`deploy:prod` を 8-2 なしのイメージで流し直す前に止めるよう依頼した。
+- **ユーザーに確認が要る**: 本番の `deploy:prod` を、どの状態で流し直すか。
+
+## 2026-11-15 alphasyscdk の返答: 順序に支障なし。deploy:staging を先に流す。PR ＃146 を作成
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。
+- **回答**: ①`deploy:staging` を後にした技術的な理由は無い（段取りを並べた順番にすぎない）。`diff:staging` の差分は、タスク定義に `SALES_MAIL_POLLING_ENABLED=true` が加わるだけ（PR #144 は staging を変えない）。Bastion の AMI は固定しているので、置き換えは起きない。②提案の順序（`deploy:staging` → alphaexapi #218 をマージ → CI が 0.5.0 を push → `.env` を 0.5.0 に → `deploy:prod`）に**支障はない**。8-2 の無いイメージで本番を起動すると、`SALES_MAIL_POLLING_ENABLED=false` でも取り込みが動き、staging とメールを取り合う（変数を読むコードが、そのイメージに無いため）。③ユーザーに、この順序で進めることを確認し、`deploy:prod` を止めるよう伝える（alphasyscdk のセッション側）。
+- **そのほか**: 本番のテンプレート ID（`template-ids.prod.json`）が `main` に直接コミットされていたため、alphasyscdk が `staging` にも cherry-pick した。営業メールの切り替え手順（staging を false → 本番を true の順）を、手順書 5-2-2 に追加した。[alphasyscdk PR #146](https://github.com/alphacmc/alphasyscdk/pull/146)。
+- **決まった順序（技術的な合意。ユーザーの了解は alphasyscdk 側で確認中）**: ①`deploy:staging`（環境変数の反映）→ ②alphaexapi PR #218 のマージ（と alphasys の版上げのマージ）→ ③CI が 0.5.0 を ECR に push → ④`alphasyscdk/.env` を 0.5.0 に → ⑤`diff:prod` → `deploy:prod`。
+- **注記（`templates:deploy --env prod` の実施）**: 本番のテンプレートは配置済み（ID が `main` にコミットされている）。実施した内容は、alphasyscdk の報告のみで、alphasystem では未確認。
+
+## 2026-11-15 ユーザーが段取りの順序を了承（alphasyscdk 経由の報告）。deploy:staging 完了
+
+- **報告者**: alphasyscdk-ec（別セッション）。「ユーザーが順番を了承した」という報告であり、alphasystem では、ユーザー本人からの直接の確認は未取得。
+- **了承された順序**: ①`deploy:staging` → ②alphaexapi #218 のマージ → ③CI が 0.5.0 を push → ④`.env` を 0.5.0 に（時期は alphasystem が指示）→ ⑤`main` から `deploy:prod`。
+- **①の結果**: StagingStack は `UPDATE_COMPLETE`。タスク定義は `:88`。backend に `SALES_MAIL_POLLING_ENABLED=true` が入った。イメージはまだ 0.1.0。
+- **障害と対処**: `.env` を先に 0.5.0 にしていたため、ECR にイメージが無く ECS の更新が止まった。`cancel-update-stack` でロールバックし、0.1.0 に戻して流し直した。staging のサービスは止まっていない。
+- **進行**: alphaexapi-16 には #218 に進んでよいと伝達済み。`deploy:prod` は未実施。
+- **次（alphasystem）**: alphaexapi #218・alphasys の 0.5.0 PR のマージ後、ECR に 0.5.0 が入ったことを確認してから、alphasyscdk-ec に `.env` を 0.5.0 にするよう指示する。
+
+## 2026-11-15 backend 0.5.0 が ECR に push。frontend は alphasys の版上げ待ち。.env と deploy:prod は保留
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。backend 0.5.0（タグ 0.5.0 と 8381871、19:39、ビルド SUCCEEDED）が staging の ECR に入った。frontend は 0.1.0 のまま（13:48 のビルドはドキュメントだけの push と判定され、設計どおり skip）。
+- **確認（alphasystem、読み取り）**: alphasys の `origin/staging` は version 0.1.0、alphadb `^0.2.7` のまま。0.5.0 の PR は未作成。frontend の ECR の最新は 0.1.0（11/10）。
+- **alphasystem の方針（提案。ユーザーの了解は未取得）**: 「3 つとも 0.5.0 で統一」するため、`.env` は **まだ変えない**。alphasys の 0.5.0 の PR をマージし、frontend 0.5.0 が ECR に入ってから、FRONTEND/BACKEND を同時に 0.5.0 にして `deploy:prod`。BACKEND だけ 0.5.0 にして FRONTEND を 0.1.0 のまま本番を立てる案は取らない（alphadb ^0.2.7 の画面になるため）。`.env.staging` も同じタイミングで 0.5.0 にする。
+- **連絡**: alphasyscdk-ec に「`.env` を変えず、`deploy:prod` も止める」。alphasys-1e に、版上げの PR（0.5.0、alphadb `^0.5.0`、lockfile、Draft、base=staging、tsc と build の結果を記載）を依頼した。
+
+## 2026-11-15 alphasys の版上げは、alphasys 側のユーザーの了解待ち
+
+- **報告者**: alphasys-1e（別セッション）。ユーザーの承認ではない。alphasys は、コード変更は方針を示してユーザーの了解を得てから着手する決まりのため、0.5.0 の版上げにはまだ着手していない。ピアの依頼は了解の代わりにならない。方針は alphasys のユーザーに提示済み。
+- **事前調査（alphasys-1e の報告。alphasystem では未確認）**: alphadb 0.2.7→0.5.0 のスキーマ差分は 5_4_3 のテーブル追加だけ。alphasys はそのテーブルをまだ使っておらず、コード修正は不要の見込み。`scheduledPaymentDate` の列は 0.2.7 にも既にある。
+- **状況**: 本番の `deploy:prod` は、この PR（frontend 0.5.0）待ち。ユーザーが alphasys のセッションで了解することが、次の条件。
+
+## 2026-11-15 訂正: PACKAGE_VERSION があるのは alphasyscdk の `.env` だけ。staging の ECS を 0.5.0 にする時期は未決
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。`FRONTEND_PACKAGE_VERSION`・`BACKEND_PACKAGE_VERSION` があるのは `.env` だけで、`.env.staging`・`.env.prod` には無い。`bin/app.js` は `.env.<環境>` を読んでから `.env` を読む。よって `.env` を 0.5.0 にすると、次の `deploy:staging` にも `deploy:prod` にも効く。(4) の作業は `.env` 1 か所。
+- **訂正（alphasystem）**: 先に私が「`.env.staging` も 0.5.0 にする」と書いたのは誤り（確認不足）。上記の記録と alphasyscdk への連絡を訂正する。
+- **未決（ユーザー判断）**: (4) の直後に `deploy:staging` も流して staging の ECS を 0.5.0 にするか。alphasystem の考え（提案）: staging も同時に 0.5.0 にして「3 つ同じ番号」を保つ。ただし、先に `deploy:staging` を流すと、ECR に 0.5.0 の無い間は ECS が止まる（今日の障害の再発）ので、frontend/backend とも ECR に 0.5.0 があることを確認してから行う。
+
+## 2026-11-15 alphasys の 0.5.0 版上げ Draft PR ＃328 が作成された。alphasys のユーザーは了解済み
+
+- **報告者**: alphasys-1e（別セッション）。[alphasys PR #328](https://github.com/alphacmc/alphasys/pull/328)（Draft、base=staging）。alphasys のユーザーの了解は 2026-11-15 に得た、との報告。
+- **確認（alphasystem、読み取り）**: 変更ファイルは `package.json` と `package-lock.json` のみ。差分は、version 0.1.0→0.5.0、alphadb `^0.2.7`→`^0.5.0`、lockfile の alphadb 0.5.0（resolved と integrity）だけ。
+- **alphasys-1e の報告（未確認）**: tsc はテスト以外でエラー 0 件。build は成功し、`scheduledPaymentDate` の型エラーは出ない。警告 1 件（Prisma の wasm-engine-edge の `setImmediate` が Edge Runtime 非対応。middleware から alphadb を読むため。0.2.7 でも出ていたかは未比較）。
+- **次の条件**: ユーザーが Draft を解除してマージ → CI が frontend 0.5.0 を ECR に push → alphasystem が ECR で確認 → alphasyscdk に、`.env` を 0.5.0 にして `deploy:staging`・`deploy:prod` の順に流すよう指示。
+
+## 2026-11-15 alphasys PR ＃328 マージ。frontend・backend とも 0.5.0 が ECR に揃った
+
+- **報告者**: alphasys-1e（別セッション）。ユーザーが PR #328 をマージした（21:14 JST、マージコミット 7862d78）との報告。
+- **確認（alphasystem、読み取り）**: ECR（共有アカウント）に、`alphasys-backend:0.5.0`（タグ 0.5.0・8381871、digest sha256:6e92e961…、19:39:32）と `alphasys-frontend:0.5.0`（タグ 0.5.0・7862d78、digest sha256:69e98471…、21:17:48）がある。**両方が揃った。**
+- **注意**: `StagingEcsDeployPipeline` の最新の実行は 11/10 で、今回の push では動いていない。staging の ECS は、まだ 0.1.0 のまま。
+- **次（ユーザーの go 待ち）**: alphasyscdk の `.env` を 0.5.0 にし、`diff:staging`・`diff:prod` で差分を確認 → `deploy:staging`（staging ECS を 0.5.0 に。alphaexapi-16 がログを確認）→ `deploy:prod`。`deploy:staging`・`deploy:prod` の実行は、ユーザーの了解を得てから。
+
+## 2026-11-15 .env を 0.5.0 にして diff を取得。deploy はユーザーの go 待ち
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーの承認ではない。`.env` の FRONTEND/BACKEND_PACKAGE_VERSION を 0.5.0 にし、`diff:staging`・`diff:prod` を取得（どちらも exit 0）。deploy は未実施。
+- **diff:staging**: SharedStack は差分なし。StagingStack はタスク定義の ContainerDefinitions だけ（frontend・backend のイメージが :0.1.0→:0.5.0。それ以外の差分なし）。
+- **diff:prod**: ProductionStack は新規作成のため、すべて [+]。置き換え・削除なし。138 件（VPC 一式、ALB、RDS インスタンス 1、ECS Service DesiredCount 2、CodeBuild 4、SES、ACM、Route53 7、IAM ロール 14 など）。タスク定義: イメージは両方 :0.5.0、`SALES_MAIL_POLLING_ENABLED="false"`、`MAIL_FROM=no-reply@alphasys.alphacmc.com`、`ALPHASYS_BASE_URL=https://alphasys.alphacmc.com`。`ses:SendEmail` は FromAddress で限定。SSM は `/alpha/prod/alphaexapi/*` の読み取り。
+- **確認（alphasystem、読み取り）**: prod の `/alpha/prod/alphaexapi/GOOGLE_CREDENTIALS_JSON` は、SecureString、Version 1（12:21 登録）で存在する（値は見ていない）。alphasyscdk の「SSM に登録済みかの確認」は、これで満たされた。未確認なのは、**本番サービスアカウントが本番の共有ドライブ・テンプレートフォルダーに書き込めるか**（ユーザーの確認事項）。
+- **次（ユーザーの go 待ち）**: `deploy:staging`（alphaexapi-16 がログ確認）→ `deploy:prod`。
+
+## 2026-11-15 deploy:staging 完了。staging が 0.5.0 になった
+
+- **報告者**: alphasyscdk-ec（別セッション）。「ユーザーが `deploy:staging` を流した」という報告（21:27）。
+- **結果**: StagingStack は `UPDATE_COMPLETE`。タスク定義は `:89`（frontend・backend とも 0.5.0）。backend のログに「営業メール取り込みは有効」が出ており、ERROR は無い（alphasyscdk の報告。alphasystem では未確認）。alphaexapi-16 が取り込みの動作確認を行う。
+- **残り（`deploy:prod` の前提）**: ユーザーの go。本番サービスアカウントの、本番共有ドライブへの書き込み権限の確認。どちらも未取得で、取れるまで `deploy:prod` は流さない。

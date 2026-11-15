@@ -1652,3 +1652,52 @@ alphaexapiより回答あり、原因・方針が判明:
 - **確定**: alphasys側の応急処置（`?? []`、PR #326）は、alphaexapi側修正後も残してよいとのこと。alphaexapi側でユーザー了解が得られPRができ次第連絡が来る予定。alphasys側はPR #326のまま待機
 
 alphaexapiよりDraft PR作成の連絡あり: alphaexapi PR #213（base: staging、https://github.com/alphacmc/alphaexapi/pull/213 ）。`GET /member/employee-info`の`emergencyContacts`を未設定時`[]`返却に修正し、契約書2.1にも明記。`address`・`bankAccount`は従来通り`null`のまま。マージはユーザーが行う。alphasys側の`?? []`（PR #326）は修正後も残置可とのこと再確認。両PR（alphasys #326、alphaexapi #213）ともマージ待ち。
+
+## 2026-11-15 alphasystemから0.5.0への版上げの予告（着手は保留）
+
+alphasystem（alphasystem-62）より、ユーザー承認（「0.5.0 の統一でお願いします」、2026-11-15）に基づく予告があった。仕様はalphasystemの`docs/design/2026-11-10-本番環境構築-仕様.md` 3章の手順2。
+
+- **段取り**: alphadb 0.5.0のpublishをalphadb-86が先に行う。**publish完了をalphasystemから知らせてくるまで着手しない**
+- 完了の連絡が来たら、次を行う
+  - `package.json`の`version`を0.5.0にする
+  - `alphadb`依存を`^0.5.0`にする（今は`^0.2.7`で遅れている）
+  - lockfileも一緒にコミットする（過去に`EINTEGRITY`があったため）
+  - Draft PR（base=staging）にする
+- stagingにマージするとCIがタグ0.5.0でECRにpushする。ECRのタグはimmutableに戻す予定なので、同じ版の2度目のpushは失敗する
+- **回答済み**: 進行中でstagingに未反映の作業は無い（open PR 0件、staging＝main、未コミットの変更や作業ブランチも無し）。alphaexapi #213はalphasys側の対応が#326で済んでいるため、版を切るのを止める理由にならない
+- alphasystemに伝えた懸念
+  - 11/10時点の`next build`の既存型エラー（`contract.repository.ts`の`scheduledPaymentDate`）は、alphadbを上げると変化しうる。版上げ時に`tsc`と`build`を確認してPRに書く
+  - immutableに戻すと、0.5.0以降はversionを上げないままコードをstagingにマージするたびにビルドが失敗する。この運用でよいかを確認依頼中（回答待ち）
+
+alphasystemより回答あり:
+
+- `next build`の型エラーは、alphadbを`^0.5.0`に上げたら`tsc`と`build`を確認し、結果をPRに書く（予定どおり）
+- ECRをimmutableに戻す件
+  - 仕様6.2は「区切りごとに版を上げる」前提で、区切りの間にコードをstagingにマージする運用を想定していなかったと、alphasystemが認めた
+  - immutableのままだと、コードのマージのたびにversionを上げることになる。これは「3プロジェクトを常に同じ番号で揃える」（仕様2章の決定2）とも食い違う
+  - 見直し案（MUTABLEのままにして、本番はコミットハッシュのタグかdigestで固定する等）をalphasystemがユーザーに確認する。**決まるまでECRの変更は保留**（alphasyscdk-ecにも伝達済み）
+- 0.5.0を切る作業（alphadbのpublishを待つ → versionと依存を上げる）はこの判断に影響されないので、予定どおり。alphadbのpublish完了の連絡待ち
+
+alphasystemより、alphadb 0.5.0のpublish完了の連絡あり:
+
+- CodeArtifactでPublishedになり、`latest`は0.5.0。alphadbのmain・stagingとも0.5.0。alphasystemでも読み取りで確認済み
+- ECRは当面MUTABLEのまま（immutableに戻す運用はユーザーの判断待ち）
+- alphasys側の事前調査
+  - alphadbの0.2.7→0.5.0のスキーマ差分は、5_4_3（定時起動・停止）のテーブル追加だけ（alphadb c85b1a7）。既存のテーブル・列に変更は無い
+  - `scheduledPaymentDate`は0.2.7のスキーマにも既にある。11/10の型エラーはバージョンのずれ以外が原因の可能性がある
+- 版上げの方針をユーザーに提示し、**了解待ち**（ピアからの依頼はユーザーの了解の代わりにならないため）
+  1. `feature/version-0.5.0`ブランチを作る
+  2. versionを0.5.0、alphadbを`^0.5.0`にする
+  3. CodeArtifactの認証を取ってnpm installし、lockfileも一緒にコミットする
+  4. tscとbuildの結果をPRに書く
+  5. Draft PR（base=staging）を作り、リンクをalphasystemに知らせる
+- alphasystemから状況確認あり: backendの0.5.0はECRに入った。frontendの0.5.0はこのPRのマージ後にCIがpushする。本番のデプロイはこのPRを待っている。alphasysのユーザーの了解待ちであることを回答した
+- **ユーザーが版上げの方針を了解した**（「進めてください」）
+- `feature/version-0.5.0`で対応し、**Draft PR #328**（base: staging）を作成した。PRのリンクはalphasystemにSendMessageで知らせた
+  - versionを0.5.0、alphadbを`^0.5.0`にした。lockfileも一緒にコミットした（差分はalphadbのresolved・integrityとルートのversionだけ）
+  - tscはテスト以外のファイルでエラー0件。`npm run build`は成功し、`scheduledPaymentDate`の型エラーは出なかった
+  - Prismaの`wasm-engine-edge`がEdge Runtime非対応という警告が出る（middleware経由）。0.2.7で出ていたかは比べていない。ビルドは通る
+  - マージ後にCIがタグ0.5.0（と#322のコミットハッシュのタグ）でECRにpushする。本番のデプロイはこのPRを待っている
+- **ユーザーがPR #328をマージした**（2026-11-15 21:14 JST、マージコミット`7862d78`）
+  - CodeBuild `staging-alphasys-frontend-ecr-build`はSUCCEEDED。ECR `alphasys-frontend`に21:17:48にpushされ、タグは`0.5.0`と`7862d78`（#322のコミットハッシュのタグも付くことを確認）。digestは`sha256:69e9847163bbcfa59e50b111acd7ce743c412fe04aa25dc81a82a879d8e302cb`
+  - `StagingEcsDeployPipeline`の最新の実行は11/10 15:09で、今回のpushでは動いていない（stagingのECSへの反映はまだ）。パイプラインは起動していない。本番を含むデプロイの段取りはalphasystemに任せる旨を、alphasystemにSendMessageで伝えた

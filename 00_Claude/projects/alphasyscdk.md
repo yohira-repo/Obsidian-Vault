@@ -425,3 +425,295 @@
   - Bastion は `i-08f13fc70ac372bde`（`ami-0a5110ef683dd3ad9`、10/27 起動）のままで、置き換わっていない。夜間移行の設定とタイマーも残っている。
   - CodeBuild `staging-alphasys-imagedefinitions-pipeline-project` のビルド設定に、`=== DEPLOY IMAGE (digest / pushedAt / tags) ===` が入った（PR #126 の反映）。
 - **残り**: alphasys #322 と alphaexapi #208（コミットハッシュのタグ）のマージ。マージ後、次にパイプラインを実行したときのログで、`0.1.0` と7桁のハッシュのタグが並んで出ることを確かめる。
+
+## 2026-11-14 本番の DB をリリースまで 1 台にする依頼（alphasystem-62 から、ユーザー承認済み）
+
+- **決定（ユーザー、alphasystem で 2026-11-14）**: 本番スタックの DB（Aurora）は、リリースまで staging と同じ 1 台で作る。リリースのときに `instanceCount: 2` に戻して `cdk deploy` で2台目を足す。停止もデータ移行も無く、書き込みのエンドポイントも変わらない見込み。
+- **依頼（alphasystem-62）**: `lib/prod-stack.ts` の `instanceCount: 2` を `1` にする。1→2 の増設が、インスタンスの追加だけ（今あるインスタンスの置き換え無し）になることを `cdk diff` で確かめる。リリース時に 2 へ戻す手順を docs に残す。PR のリンクを知らせる。
+  - 注意（依頼元）: 1 台の間は、障害時に自動で切り替わらない（バックアップから戻すしかない）。2台目の AZ は、デプロイ後に確かめる必要がある。
+- **確認**:
+  - 本番スタック（ProductionStack）はまだ作られていないので、本番で 1→2 の diff は取れない。
+  - そこで、同じ `RdsConstruct` を使っている staging で、一時的に `instanceCount: 2` にして `diff:staging`（変更セット）を流し、すぐ元に戻した。
+  - 結果: 追加は `RDS/DBCluster/Instance2`（AWS::RDS::DBInstance）だけ。`Instance1` とクラスタは置き換わらない。ほかの差分は、`MigrateTrigger` とその IAM ポリシーの `DependsOn` に Instance2 が加わることだけ（中身は変わらない）。
+- **提示した案（alphasyscdk のユーザーの了解待ち）**:
+  - `lib/prod-stack.ts` を `instanceCount: 1` にし、リリース時に 2 へ戻すことをコメントに書く。
+  - `docs/構築・メンテナンス手順.md` に「リリース時に DB を 2 台にする」手順を足す。手順は、2 に戻す PR → `diff:prod` で Instance2 の追加だけか確かめる → `deploy:prod` → 2台目の AZ を確かめる → フェイルオーバーの試験をするか決める。1 台の間の注意も書く。
+
+## 2026-11-14 本番の DB を 1 台にする修正（ユーザー承認「着手してください」）
+
+- **承認**: 上の案で着手することを、alphasyscdk のユーザーが了承した。
+- **変更**:
+  - `lib/prod-stack.ts`: `instanceCount: 2` → `1`。リリース時に 2 へ戻すこと、1 台の間は自動切り替えが無いことを、コメントに書いた。
+  - `docs/構築・メンテナンス手順.md`: 5-2-1「本番の DB を 2 台にする（リリース時）」を足した。手順は、2 に戻す PR → `diff:prod` で Instance2 の追加だけか確かめる → `deploy:prod` → 2台目の AZ を確かめる（`describe-db-instances`）→ フェイルオーバーの試験をするか決める。1 台の間の注意も書いた。
+- **確認**: tsc・テスト7件が通った。
+  - `cdk synth ProductionStack` は、DB とは関係なく、`templates/template-ids.prod.json` が空のため止まる（テンプレート ID が無ければ synth を止める作り。本番のテンプレートはまだ deploy していない）。本番テンプレートの中身は、synth では確かめていない。
+  - 本番を初めてデプロイする前に、`templates:deploy --env prod` で本番のテンプレートを作り、ID を記録する必要がある（既知の残作業）。
+- **連絡**: alphasystem-62 に PR #132 のリンクと diff の結果を知らせた。
+
+## 2026-11-14 8-3（手順書のシークレット件数）の修正（ユーザー承認「着手お願いします」）
+
+- **承認**: 上の 8-3 の案で着手することを、alphasyscdk のユーザーが了承した。別の PR にする（`feature/doc-secret-count`、base=staging）。
+- **変更**（`docs/構築・メンテナンス手順.md`）:
+  - 1-2 の表の「機密7件」、1-3-A-3 の「機密7件」と「対象は11件」を直した。登録スクリプトは 26 件、ECS が読むのは `GOOGLE_CREDENTIALS_JSON` を足した 27 件、と書いた。
+  - 1-3-A-3 の表に、MF クラウド連動の 15 件を足した（表は 26 行）。
+  - `GOOGLE_CREDENTIALS_JSON` の 📝 を直した。手で登録すること、`ecs.ts` に入っている（PR #109）ので未登録だとタスクが起動しないこと、本番は別の鍵にすることを書いた。
+  - 付録 A ゲート③ の前提1 の「11件」を、26件+1件=27件に直した。
+  - 付録 A の「ゲート②-1 初回リリース前（1.0.0 上書き運用）」を削除した。ただし、その中の「スキーマを変更した場合はマイグレーションも必要」（③）は、1.0.0 の上書き運用とは関係なく今も当てはまるので、ゲート② の注意として残した（仕様の「削除」から外れる点）。
+- **PR**: https://github.com/alphacmc/alphasyscdk/pull/135 （Draft、base=staging）。
+- **連絡**: alphasystem-62 に PR のリンクを知らせ、ECS が読むのは 27 件なので、仕様 4.2 の「26 件」に `GOOGLE_CREDENTIALS_JSON` の注記を足すか検討してほしいと伝えた。
+
+## 2026-11-14 本番アカウントの NetworkStack が完成（alphacdk-bd から連絡）
+
+- **連絡（alphacdk-bd）**: 本番アカウント（938812705475）に NetworkStack をデプロイした（CREATE_COMPLETE）。
+  - VPC は vpc-0941a4778168de668（10.100.0.0/16）。
+  - NAT は NAT インスタンス（t3.nano、1a・1c に各 1 台）。
+  - ProductionStack をデプロイした後は、Export しているリソースを作り直す変更はできない。
+  - 研修環境の LaunchTemplatesStack は確認中（ProductionStack の前提ではない）。
+- **確認（読み取りのみ）**:
+  - `NetworkStack-VpcId`・`-PublicSubnetIds`・`-PrivateSubnetIds` の Export は連絡どおりだった。
+  - ロール `alphacmc-prod-training-instance-role` もあった。
+  - `.env.prod` の `MMS_INSTANCE_ROLE_ARN` は、すでに同じ ARN だった。
+- **見つけた問題**:
+  - `lib/constructs/code-pipeline.ts` は、GitHub 接続を `Fn.importValue("pipeline-connection-arn")` で引いている。
+  - この Export は、共有アカウント（staging）の SharedStack にしか無い。本番アカウントには無い（`list-exports` で確認）。
+  - このままだと、`deploy:prod` が「その名前の Export が無い」で失敗する見込み。
+  - 仕様 4 章の「GitHub 接続の承認は不要」も当てはまらない可能性がある。
+  - 直し方の案をユーザーに出す（了解待ち）。
+- **追加の確認**: 本番アカウントには GitHub 接続そのものが無い（`codestar-connections list-connections --profile prod` が空）。
+- **提示した案（了解待ち）**:
+  1. ProductionStack で、本番アカウントに GitHub 接続（`CfnConnection`、作成直後は PENDING）を作る。
+  2. CodePipelineConstruct には、importValue ではなくその接続を渡す。staging は今のまま。
+  3. 人の作業として、デプロイの後に本番のコンソールで接続を 1 回承認する。承認までパイプラインは動かない（デプロイ自体は通る）。
+  - 了解が出たら、alphasystem に「仕様 4 章の『GitHub 接続の承認は不要』を直す必要がある」と伝える。
+- **失敗**: 記録の push 前に PR #135 がマージ済みだったのに、`gh pr view && git push` で push してしまった。同じブランチから PR #137 を作り直した。今後は OPEN を文字列で判定してから push する。
+
+## 2026-11-14 本番スタックに SES を入れる依頼（alphasystem-62 から、ユーザー承認済み）
+
+- **決定（ユーザー、alphasystem で 2026-11-14）**: 本番の送信元ドメインは `alphasys.alphacmc.com`（本番の実ドメイン）に統一する。SES 設計書 5 章の `alphasystem.alphacmc.com` 系は誤記として直す。
+- **依頼（alphasystem-62）**: ProductionStack に staging と同じ SES 構成（SesConstruct・MAIL_FROM・タスクロールへの送信許可）を入れる。DKIM・MAIL FROM・DMARC のレコードが本番のホストゾーン `alphasys.alphacmc.com` に作られることを `diff:prod` 等で確かめる。サンドボックスの間は identity/* の許可（設計書 3 章）を staging と同様に扱う。設計書 5 章の更新も PR に含める。8-1（DnsConstruct の apex 対応）・8-3 は別途依頼。
+- **調査**:
+  - 本番アカウントに `alphasys.alphacmc.com` のホストゾーン（Z01029762HO9GEN1GXBMI）があり、公開 DNS の NS 委譲も通っている。
+  - 今の `cdk.json` の本番コンテキストは `alphacmc.com` + `alphasys` のため、DnsConstruct は本番アカウントに無い `alphacmc.com` ゾーンを引きに行く。8-1 の前は、SES のレコードを `alphasys.alphacmc.com` ゾーンに置く diff は取れない（SES は DnsConstruct のゾーンを使う）。
+  - `cdk synth ProductionStack` は `template-ids.prod.json` が空のため止まる（既知）。
+  - `.env.prod` の `AUTH_URL` が `https://alphasystem.alphacmc.com` のまま（ドメイン統一と食い違う）。
+- **方式案を alphasyscdk のユーザーに提示し、了解待ち**（下の「了解」の節に結果を書く）。
+
+### 了解（alphasyscdk のユーザー、2026-11-14）
+
+- **8-1（DnsConstruct・A レコードの apex 対応、`cdk.json` の本番コンテキスト更新）も同じ PR に入れる。** SES のレコードは DnsConstruct のゾーンに作るため。
+- diff:prod の止まり（`template-ids.prod.json` が空）は、判断を任された。確認の間だけローカルでダミーの ID を入れて diff を取り、すぐ元に戻す（コミットしない）。
+
+### 実装と確認（`feature/prod-ses`）
+
+- **変更**:
+  - `lib/constructs/dns.ts`: `siteDomain` を足した。`subDomain` が空ならゾーン apex（8-1）。証明書は `siteDomain` で取る。
+  - `cdk.json`: 本番は `{"domainName": "alphasys.alphacmc.com", "subDomain": ""}`。
+  - `lib/prod-stack.ts`: A レコードの `recordName` を `siteDomain` にした。SesConstruct（送信元 `no-reply@alphasys.alphacmc.com`）を入れ、ECS の `mail`（`MAIL_DRIVER`・`MAIL_FROM`・`ALPHASYS_BASE_URL`）と `grantSend`（`identity/*`、`ses:FromAddress` で絞る）を足した。
+  - `cdk.context.json`: 本番のゾーンの検索結果（Z01029762HO9GEN1GXBMI）と、本番の Bastion の AMI（ami-089bd5e642b45bf4b）が記録された。本番の AMI も固定される。
+  - SES 設計書 5 章・1 章、構築・メンテナンス手順 2-1 のドメイン表を更新した。
+- **確認**:
+  - tsc は通り、テスト 7 件も通った。
+  - `diff:prod` は、確認の間だけ `template-ids.prod.json` にダミーの ID を入れて流し、すぐ元に戻した。合成したテンプレートで、証明書の検証・A レコード（`alphasys.alphacmc.com.`）・DKIM の CNAME 3件・`bounce.alphasys.alphacmc.com` の MX と SPF・`_dmarc.alphasys.alphacmc.com` の TXT が、すべてゾーン Z01029762HO9GEN1GXBMI に作られる。
+  - `diff:staging` は差分なし。
+  - 本番の `AUTH_URL` が `https://alphasystem.alphacmc.com` のまま（`.env.prod` 由来）。直すのは別の作業（8-3 と合わせて案を出す）。
+- **追加の連絡（alphasystem-62、ユーザー承認「進めてください」）**:
+  - 8-1（今回の PR に含めた）・8-3（シークレット件数を 26 件にし、付録 A の「ゲート②-1」を削除）・`.env.prod` の `AUTH_URL` の修正の依頼が来た。
+  - 本番の SES サンドボックス解除は承認済み（ケース ID 179466012600694）。
+- **PR**: https://github.com/alphacmc/alphasyscdk/pull/134 （Draft、base=staging）。alphasystem-62 にリンクと確認結果を知らせた。
+- **`.env.prod` の `AUTH_URL`**: PR を作った後に見直すと、`https://alphasys.alphacmc.com` に直っていた（ファイルの更新は 2026-11-14 21:54。diff:prod の後）。`API_URL` は `.env` の共通値 `http://localhost:3001` を使う。フロントとバックが同じタスクにいるので、staging と同じ。ほかの URL 系に食い違いは無い。
+- **8-3**: 了解を取ってから、別の PR にする（ユーザーに案を出す）。
+
+## 2026-11-14 8-3（手順書のシークレット件数）の案を提示（了解待ち）
+
+- **調べて分かったこと**:
+  - 登録スクリプト（`alphasystem/scripts/register-secret-parameters.py` の `MAPPING`）は 26 件。共有 2・alphasys 1・alphaexapi 3・営業メール Track1 5・MF クラウド連動 15。仕様の数と合う。
+  - ECS が起動時に読む SecureString は **27 件**（`lib/constructs/ecs.ts` の `secureParam`）。スクリプトの 26 件に `alphaexapi/GOOGLE_CREDENTIALS_JSON`（googledrivemanager の鍵）が加わる。この鍵はスクリプトの対象外で、本番では別の鍵を後で登録する決定済みのもの。
+- **提示した案（別 PR）**:
+  1. 1-3 の「機密7件」「対象は11件」を 26 件に直し、表に MF クラウド連動の 15 件を足す。
+  2. `GOOGLE_CREDENTIALS_JSON` は「スクリプトの対象外・手で登録・未登録だと本番タスクが起動しない」と別に書く。
+  3. 付録 A の前提の「11件」も直す。
+  4. 付録 A の「ゲート②-1 初回リリース前（1.0.0 上書き運用）」を削除する。
+  - 27 件目のことは、alphasystem の仕様 4.2（26 件）にも関わるので、alphasystem にも伝える。
+
+## 2026-11-15 本番アカウントに GitHub 接続を作る（ユーザー承認「A」）
+
+- **経緯**:
+  - 本番の CodePipeline は、GitHub 接続を共有アカウント（staging）の Export `pipeline-connection-arn` から引いていた。本番アカウントからは引けない。
+  - ユーザーから「本番は ECR を読むだけでは？ GitHub は要るのか」と質問があった。
+  - 説明: 本番の GitHub 接続は、ビルドのためではない。`alphasysdeploy` の `main` の `version.json` を読み、本番に出す版を決めて、パイプラインを動かすため（仕様 6.2 の手順 5）。
+  - 3 案を出した。A: 本番に GitHub 接続を作る。B: 本番のパイプラインをやめ、`.env.prod` の版で `deploy:prod`。C: staging のパイプラインから本番へデプロイする。
+- **決定（ユーザー）**: **A**。B は、どの版を出したかが git に残らなくなる。C は、別アカウントへのデプロイでロールの設定が複雑になる。
+- **変更**（`feature/prod-github-connection`）:
+  - `lib/constructs/code-pipeline.ts`: `connectionArn` を渡せるようにした。省略時は、今までどおり Export を引く（staging は変わらない）。
+  - `lib/prod-stack.ts`: 本番アカウントに `CfnConnection`（`prod-github-connection`、GitHub）を作り、パイプラインに渡す。RETAIN にはしていない（スタックを作り直したら承認し直す）。
+  - `docs/構築・メンテナンス手順.md` 1-3-B-1: 本番は別の接続を承認すること、承認後にパイプラインを手動で 1 回動かすことを書いた。
+- **確認**:
+  - tsc は通り、テスト 7 件も通った。
+  - `diff:prod`（確認の間だけダミーのテンプレート ID を入れ、元に戻した）: `AWS::CodeStarConnections::Connection` が加わる。パイプラインの Source は、この接続で `alphacmc/alphasysdeploy` の `main` を読む。テンプレートに `pipeline-connection-arn` は残っていない。
+  - `diff:staging` は差分なし。
+- **人の作業（ProductionStack の初回デプロイの後）**:
+  1. 本番アカウントのコンソールで `prod-github-connection` を承認する。
+  2. `MainEcsDeployPipeline` を手動で 1 回動かす。
+- **連絡**: alphasystem に、仕様 4 章の「GitHub 接続の承認は不要」を直す必要があることを伝える。
+- **PR**: https://github.com/alphacmc/alphasyscdk/pull/139 （Draft、base=staging）。
+- **連絡済み**: alphasystem-62 に、仕様 4 章の「GitHub 接続の承認は不要」と 5 章のデプロイ手順を直すよう依頼した。
+- **片付け**: マージ済みのローカルブランチ `feature/prod-ses`（#134）と `feature/doc-secret-count`（#135・#137）を削除した。
+
+## 2026-11-15 営業メールの取り込みの on/off を ECS に渡す（仕様 8-2、ユーザー承認「この案で着手する」）
+
+- **依頼（alphaexapi-16、ユーザーの了解は alphasystem-62 経由で 2026-11-15）**: backend の ECS に `SALES_MAIL_POLLING_ENABLED` を足す。値が `true` のときだけ、営業メールの取り込み（10 分ごとの @Cron）が動く。今は staging `true`・本番 `false`。リリース時に逆にする（staging `false`・本番 `true`）。
+  - **順番**: 先に staging に `true` を反映し、その後で alphaexapi の修正（8-2 と 0.5.0）を staging に入れる。逆にすると、その間 staging の取り込みが止まる。今の alphaexapi のイメージはこの変数を読まないので、先に足しても影響は無い。staging に入ったら、alphaexapi-16 に知らせる。
+- **方式（ユーザー承認）**: `cdk.json` の staging・prod に `salesMailPollingEnabled`（true / false）を持たせ、`ecs.ts` で `"true"` / `"false"` の文字列にして渡す。本番も `false` を明示する。切り替えは、`cdk.json` の値を変えて deploy する。
+- **変更**（`feature/sales-mail-polling-toggle`）: `cdk.json`、`lib/constructs/ecs.ts`（必須の prop `salesMailPollingEnabled`）、`lib/staging-stack.ts`、`lib/prod-stack.ts`。context が無いときは `=== true` で OFF になる。
+- **確認**:
+  - tsc は通り、テスト 7 件も通った。
+  - `diff:staging`: タスク定義に `SALES_MAIL_POLLING_ENABLED=true` が加わるだけ（新しいリビジョン）。
+  - 本番の synth: `false`。
+- **段取り**: PR をマージ → 人が `deploy:staging` → alphaexapi-16 に「staging に反映した」と知らせる → alphaexapi が 8-2 と 0.5.0 を staging に入れる。
+- **気づいたこと**: 作業ツリーの `templates/drive-folders.json`（prod のフォルダ ID）と `templates/template-ids.prod.json`（本番のテンプレート ID 3 つ）が書き換わっていた（2026-11-15 13:14〜13:15）。本番の `templates:deploy` を流した結果と見られる。このブランチのコミットには含めず、扱いはユーザーに確認する。
+- **PR**: https://github.com/alphacmc/alphasyscdk/pull/142 （Draft、base=staging）。
+- **連絡**: alphaexapi-16 に PR のリンクを知らせた。staging に反映して合図するまで、8-2・0.5.0 を staging に入れないよう伝えた。
+- **返事（alphaexapi-16）**: 合図が来るまで、8-2・0.5.0 は staging に入れないと了承した。リリース時の切り替え（`cdk.json` の値を逆にして deploy する）は、alphaexapi の PR の説明と docs にも書く。
+
+## 2026-11-15 deploy:prod の失敗（S3 バケット名の衝突）
+
+- **報告（ユーザー）**: `npm run deploy:prod` でエラーが出た。
+- **調査（読み取りのみ）**:
+  - ProductionStack は ROLLBACK_COMPLETE（作成 13:26:53 JST）。
+  - 根本原因は `CodePipelinePipelineArtifactBucket` の作成の失敗。CloudTrail では `CreateBucket` が `BucketAlreadyExists`（13:27:30）だった。バケット名 `prod-alphasyscdk-pipeline-artifacts-bucket` を、私たちのアカウント以外の誰かが持っていた（自分のアカウントのものなら `BucketAlreadyOwnedByYou` になる）。ほかのリソースは、作成が取り消されただけ。
+  - 本番の以前のスタック 3 件（11-14 21:51、11-15 09:56・13:21）は、diff の変更セット（REVIEW_IN_PROGRESS → 削除）で、バケットは作っていない。
+  - 今は staging・本番の両方から `head-bucket` が 404 で、この名前のバケットは見当たらない。持ち主は分からない。
+- **提示した案（了解待ち）**:
+  - 本番のバケット名にアカウント ID を入れる（`prod-alphasyscdk-pipeline-artifacts-938812705475`）。本番のバケットは一度も作られていないので、影響は無い。
+  - staging は変えない（名前を変えると作り直しになる）。
+  - 同じ名前で流し直すのは勧めない（持ち主が分からない名前のため）。
+  - 修正をマージした後、`deploy:prod` を流し直す。CDK は、ROLLBACK_COMPLETE のスタックを消してから作り直す。
+
+## 2026-11-15 ECR を IMMUTABLE に戻す依頼（alphasystem-62 から、ユーザー承認「0.5.0 の統一でお願いします」）
+
+- **依頼（alphasystem-62）**: 仕様 3.3 の手順 0。共有アカウントの ECR `alphasys-frontend`・`alphasys-backend` が MUTABLE のままで、仕様 6.5（タグは immutable）に反する。①経緯の確認、②IMMUTABLE に戻す（コードの修正が要るなら方式案を出し了解を得る）、③戻した後に CI が同じ版を 2 回 push しないかの確認。webhook が届かなかった件も、分かれば知らせる。
+  - 0.5.0 の統一の順序（仕様 3.3）: alphadb の publish → alphaexapi・alphasys を 0.5.0 に → alphasyscdk の `.env` の `FRONTEND/BACKEND_PACKAGE_VERSION` を 0.5.0 にして StagingStack をデプロイ → alphasysdeploy の staging の `version.json`。`.env` を変える時期は、別途知らせが来る。
+- **調査**:
+  - ① 手作業ではなく、CDK の設定。`cdk.json` の context `"imageTagMutability": "MUTABLE"`（8ac9443、2026-09-24）。正式リリース前は同じタグを上書きする運用で、「正式運用を始めたら IMMUTABLE に変える」と `shared-stack.ts` のコメントにある。`EcrConstruct` の既定値は IMMUTABLE。
+  - ③ alphaexapi・alphasys の buildspec は、docs だけの push 以外では、毎回 version のタグ（と 7 桁のコミットハッシュのタグ）を push する。
+    - IMMUTABLE にすると、同じ版で 2 回目に push したとき（版を上げずにコードを直してマージしたとき）、version のタグの push が失敗する。同じコミットでビルドをやり直したときは、ハッシュのタグの push も失敗する。
+    - **しかも、失敗が隠れる。** push は `post_build` の複数行ブロック（`|`）の中にあり、ブロックの終了コードは最後の `printf` のものになる。そのため docker push が失敗してもビルドは成功と表示され、古いイメージがそのままデプロイされる（手順書 2-5 の注意書きどおり）。
+  - webhook の件: 2026-11-09 の調査の結論のまま（GitHub 側で、staging への push の配信が作られなかった。CDK の設定では防げない）。ECR の MUTABLE とは関係ない。
+- **方式案をユーザーに提示し、了解待ち**。
+- **提示した案（了解待ち）**:
+  1. alphaexapi・alphasys のセッション: buildspec で、push が失敗したらビルドも失敗にする（`docker push ... || exit 1`）。
+  2. alphasyscdk: `cdk.json` を `"imageTagMutability": "IMMUTABLE"` にし、`shared-stack.ts` のコメントを直す PR。
+  3. 人: 2 のマージ後に `cdk deploy SharedStack`。時期は、alphaexapi・alphasys の 0.5.0 のイメージを push する直前（早すぎると、0.5.0 までの 0.1.0 での修正が push できない）。
+  4. 以後は、staging にコードをマージするたびに版を上げる（0.5.1、0.5.2…）。
+  - 了解が出たら、2 の PR を作り、alphasystem に 1 の依頼と 3・4 の段取りを伝える。
+
+### 保留（alphasystem-62 から、2026-11-15）
+
+- **連絡**: ECR を IMMUTABLE に戻す変更は、保留する。経緯の確認までにとどめる。
+  - alphasys から指摘があった。IMMUTABLE にすると、版を上げずに staging にマージするたびに、版のタグの push が拒否される。
+  - 仕様 6.2 は「区切りごとに版を上げる」前提で、区切りの間の staging へのマージを想定していなかった。運用の設計をユーザーに確認する（判断が出たら連絡が来る）。
+- **回答（alphasystem-62 へ送信済み）**:
+  - ① MUTABLE の経緯（上の調査のとおり）。
+  - ② CI は、別々の `docker push` を 2 回する（版 → コミットハッシュ）。`set -e` が無いので、版のタグが拒否されてもハッシュのタグは入る。ブロックの終了コードは最後の `printf` のものなので、ビルドは成功になる。その結果、古い `<version>` のイメージがデプロイされる（alphasys の言う「ビルドが失敗する」は、今の buildspec では起きない）。
+  - 運用をどう決めても、buildspec で push の失敗をビルドの失敗にすることを先にやる方が安全、と伝えた。
+- **状態**: `cdk.json` は変えていない。Draft PR #141 は記録だけ。ユーザーの判断を待つ。
+
+## 2026-11-15 2 回目の deploy:prod の失敗（ロググループ名）
+
+- **報告（ユーザー）**: 2 回目の `deploy:prod` が、変更セットの事前チェックで止まった。`AWS::Logs::LogGroup '/alphasys/staging/nightly-migration' already exists`。
+- **原因**:
+  - `lib/constructs/ssm-ec2.ts` が、ロググループ名を `/alphasys/staging/nightly-migration` と固定で持っている。
+  - 1 回目（13:27:29）にこれが本番アカウントに作られ、LogGroup の既定の RETAIN のため、ロールバックの後も残った（0 バイト）。
+  - 本番アカウントに残ったものは、これ 1 つだけ（ECS のロググループなどは作られていない）。
+- **提示した案（了解待ち。バケット名の修正と 1 つの PR）**:
+  1. ロググループ名を `/alphasys/${env}/nightly-migration` にする（本番は `/alphasys/prod/nightly-migration`。staging は変わらない）。
+  2. 本番のバケット名にアカウント ID を入れる（前の案）。
+  3. 本番に残った空のロググループ `/alphasys/staging/nightly-migration` を、了解の後に `aws logs delete-log-group --profile prod` で消す。
+  4. 本番の夜間移行を配備するとき（仕様 6.4）、Bastion の `LOG_GROUP` を `/alphasys/prod/nightly-migration` にするよう、alphadb に伝える（設定ファイルで変えられるので、alphadb のコードの修正は要らない）。
+  - マージの後に `deploy:prod` を流し直す。
+- **承認（ユーザー）**: 上の 4 点の案で進める。`deploy:staging`（PR #142 の分）はまだ流していない。
+- **変更**（`feature/prod-deploy-fixes`）:
+  - `lib/constructs/ssm-ec2.ts`: `environmentType` を受け取り、ロググループ名を `/alphasys/${environmentType}/nightly-migration` にした。
+  - `lib/staging-stack.ts`・`lib/prod-stack.ts`: `environmentType` を渡す。
+  - `lib/prod-stack.ts`: パイプラインのバケット名を `prod-alphasyscdk-pipeline-artifacts-${this.account}`（＝`…-938812705475`）にした。
+- **確認**:
+  - tsc は通り、テスト 7 件も通った。
+  - `diff:staging`: 差分は、まだデプロイしていない PR #142 の `SALES_MAIL_POLLING_ENABLED` だけ（今回の修正は staging を変えない）。
+  - 本番の synth: ロググループは `/alphasys/prod/nightly-migration`、バケットは `prod-alphasyscdk-pipeline-artifacts-938812705475`。
+- **実施（承認済み）**: 本番アカウントに残っていた空のロググループ `/alphasys/staging/nightly-migration`（0 バイト、ストリーム 0）を削除した。
+- **段取り**: この PR をマージ → `deploy:prod` を流し直す。`deploy:staging`（PR #142・今回の分）は、別途ユーザーが流す。その後、alphaexapi-16 に知らせる。
+- **未コミット**: `templates/drive-folders.json`・`templates/template-ids.prod.json`（本番の templates:deploy の結果）。本番の deploy には要るファイルで、扱いをユーザーに確認中。
+- **PR**: https://github.com/alphacmc/alphasyscdk/pull/144 （Draft、base=staging）。
+- **連絡**: alphadb-86 に、本番の夜間移行を配備するとき `/etc/alphadb-migration.env` の `LOG_GROUP` を `/alphasys/prod/nightly-migration` にするよう伝えた（本番の Bastion の書き込み権限も、この名前に対してだけ）。
+- **段取り（ユーザーに提示）**: ① PR #144 をマージ → ② `deploy:prod` を流し直す → ③ `deploy:staging`（PR #142 と #144 の分）→ 終わったら alphaexapi-16 に知らせる。
+- **返事（alphadb-86）**: 本番に配備するとき（仕様 6.4）は `LOG_GROUP=/alphasys/prod/nightly-migration` にする。`nightly_automation.md` の staging 名の記述は staging 向けの手順で、直す誤記は無い。本番向けの手順を足すかは、alphadb がユーザーに確認中（alphadb PR #116）。
+- **問い合わせ（alphaexapi-16）**: PR #142 の staging への反映の状況。staging のタスク定義 `staging-alphasys-unified` は、最新の revision 86（11/10 15:10）のままで、`SALES_MAIL_POLLING_ENABLED` が入っていない。alphadb 0.5.0 は publish 済みで、反映が済めば 8-2・0.5.0 の PR に取りかかる。
+  - 回答: `deploy:staging` はまだ（人が流す）。反映したら知らせるので、それまで staging には入れない（PR の準備は進めてよい）、と伝えた。
+  - ユーザーへの補足: `deploy:staging` は、PR #144・`deploy:prod` を待たずに先に流してよい（#144 は staging を変えない）。
+
+## 2026-11-15 本番のテンプレート ID の取り込みと、取り込みの切り替え手順（ユーザー承認）
+
+- **報告（ユーザー）**: PR #144 をマージした。本番のテンプレート ID 2 件も取り込んだ。
+- **確認**: その 2 件（コミット 9082adf「template取込」）は main に直接入っていて、staging には無かった。main は staging の内容をすべて含んでいる（#145 で staging → main 済み）。手元の staging で `deploy:prod` を流すと、テンプレート ID が無くて synth が止まる。
+- **決定（ユーザー）**:
+  - staging にも取り込む。9082adf を cherry-pick する（`feature/sync-prod-template-ids`）。
+  - alphaexapi-16 から依頼された、営業メールの取り込みをリリース時に切り替える順番を、構築・メンテナンス手順に書き足す（5-2-2）。順番は「staging を false にして deploy:staging → 本番を true にして deploy:prod」。両方 ON の時間があると、同じメールボックスの未読メールが staging と本番に分かれる（両方 OFF は問題ない）。
+- **PR**: https://github.com/alphacmc/alphasyscdk/pull/146 （Draft、base=staging）。alphaexapi-16 に、5-2-2 に書いたことを知らせた。
+
+## 2026-11-15 本番のデプロイの順番の見直し（alphasystem-62 の指摘、ユーザーの了解待ち）
+
+- **指摘（alphasystem-62）**:
+  - 本番は、8-2 が入った 0.5.0 のイメージが ECR に入ってからデプロイする。
+  - 8-2 の無いイメージで本番が起動すると、`SALES_MAIL_POLLING_ENABLED=false` でも、登録済みの `SALES_MAIL_IMAP_*` で取り込みが動き、staging とメールボックスを取り合う。
+  - 本番は未デプロイで、ECS も無い（alphasystem が読み取りで確認）。
+  - また、「deploy:staging は deploy:prod の後」だと、alphaexapi #218 のマージ条件（staging への反映）と循環する。
+- **回答（alphasystem-62 へ送信済み）**: deploy:staging を後にした技術的な理由は無い（段取りを並べた順番だっただけ）。提案の順序に支障は無い。ユーザーに確認する。
+- **提示した順番（2026-11-15 ユーザーが了承し deploy:staging を実行。段取りとして確定）**:
+  1. `deploy:staging`（差分は `SALES_MAIL_POLLING_ENABLED=true` だけ）。
+  2. alphaexapi に知らせる → alphaexapi #218（8-2・0.5.0）をマージ。
+  3. CI が 0.5.0 のイメージを ECR に push。
+  4. `.env` の `FRONTEND/BACKEND_PACKAGE_VERSION` を 0.5.0 にする（時期は alphasystem から連絡）。
+  5. `deploy:prod`（main で流す）。
+  - **それまで `deploy:prod` は流さない**よう、ユーザーに伝えた。
+
+## 2026-11-15 deploy:staging が終わらない件（19:01〜）
+
+- 原因: `.env` の FRONTEND/BACKEND_PACKAGE_VERSION が 0.5.0 だったが、staging の ECR に 0.5.0 のイメージが無い（最新は 0.1.0）。新しいタスク定義 :87 が CannotPullContainerError で起動できず、ECS サービスの更新が安定しない。サーキットブレーカーが無いため、CloudFormation はタイムアウトまで待ち続ける。
+- 影響: 旧タスク :86 が動き続けるので、staging のサービス停止は無い。
+- 提案（了解待ち）: cancel-update-stack で :86 に戻す → `.env` を 0.1.0 に戻す → deploy:staging を流し直す。0.5.0 にするのは、段取り 4 番目（0.5.0 の push 後）。
+- ユーザー了解（「対処案了解しました」）→ cancel-update-stack を実行し、UPDATE_ROLLBACK_COMPLETE になった。`.env` の 2 行を 0.1.0 に戻した。次はユーザーが deploy:staging を流し直す。
+- ロールバック後のサービスはタスク定義 :81（CFN 管理の版）で稼働。:86（パイプラインが登録した版）と同じく frontend/backend とも 0.1.0 のイメージなので、中身は変わらない。
+- 流し直した deploy:staging が完了。StagingStack は UPDATE_COMPLETE、タスク定義は :88（frontend/backend とも 0.1.0）、backend に SALES_MAIL_POLLING_ENABLED=true が入ったことを確認。これで段取り (1) は完了。
+- alphaexapi-16 に #218（8-2 / 0.5.0）へ進んでよいと伝え、alphasystem-62 に順番の了承と (1) の完了を報告した。deploy:prod はまだ流していない（(3) の 0.5.0 push と (4) の .env 変更の後に流す）。
+- alphaexapi-16 から返信: staging の :88 で SALES_MAIL_POLLING_ENABLED=true を確認した。#218 のマージをユーザーに依頼済み。0.5.0 が ECR に push されたら連絡する。
+- ユーザーが alphaexapi #218 をマージ。backend のビルド（19:36〜19:39、SUCCEEDED）で、staging の ECR に alphasys-backend:0.5.0（8381871）が push された → 段取り (2)(3) は完了。
+- frontend は 0.1.0 のまま（今日 13:48 のビルドはドキュメントだけの push と判定され、設計どおり skip。push の失敗ではない）。.env を両方 0.5.0 にすると frontend のイメージが無くて ECS が起動しないため、(4) は BACKEND だけ 0.5.0 にして FRONTEND は 0.1.0 のまま、と alphasystem-62 に提案し、指示を待っている。
+- alphasystem-62 から: alphasys（frontend）の 0.5.0 の PR がまだ無い（origin/staging は version 0.1.0・alphadb ^0.2.7）。「3 つとも 0.5.0 で統一」とし、frontend の 0.5.0 を待ってから (4) で両方を 0.5.0 にする。BACKEND だけ 0.5.0 にする案は取らない（本番が alphadb ^0.2.7 の画面で起動するため）。alphasys-1e に版上げを依頼する。**alphasystem の提案で、ユーザーの了解はまだ。** それまで .env は変えず、deploy:prod も止めておく。
+- 訂正として返信した: PACKAGE_VERSION があるのは .env だけ（.env.staging / .env.prod には無い。bin/app.js は .env.<環境> → .env の順に読む）。.env を 0.5.0 にすると deploy:staging と deploy:prod の両方に効く。
+- PR #146 は 19:35 にマージ済みだったので、追記したコミットは PR #148 に移した。旧ブランチ feature/sync-prod-template-ids は #148 のマージ後に削除する。
+- alphasystem-62 から: .env.staging の件は訂正を受け入れ、記録を直した（(4) は `.env` の 1 か所）。staging の ECS の時期の提案: frontend と backend の 0.5.0 が両方とも ECR にあることを確認してから、(4) の直後に deploy:staging を流して版をそろえる。両方そろうまでは流さない（今日の障害の再発防止）。時期は alphasys の PR のマージ後に alphasystem から指示が来る。**alphasystem の提案で、ユーザーの了解はまだ。**
+- alphaexapi-16 から: backend の 0.5.0 の push を報告（digest sha256:6e92e961…、8381871 は #218 のマージコミット）。staging を 0.5.0 にした後に、backend のログに「営業メール取り込みは有効」が出るかを確認したいとのこと。→ staging を 0.5.0 にするのは frontend の 0.5.0 が ECR に入ってからと返信し、デプロイ後に知らせると伝えた。
+- alphasystem-62 から: frontend の 0.5.0（7862d78、21:17）が ECR に入り、0.5.0 が 2 つともそろった。`.env` を 0.5.0 にして diff を報告するよう依頼された（deploy はユーザーの了解の後。順序は deploy:staging（alphaexapi-16 がログを確認）→ deploy:prod）。
+- `.env` の FRONTEND/BACKEND_PACKAGE_VERSION を 0.5.0 にした（ローカルのみ、deploy はしていない）。diff の結果:
+  - staging: StagingStack はタスク定義のイメージのタグ 2 か所（:0.1.0 → :0.5.0）だけ。SharedStack は差分なし。
+  - prod: 新規作成なので 138 件がすべて追加（置き換え・削除なし）。タスク定義は frontend/backend とも :0.5.0、SALES_MAIL_POLLING_ENABLED=false、MAIL_FROM=no-reply@alphasys.alphacmc.com、ECS の DesiredCount は 2。
+  - 結果を alphasystem-62 に報告した。deploy:staging → deploy:prod はユーザーの了解を待つ。本番の GOOGLE_CREDENTIALS_JSON が SSM に登録されているかを deploy:prod の前に確かめる。
+- 本番の SSM: テンプレートが参照する /alpha/prod 配下のパラメータ 27 件が、すべて SSM に存在することを突き合わせて確認した（値は読んでいない）。GOOGLE_CREDENTIALS_JSON は SecureString（12:21 登録）。
+- alphasystem-62 から: 残る確認は、本番のサービスアカウントが本番の共有ドライブ・テンプレートフォルダーに書き込めること（ユーザーに確認する）。deploy:staging と deploy:prod は、ユーザーの go が出るまで止めておく。
+- ユーザーが deploy:staging（0.5.0）を実行した（21:27 完了）。これで 0.5.0 にそろえる方針を実質了承したと扱う。StagingStack は UPDATE_COMPLETE、タスク定義は :89（frontend/backend とも 0.5.0、SALES_MAIL_POLLING_ENABLED=true）。backend のログに 12:28:25Z「営業メール取り込みは有効」が出ていて、ERROR は無い。
+- alphaexapi-16 に取り込みの動作確認を頼み、alphasystem-62 に完了を報告した。deploy:prod は、ユーザーの go と、本番のサービスアカウントの共有ドライブ書き込み権限の確認を待つ。
+- alphaexapi-16 から: staging の 0.5.0 で取り込みのジョブが動いた（12:30:00Z「新規0件…失敗0件」、IMAP 接続とロックの取得・解放がエラー無く 1 周）。入れ替えの途中で、古いタスク（:88）も同時に取り込みを実行していた。メールを実際に処理できるかは、テストメールを送って確かめる予定（送るかはユーザーに確認する）。
+- こちらから確認を依頼: 本番は ECS の DesiredCount が 2 で、常に 2 タスクが同時に取り込むことになる。ロックがタスクをまたいで効くか（二重取り込みを防げるか）を、本番でポーラーを true にする前（5-2-2）の確認事項にする。今は本番のポーラーが false なので、deploy:prod を止める理由にはならない。
+- alphaexapi-16 から回答: ロックはタスクをまたいで効く。共有 DB の advisory lock（pg_try_advisory_lock、固定キー 728193045、ロック専用の接続 1 本、取れなければその回をスキップ、異常終了時は接続が切れたときに解放）。今日の staging で 2 タスクとも「完了」を出したのは、0 件で 0.35 秒で終わってロックを放した後に、もう一方が取ったため（順番に動いている）。既読化と「重複スキップ」で、二重取り込みも防がれる。→ 本番が DesiredCount 2 のままでも、ポーラーを true にする前の対策は不要。ON にした後は、10 分ごとに片方が「取り込み完了」、もう片方が「スキップ」か 0 件で完了、になることをログで確かめる。
+- ユーザーから「deploy:prod を実行してよいか」の確認があり、実行してよいと回答した。手元のコードは docs 以外 main と同じで、未コミットの変更も無い。前提（ECR 0.5.0 がそろっている、.env 0.5.0、diff:prod はすべて追加、SSM 27 件）は確認済み。本番のサービスアカウントの共有ドライブ書き込み権限は未確認だが、デプロイには関係しないので、本番を使い始める前に設定する。デプロイの後は、prod-github-connection の承認 → MainEcsDeployPipeline を 1 回実行（1-3-B-1）。
+- PR #148 は 21:36 にマージ済みだったため、その後の記録は PR #150 に移した。中身が staging に取り込み済みの feature/sync-prod-template-ids を削除した。feature/record-backend-050 は #150 のマージ後に削除する。
+
+## 2026-11-15 deploy:prod の 3 回目の失敗（CodeBuild の GitHub 認証情報が無い）
+
+- 21:42 頃、ProductionStack の作成が失敗し、ROLLBACK_COMPLETE になった。原因は FrontendCodeBuild の CREATE_FAILED「Access token not found in CodeBuild project for server type github」。ほかのリソースは巻き添えで取り消されただけ。
+- 本番の CodeBuild プロジェクトは GitHub の webhook（main への push）を使う。CodeBuild の webhook には、アカウントに GitHub のソース認証情報が必要。staging アカウントには PAT（PERSONAL_ACCESS_TOKEN）が登録されているが、本番アカウントには何も無い。手順書にも書かれていなかった。prod-github-connection は CodePipeline 用で、これとは別。
+- 空のロググループ /alphasys/prod/nightly-migration（0 バイト、RETAIN）が、また残っている。このまま流し直すと already exists で失敗する。
+- 提案（了解待ち）: (1) ユーザーが本番アカウントに GitHub の PAT を import-source-credentials で登録する（repo と admin:repo_hook の権限。トークンはチャットに貼らない） → (2) 私が空のロググループを削除する → (3) deploy:prod を流し直す → (4) 手順書の 1-3-B に PAT の登録を前提作業として書き足す。
+- ユーザーの依頼で、(1) の PAT の登録を Windows（PowerShell）で行うコマンドを示した。Read-Host -AsSecureString で入力を受け、import-source-credentials を --profile prod で実行する（トークンは画面にも履歴にも残らない）。手順書に書き足すとき（(4)）も、この PowerShell 版を載せる。(2)(4) の了解はまだ。
+- ユーザーが本番アカウントに PAT を登録した。list-source-credentials で、arn:aws:codebuild:ap-northeast-1:938812705475:token/github（GITHUB / PERSONAL_ACCESS_TOKEN）があることを確認した。(1) は完了。(2) のロググループの削除と (4) の手順書は、まだ了解待ち。
+- ユーザー了解（「2,4 お願いします」）→ (2) 空のロググループ /alphasys/prod/nightly-migration（0 バイト）を削除した。(4) 手順書に「1-3-B-2. CodeBuild 用の GitHub トークンの登録（アカウントごとに1回）」を新設し（トークンの条件、PowerShell での登録、確認の CLI、未登録だと失敗すること）、「個別にデプロイ」の deploy:prod にも前提として注記した。次はユーザーが deploy:prod を流し直す。
