@@ -910,3 +910,4 @@ coop セッション（coop-2a）から SendMessage で依頼を受けた（coop
   - 補正 SQL
   - 名義変更前の人に結び付いていた請求の組合員番号を直す個別の SQL
 - **次**: coopbatch が本番で実行する（coopinf 側の作業はない）。
+
