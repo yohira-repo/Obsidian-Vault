@@ -867,3 +867,24 @@ coop セッション（coop-2a）から SendMessage で依頼を受けた（coop
 - **prd リカバリ走行（2026-11-16 18:02 JST、ユーザーが実行）**: `coop-prd-batch-ondemand` を入力なし（`{}`）で実行し、SUCCEEDED（18:02:01〜18:02:55）。実行履歴は `DescribeSecurityGroup` → `RunEcsTaskRecovery`（新しい既定どおり）。
   - ログ（`/ecs/logs/coop-prd-batch-loggroup`）: `recoveryMode: true`、`step0_s3Recovery`（SFTP アクセスなし）。`122128334IF-K020_2026110608164701_errorfix00.csv` は件数 1・追加/更新 1・エラー 0。ジョブ全体は COMPLETED（totalRead 1、totalWrite 1、totalErrors 0）。
   - ファイルは `treated/` へ移動し、`untreated/` 直下と `temporary/` は空。エラーレコード対応は完了。
+
+## 2026-11-17 coopbatch から相談: 本番（DDL-2 後）の DB を stg に戻す方法（補正 SQL の予行のため）
+
+- **受信（coopbatch-09、SendMessage）**: 本番は 11/17 にリリース完了（DDL-1 → coopcdeweb 1.9.0 → DDL-2 → バッチ 1.4.0。gas_bill / denki_bill の主キーは member_code, contract_number, usage_year, usage_month）。過去 2 年分（請求年月 2024-12〜2026-08）の請求の補正 SQL を stg で予行する（ユーザー決定、stg の今の確認環境は上書きしてよい）。材料は 11/18 01:00 の本番日次ダンプ。日次同期の状態・戻す手順・注意点を知りたい。
+- **確認した事実（2026-11-17）**:
+  - `backup-prd-db.sh`（coop-prd-manage、JST 01:00）は稼働中。最新は 11/17 01:00 分。`restore-stg-db.sh` の cron は 2026-09-09 から停止中（cutover-plan Task 8）。
+  - ダンプのファイル名の日付は取得日の前日（UTC で評価されるため）。11/18 01:00 のダンプは `coopcde-prd-batch-tables_20261117.dump` になる。
+  - リレーバケットの `db-copy-to-stg/` は 7 日で自動削除。未解決フラグは無し。
+  - `coop-stg-batch-schedule` は DISABLED。stg / prd の Aurora と manage サーバーは稼働中。
+- **回答した内容（coopinf では何も実行していない）**:
+  - 手順: ユーザーが coop-stg-manage で `sh ~/coop-migration/restore-stg-db.sh coopcde-prd-batch-tables_20261117.dump` を実行する。4 テーブルを同じ時点に揃える今のスクリプトのまま使う（2 テーブルだけ戻す引数は無い）。
+  - 前提: `--data-only` なので、stg に DDL-1・DDL-2 が当たっていること。当たっていないと TRUNCATE 後に COPY が失敗し、4 テーブルが空のまま止まる。
+  - 予行中は stg のオンデマンド実行を走らせない。手で restore を再実行すれば予行をやり直せる。coop-stg-manage のスクリプトが main と同じ版かを diff で確かめる。
+- **方式の決定は coopbatch 側でユーザーの了承を得てから**。日時と結果の連絡を受けたら、ここに追記する。
+- **未決（ユーザーの判断待ち）**: `migration/cutover-plan.md` Task 9 の「ダンプの `YYYYMMDD` はその日の 01:00 時点」という注記の誤りを直すか。
+- **ユーザー承認（2026-11-17）**: 上記の注記を直す。`migration/cutover-plan.md` Task 9 を「ファイル名の日付は取得日の前日。中身はファイル名の日付のバッチ実行後。9/8 のバッチ実行前に戻すなら `20260907` を使う」に修正した。
+- **方式の決定（coopbatch-09 から連絡、ユーザー了承 2026-11-17）**:
+  - 戻すダンプは `coopcde-prd-batch-tables_20261117.dump`（11/18 01:00 JST 取得分）。過去分の補正リストの突き合わせにも同じダンプを使う。
+  - ユーザーが coop-stg-manage で `restore-stg-db.sh` を手で実行し、4 テーブルまとめて戻す。実行前に、スクリプトを coopinf main の `migration/script/` と diff で確認する。
+  - 実行の時期は、リスト作り → ユーザーのレビュー → 補正 SQL の作成の後（11/18 以降、日は未定）。予行中は stg のオンデマンド実行をしない。11/25（ダンプの自動削除）を越えそうなら、ダンプを別の場所に写す。
+  - 戻した日時と結果は、coopbatch から連絡を受けて追記する。
