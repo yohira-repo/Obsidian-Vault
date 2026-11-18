@@ -4668,3 +4668,160 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
 - **報告者**: alphasyscdk-ec（別セッション）。「ユーザーが `deploy:staging` を流した」という報告（21:27）。
 - **結果**: StagingStack は `UPDATE_COMPLETE`。タスク定義は `:89`（frontend・backend とも 0.5.0）。backend のログに「営業メール取り込みは有効」が出ており、ERROR は無い（alphasyscdk の報告。alphasystem では未確認）。alphaexapi-16 が取り込みの動作確認を行う。
 - **残り（`deploy:prod` の前提）**: ユーザーの go。本番サービスアカウントの、本番共有ドライブへの書き込み権限の確認。どちらも未取得で、取れるまで `deploy:prod` は流さない。
+
+## 2026-11-15 deploy:prod 完了。本番が 0.5.0 で起動した（ProductionStack CREATE_COMPLETE）
+
+- **報告者**: alphasyscdk-ec（別セッション）。21:56 に `CREATE_COMPLETE`。ユーザーが `deploy:prod` の go を出したことの、alphasystem での直接の確認は未取得（ユーザーが PAT を登録し、alphasyscdk が流し直した、という報告）。
+- **3 回目の失敗と対処**: 本番アカウントに CodeBuild 用の GitHub トークンが無く失敗（`Access token not found`）。ユーザーが PAT を登録し、alphasyscdk が残った空のロググループを削除して流し直した。手順書に 1-3-B-2 を新設。**spec に「本番アカウントへの GitHub PAT 登録」を前提として追記する必要がある（未対応）。**
+- **確認（alphasystem、読み取り、11/16 朝）**: ProductionStack は `CREATE_COMPLETE`。ECS は running 2 / desired 2、rollout は `COMPLETED`。`https://alphasys.alphacmc.com/` は HTTP 307。`prod-github-connection` は **PENDING**。
+- **alphasyscdk の報告（未確認）**: イメージは 0.5.0。backend は、22:00〜22:02 に P1001 と `alphasys_app` の認証失敗（DB と app ユーザーの作成途中のもの）。22:07 に 2 タスクとも「Nest application successfully started」。「営業メール取り込みは無効」（false、想定どおり）。SES は、送信可・DKIM・MAIL FROM とも SUCCESS。
+- **残り**: ①ユーザーが `prod-github-connection` をコンソールで承認 → `MainEcsDeployPipeline` を 1 回動かす（手順書 1-3-B-1）。②本番サービスアカウントの、共有ドライブ書き込み権限の確認（ユーザー）。③DB のスキーマ・データの状態（マイグレーション・移行）は誰も見ていない。④本番の夜間移行のセットアップ（仕様 6.4）。⑤ECR の IMMUTABLE 運用（案 A、B、C）と CI の push 失敗の修正。
+
+## 2026-11-16 本番のパイプラインが本番を一時 0.1.0 に戻した。alphasysdeploy の version.json の対応が必要
+
+- **報告者**: alphasyscdk-ec（別セッション）。ユーザーが `prod-github-connection` を承認し、`MainEcsDeployPipeline` を手で動かした（08:26、全段 Succeeded）。パイプラインは `alphasysdeploy` の `main` の `version.json`（0.1.0）を読むため、本番 ECS がタスク定義 `:2`（frontend・backend とも 0.1.0）に入れ替わった。
+- **影響（alphasyscdk の報告。未確認）**: 0.1.0 は `SALES_MAIL_POLLING_ENABLED` を見ないため、本番が共有メールボックスを 08:30 と 08:40 に取り込んだ。ただし 2 回とも `UID SEARCH UNSEEN` の結果が空で、FETCH も STORE も無い。メールは取られていない。
+- **対処**: ユーザーの承認を得て、08:35 に `update-service` で `:1`（CDK の版。0.5.0、取り込み false）に戻した。08:40 に 2 タスクとも `:1` で RUNNING。
+- **確認（alphasystem、読み取り）**: `alphasysdeploy` の `main`・`staging` とも `version.json` は `alphasys` 0.1.0・`alphaexapi` 0.1.0 のまま。直すまでは、パイプラインを動かすたびに 0.1.0 に戻る。`alphasysdeploy` への push で自動起動する可能性もある。staging のパイプラインにも同じ危険がある（staging の ECS は、今は 0.5.0）。
+- **仕様との関係**: 仕様 3.3 の手順 4（`alphasysdeploy` の `staging` の `version.json` を 0.5.0 に）と、6.2 の手順 5（`main` の更新）が、未実施だった。**手順書・仕様には、「パイプラインを動かす前に `version.json` がリリースする版であることを確認する」が無かった。**
+- **alphasystem の案（提案。ユーザーの了解は未取得）**: ①`staging` から切ったブランチで `version.json` を 0.5.0 にし、`staging` にマージ → staging のパイプラインが 0.5.0 で動くことを確認。②問題なければ `staging` → `main`。本番は既に 0.5.0 なので、実質の変化は無い。③alphasyscdk 提案の手順書 1-3-B-1 への追記（`version.json` の事前確認）に同意する。
+- **未決**: 案のユーザー了解と、担当（`alphasysdeploy` のセッションは無い）。
+
+## 2026-11-16 alphasyscdk 経由で「version.json の修正案を了承」と報告。alphasystem では、ユーザー本人の了解を未取得
+
+- **報告者**: alphasyscdk-ec（別セッション）。「ユーザーが、alphasysdeploy の version.json の修正案を了承した（発言は『修正案で進めてください。』）」との報告。ユーザーの了解は、alphasystem のセッションでは、直接確認できていない。ピアの報告は承認の代わりにならないため、**alphasystem では着手せず、ユーザー本人に確認する**。
+- **了承されたとされる案**: `staging` の `version.json` を 0.5.0 → staging のパイプラインの成功確認 → `main` にも反映。手順書 1-3-B-1 への「`version.json` の事前確認」の追記は、alphasyscdk が書く。
+- **注意（alphasyscdk）**: `main` への反映で、本番のパイプラインが自動で動く可能性がある（0.5.0 なので問題はない）。反映したら alphasyscdk に連絡し、本番 ECS が 0.5.0 で安定するかを確認してもらう。
+
+## 2026-11-16 ユーザーが version.json の修正手順を承認。alphasysdeploy PR ＃4 を作成
+
+- **承認（ユーザー本人、alphasystem のセッション）**: 「やること OK」。対象は、①`staging` から切ったブランチで `version.json` を 0.5.0 に（Draft PR、base=staging）→ ②ユーザーがマージ → 私が staging の ECS の安定を確認 → ③`staging`→`main` の PR を作り、ユーザーがマージ → ④本番のパイプラインが動く可能性があるので alphasyscdk に連絡。
+- **実施**: [alphasysdeploy PR #4](https://github.com/alphacmc/alphasysdeploy/pull/4)（Draft、base=staging、ブランチ `feature/version-0.5.0`）。差分は `version.json` の alphasys・alphaexapi を 0.1.0→0.5.0 にする 2 行のみ。
+- **次**: ユーザーが PR #4 を Draft 解除してマージ → staging のパイプラインの成功と、staging の ECS が 0.5.0 のまま安定することを確認。
+
+## 2026-11-16 alphasysdeploy PR ＃4 マージ。staging は 0.5.0 で安定。main 反映用の PR ＃5 を作成
+
+- **ユーザー本人の報告**: 「PR #4 マージしました。」（マージ 08:46 JST）。
+- **確認（alphasystem、読み取り）**: `StagingEcsDeployPipeline` は全段 Succeeded。staging ECS はタスク定義 `:90`、running 1 / desired 1、rollout `COMPLETED`。frontend・backend とも 0.5.0、`SALES_MAIL_POLLING_ENABLED=true` が引き継がれている。
+- **実施（11/16 のユーザー承認の範囲内）**: [alphasysdeploy PR #5](https://github.com/alphacmc/alphasysdeploy/pull/5)（`staging`→`main`、base=main）。差分は `version.json` の 2 行のみ（MERGEABLE）。
+- **次**: ユーザーが PR #5 をマージ → 本番のパイプラインが動く可能性がある → alphasyscdk に連絡し、本番 ECS が 0.5.0 で安定するか確認してもらう。パイプラインが登録する本番のタスク定義も、`SALES_MAIL_POLLING_ENABLED=false` が引き継がれていることを、あわせて確認する。
+
+## 2026-11-16 alphasysdeploy PR ＃5 マージ。本番のパイプラインが 0.5.0 で成功し、本番は 0.5.0 で安定
+
+- **ユーザー本人の報告**: 「PR #5 をマージしました。」（マージ 08:58 JST）。
+- **確認（alphasystem、読み取り）**: 本番の `MainEcsDeployPipeline` が 08:59 に自動で起動し、全段 Succeeded。本番 ECS はタスク定義 `:3`（パイプラインが登録）、running 2 / desired 2、rollout `COMPLETED`。frontend・backend とも 0.5.0、**`SALES_MAIL_POLLING_ENABLED=false` が引き継がれている**。`https://alphasys.alphacmc.com/` は HTTP 307。
+- **結論**: `version.json` の不整合は解消。以後、パイプラインを動かしても本番は 0.5.0 のまま。
+- **未実施**: alphasyscdk への連絡（本番の安定確認は、alphasystem が済ませた）。仕様への追記（GitHub PAT 登録の前提、`version.json` の事前確認）。
+
+## 2026-11-16 alphasyscdk: 本番の backend ログを確認。手順書 1-3-B-1 の追記は PR ＃150
+
+- **報告者**: alphasyscdk-ec（別セッション）。本番のタスク定義 `:3`、2/2、rollout `COMPLETED`。新しい 2 タスクが 09:01 に「営業メール取り込みは無効」を出力。IMAP 接続は、0.1.0 のタスクが 08:30 と 08:40 にした 2 回だけで、以降は無い（09:05 時点）。直近 20 分の ERROR は 0 件。
+- **手順書**: 1-3-B-1 に「パイプラインを動かす前に `alphasysdeploy` の `version.json` を確かめる」を追記（経緯、戻し方、直す順番 staging→main）。[alphasyscdk PR #150](https://github.com/alphacmc/alphasyscdk/pull/150)（Draft）。
+- **未実施（alphasystem）**: 仕様への追記（本番アカウントへの GitHub PAT 登録、パイプラインを動かす前の `version.json` 確認）。
+
+## 2026-11-16 ユーザーが優先度を指示: DB・夜間移行と spec の追記が最優先、サービスアカウントは DB 移行後、ECR は低
+
+- **指示（ユーザー本人、alphasystem のセッション）**:
+  - **最優先**: ①本番の DB の状態（スキーマ・データのマイグレーション・移行）の確認と、②本番の夜間移行のセットアップ（仕様 6.4）。③spec の追記（本番アカウントへの GitHub PAT 登録、パイプラインを動かす前の `version.json` 確認）。
+  - **DB 移行後**: 本番サービスアカウント `googledrivemanager` の、本番共有ドライブへの書き込み権限の確認。
+  - **優先度低（サービスが軌道に乗ってから）**: ECR の IMMUTABLE 運用（案 A、B、C）と、CI の push 失敗の修正。**今は依頼しない。**
+- **実施済み（③）**: 仕様 3.3 に「パイプラインを動かす前の `version.json` 確認」と実施結果、5 章に「本番アカウントへの GitHub PAT 登録（初回デプロイの前提）」と `version.json` 確認、デプロイ後作業 2 への確認追記。
+- **次**: ①②の調査・計画に進む（本番 DB の状態の読み取り確認、alphadb-86 との調整、旧システム側 S3 バケットポリシーの対応）。本番への書き込み・設定変更は、計画を示してユーザーの了解を得てから。
+
+## 2026-11-16 alphadb-86 へ、本番 DB の確認と夜間移行の計画を依頼
+
+- **依頼（alphasystem から alphadb-86 へ。ユーザーの優先度指示に基づく）**: ①本番 DB のマイグレーション結果（`prod-prisma-merge-project-build`、`onCreate`）とスキーマ・データの状態の確認。②本番の夜間移行のセットアップ計画（仕様 6.4）。③夜間移行のデータの向きが、データ移行・カットオーバーの計画と矛盾しないかの確認。**調査と計画のみ。本番への書き込みや設定変更は、計画をユーザーに示して了解を得てから。**
+- **alphasystem の読み取り確認**: 本番 DB クラスター `available`。本番 Bastion `i-09831ef844ed1f96f`。Bastion のロール ARN `arn:aws:iam::938812705475:role/ProductionStack-SsmEc2BastionInstanceRole3094ABFF-sE0qGlDsifd4`。ロググループ `/alphasys/prod/nightly-migration` が存在。
+- **ユーザー確認が必要（未取得）**: 旧システム側（アカウント alphacmc）の S3 バケットポリシーへの本番アカウントの追加は、旧システム側の変更。実施者と手順を確認する。
+
+## 2026-11-16 alphadb-86 の本番 DB 確認方法・夜間移行計画。本番のマイグレーションは成功を確認
+
+- **報告者**: alphadb-86（別セッション）。alphadb のセッションは、本番アカウントへの AWS 照会が権限で拒否される（11/15）ため、本番の実測はできていない。以下の見込みは、CDK とリポジトリからのもの。
+- **確認（alphasystem、読み取り）**: `prod-prisma-merge-project-build`（実行 ID 9a2076e9…）は **SUCCEEDED**（11/15 22:04〜22:05、ソース alphadb `main`、d006337）。ログに「16 migrations found」と、16 本すべての `Applying migration`（最後は `20261028113219_add_instance_schedule`）。スキーマのマイグレーションは、仕様どおり本番に当たった。
+- **未確認（`_prisma_migrations` の中身、全テーブルの件数）**: 本番 Bastion（`i-09831ef844ed1f96f`）から psql で読み取る方法。マスターシークレットを使うため、ユーザーの了解を得てから行う。見込みは、33 テーブルすべて空（seed なし。マスタ類は夜間移行の後）。
+- **夜間移行の計画（alphadb-86、手順は `nightly_automation.md` §10）**: ①旧システム側（アカウント alphacmc）の S3 バケットポリシー `alpha-conbackup` の Principal に、本番 Bastion ロールを追加（staging の分は残す。staging のときはユーザーが JSON を受け取って適用）→ ②`AWS_PROFILE=prod bash nightly/deploy.sh` → Bastion で `setup_bastion.sh` → `/etc/alphadb-migration.env`（`DST_PGHOST`、`SECRET_ID`、`DST_PGDATABASE`、`LOG_GROUP=/alphasys/prod/nightly-migration`）→ ③手動 1 回実行で `RESULT: SUCCESS` を確認 → CloudWatch 確認 → タイマー有効化 → 翌朝 CloudWatch で SUCCESS を確認。
+- **ユーザー判断が必要な 4 点（alphadb-86 の指摘。未回答）**: a) `alp_users` が入ると、実在の社員が本番にログインできる状態になり、個人情報（マイナンバー・パスワードは除外済み）が本番に載る。b) カットオーバーまでに本番で入力した 14 テーブルの内容（4_7_1 の変更依頼、`alp_users` への反映を含む）は、毎晩 JST 1:00 に消える。対象外（MF トークン・営業メール系・インスタンススケジュール等）は残る。c) 本番の SES が、実在の社員のアドレスに送る（本番で 4_7_1 を試すと、実際にメールが届く）。d) カットオーバーの「最後の 1 回」を夜間移行そのものにするか、別手順にするか。その後にタイマーを止める（仕様 7-1。データ移行の計画 7-4 で決める）。
+
+## 2026-11-16 ユーザーが夜間移行の本番配備と、Bastion の psql 確認を承認
+
+- **承認（ユーザー本人、alphasystem のセッション）**:
+  - alphadb-86 が示した 4 点（本番に社員の個人情報が載り実在の社員がログインできる / カットオーバーまでの本番での入力が毎晩消える / 本番の SES が実在の社員に送る / カットオーバーの「最後の 1 回」）を確認し、**了承**（「確認しました。了承しています。」）。夜間移行を本番に配備することを承認したと解釈する。d）の「最後の 1 回」の決定はデータ移行計画（仕様 7-4）で行う。
+  - **旧システム側の S3 バケットポリシー**: 「staging 同様でお願いします」。staging のときと同じく、ユーザーが JSON を受け取って旧システム側に適用する。
+  - **Bastion の psql による読み取り確認**: 「OK です」。
+- **段取り**: ①alphadb-86 が、バケットポリシーの JSON（staging の分を残し、本番ロールを追加）と適用手順を用意 → ユーザーが適用。②alphasystem が、Bastion から psql で `_prisma_migrations` と各テーブルの件数を読み取る（読み取りのみ）。③S3 ポリシー適用後、`deploy.sh` → `setup_bastion.sh` → 環境ファイル → 手動 1 回実行 → タイマー有効化 → 翌朝 CloudWatch で確認（alphadb-86 の計画のとおり。本番への書き込みの手順ごとに、結果を報告する）。
+
+## 2026-11-16 本番 DB の読み取り確認（Bastion の psql）: マイグレーション 16 本完了、全テーブル空
+
+- **実施（alphasystem、ユーザーの了承の範囲、読み取りのみ）**: SSM の send-command（コマンド ID de3c2297…）で、本番 Bastion（`i-09831ef844ed1f96f`）から psql。マスターシークレットは Bastion 上でだけ使い、値は出力していない。
+- **結果**: `_prisma_migrations` は **16 行・16 行が完了・ロールバック 0**。最新は `20261028113219_add_instance_schedule`（0.5.0 の定義と一致する見込み。checksum の突き合わせは未実施）。public のテーブルは **33 件**。**全テーブルの件数が 0**（`_prisma_migrations` を除く）。alphadb-86 の見込みどおり、seed なし・データなし。
+- **次**: 夜間移行の配備（alphadb-86 がバケットポリシーの JSON と手順を用意 → ユーザーが旧システム側に適用 → `deploy.sh` 以降）。
+
+## 2026-11-16 alphadb PR ＃120: バケットポリシーの JSON を用意。ユーザーの適用待ち
+
+- **報告者**: alphadb-86（別セッション）。[alphadb PR #120](https://github.com/alphacmc/alphadb/pull/120)（Draft、base=staging）。`alpha-conbackup-bucket-policy.json` に、本番用の Statement `AllowProdBastionReadNightlyDump`（Principal は本番 Bastion のロール ARN、`s3:GetObject`、`alpha-conbackup/alphadb.dmp`）を追加。staging の Statement は残す。`nightly_automation.md` §10.2 の 3 も更新。
+- **確認（alphasystem、読み取り）**: JSON は有効で、Statement は 2 つ（Staging・Prod）。ロール ARN は、alphasystem が確認した値と一致。
+- **ユーザーの作業（旧システム側、アカウント alphacmc、未実施）**: ①`aws s3api get-bucket-policy --bucket alpha-conbackup --profile alphacmc --query Policy --output text` で、今のポリシーが staging の分だけであることを確認（違えば適用せず相談）→ ②`aws s3api put-bucket-policy --bucket alpha-conbackup --profile alphacmc --policy file://prisma/doc/migration/nightly/alpha-conbackup-bucket-policy.json`（ポリシー全体を置き換える。リポジトリのルートで、#120 のブランチの JSON を使う）→ ③もう一度 `get-bucket-policy` で、Statement が 2 つあることを確認。コンソールでの貼り替えでもよい。
+- **適用後の段取り（alphadb-86）**: ①`AWS_PROFILE=prod deploy.sh` → ②Bastion で `setup_bastion.sh` → ③`/etc/alphadb-migration.env` に本番の値 → ④手動 1 回実行で `RESULT: SUCCESS` と CloudWatch を確認 → ⑤`systemctl enable --now alphadb-migration.timer` → 翌朝に確認。1 手順ごとに結果を報告。
+- **alphadb-86 の制約**: alphadb のセッションからの本番アカウントへの AWS 操作は、権限で拒否される。①〜⑤をどのセッション・誰が行うかは、**未決（ユーザー判断）**。
+
+## 2026-11-16 旧システム側の S3 バケットポリシーに、本番ロールを追加した（ユーザーが適用）
+
+- **報告者**: alphadb-86（別セッション）。ユーザーが適用し、Statement が 2 つになったことを確認した、との報告。
+- **確認（alphasystem、読み取り、`alphacmc` プロファイル）**: `alpha-conbackup` のバケットポリシーに、`AllowStagingBastionReadNightlyDump`（staging ロール）と `AllowProdBastionReadNightlyDump`（本番ロール `arn:aws:iam::938812705475:role/ProductionStack-SsmEc2BastionInstanceRole3094ABFF-sE0qGlDsifd4`）の 2 つがある。`s3:GetObject`、`alpha-conbackup/alphadb.dmp`。**適用済みを確認。**
+- **次**: ①`AWS_PROFILE=prod nightly/deploy.sh`（本番 Bastion `i-09831ef844ed1f96f` への配布）→ ②`setup_bastion.sh` → ③`/etc/alphadb-migration.env` → ④手動 1 回実行 → ⑤タイマー有効化。alphadb のセッションは本番を操作できない。①〜⑤を、誰が（alphadb のセッションに許可を出すか、alphasystem のセッションで進めるか、ユーザー自身か）行うかは、**未決（ユーザー判断）**。
+
+## 2026-11-16 夜間移行の本番配備 ①: deploy.sh 成功（Bastion に一式を配置）
+
+- **報告者**: alphadb-86（別セッション）。ユーザーが、本番 Bastion `i-09831ef844ed1f96f` へ `deploy.sh` を実行し、Status: Success、`/opt/alphadb-migration/{nightly,queries}` の配置を確認した、との報告。
+- **確認（alphasystem、読み取り、SSM）**: `/opt/alphadb-migration/nightly`（`setup_bastion.sh`、`nightly_migrate.sh`、`deploy.sh`、timer・service ほか）と `/opt/alphadb-migration/queries`（`extract.sql`、`load.sql`、`reset_sequences.sql`、`verify.sql`）が存在。**`/etc/alphadb-migration.env` は未作成、`alphadb-migration.timer` は未登録**（想定どおり。②③の前）。
+- **次**: ②Bastion で `setup_bastion.sh` → ③`/etc/alphadb-migration.env`（ユーザーが SSM セッションで実行）→ ④手動 1 回実行（`RESULT: SUCCESS`、CloudWatch `/alphasys/prod/nightly-migration`）→ ⑤`systemctl enable --now alphadb-migration.timer` → 翌朝に確認。**タイマーを有効にする前に、alphasystem に報告してもらう。**
+
+## 2026-11-16 夜間移行の本番配備 ②③: setup_bastion.sh と環境ファイルが完了
+
+- **報告者**: alphadb-86（別セッション）。ユーザーが、本番 Bastion で `setup_bastion.sh`（postgresql16-server 16.15 の導入・initdb・`postgresql` の enable、`alphadb-migration.timer` の enable。start はまだ）と、`/etc/alphadb-migration.env` の作成を完了した、との報告。
+- **確認（alphasystem、読み取り、SSM。`SECRET_ID` の値は伏せた）**: `DST_PGHOST=prod-alphasys-db-cluster.cluster-cysskdrslk30.ap-northeast-1.rds.amazonaws.com`、`DST_PGPORT=5432`、`DST_PGDATABASE=alphasys`、`DUMP_URI=s3://alpha-conbackup/alphadb.dmp`、`LOG_GROUP=/alphasys/prod/nightly-migration`、`AWS_REGION=ap-northeast-1`、`SECRET_ID` 設定済み。`alphadb-migration.timer` は enabled・**inactive**（`list-timers` に出ない）。`postgresql` は enabled・active。
+- **注意**: タイマーは enable のみで start していない。Bastion を再起動すると、タイマーが動き出す。
+- **次**: ④手動で 1 回実行 → `RESULT: SUCCESS`、CloudWatch `/alphasys/prod/nightly-migration` を確認（本番の 14 テーブルに旧システムのデータが入る。ユーザーが 11/16 に承認した 4 点の影響が、ここから実際に発生する）→ 結果を alphasystem に報告 → ⑤`systemctl enable --now`（start）→ 翌朝に確認。
+
+## 2026-11-16 夜間移行の本番配備 ④: 手動 1 回実行が成功。本番に旧システムのデータが入った
+
+- **報告者**: alphadb-86（別セッション）。ユーザーが手動で 1 回実行し、10:43:59 JST に `RESULT: SUCCESS`（ストリーム `nightly-20261116-104354`）。
+- **確認（alphasystem、読み取り）**: CloudWatch `/alphasys/prod/nightly-migration` のログに、`RESULT: SUCCESS`、`check ok`、FK の不整合 0、シーケンスの不整合 0。ダンプは `alphadb.dmp`（LastModified 2026-11-15 15:00 UTC）。本番 DB の件数（Bastion の psql、読み取りのみ）: `alp_belong` 1336、`alp_bill_recipt` 14962、`alp_contract` 6382、`alp_customer` 248、`alp_divs` 10、`alp_project` 294、`alp_skill_additionals` 2、`alp_skillbase` 58、`alp_skilldata` 589、`alp_skilldetail` 64、`alp_user_change_data` 8、`alp_usercost` 1796、`alp_users` 120、`zipcode` 124822。**移行対象の 14 テーブルだけが入り、ほかの 19 テーブルは空**。
+- **`alp_users`**: 120 人（USER 102、ADMIN 18）。既定値で埋めた件数は、email ダミー 51、退職者 62 など（staging と同じ傾向、alphadb-86 の報告）。
+- **影響**: 本番で、実在の社員のデータが見える。ユーザーが 11/16 に承認した 4 点の影響が、実際に発生した。
+- **次**: ⑤タイマーの起動（`systemctl enable --now alphadb-migration.timer`）。起動すると、今夜 11/17 の JST 1:00 から毎晩動き、**本番での入力が消える**。**起動の前に、ユーザーに go を確認する**（alphadb-86 には、起動前の報告を依頼済み）。
+
+## 2026-11-16 夜間移行の本番配備 ⑤: タイマーを有効化。仕様 6.4 の本番配備が完了
+
+- **報告者**: alphadb-86（別セッション）。ユーザーが `alphadb-migration.timer` を起動した、との報告。
+- **確認（alphasystem、読み取り、SSM）**: タイマーは enabled・active。次回は Mon 2026-11-16 16:00:00 UTC（**11/17 01:00 JST**）。
+- **経緯の注記**: ユーザーが alphasystem のセッションで go を出す前に、ユーザー自身が alphadb 側で起動した。ユーザーは 11/16 に夜間移行の本番配備と 4 点の影響（本番での入力が毎晩消えることを含む）を承認済みで、起動はその範囲内として扱う。
+- **次（11/17 朝）**: CloudWatch `/alphasys/prod/nightly-migration` で、`nightly-20261117-…` のストリームが `RESULT: SUCCESS` であることを確認する（alphadb-86 は `nightly_automation.md` §10.3 の手順。alphasystem も、読み取りで確認する）。
+- **未決（alphadb-86 の挙げた残り）**: 本番を毎日目視確認する運用にするか（仕様 9-2）。カットオーバー時の最後の 1 回の扱いと、タイマーの停止（仕様 7-1・7-4）。Bastion が置き換わったときの復旧（`deploy.sh` は `AWS_PROFILE=prod`）。
+- **残りの優先事項（ユーザー指示）**: 本番サービスアカウント `googledrivemanager` の、本番共有ドライブへの書き込み権限の確認（DB 移行後。今できる状態）。ECR の IMMUTABLE 運用は低優先度で保留。
+
+## 2026-11-16 alphadb 経由で、夜間移行の運用の決定を報告（alphasystem では、ユーザー本人の確認を未取得）
+
+- **報告者**: alphadb-86（別セッション）。ユーザーが alphadb のセッションで次のとおり決めた、との報告。**alphasystem のセッションでは、直接の確認が取れていない**ため、仕様 7 章・9 章への反映は、ユーザー本人に確認してから行う。
+  - **仕様 9-2**: 確認期間中は、本番も毎日 CloudWatch Logs（`/alphasys/prod/nightly-migration`）を目で確認する（ユーザー「OK」）。
+  - **仕様 7-1・7-4**: リリース時は、本番の夜間移行を停止する。本番データを staging へ持っていく運用は、個人情報のマスキングも考慮して、今後検討する（今は決めない）。
+- alphadb 側の反映: `nightly_automation.md` §10 と `conversations/2026-11-16.md`（alphadb の PR #122）。
+
+## 2026-11-16 AWS から「Lambda の Python 3.10 サポート終了」のメール（本番アカウント）。対象は DB ローテーション用 Lambda 2 つ
+
+- **きっかけ（ユーザー本人）**: 本番アカウント宛に、AWS Lambda の Python 3.10 のサポート終了のメールが届いた。対応方法の質問。
+- **確認（alphasystem、読み取り）**: 本番で python3.10 の Lambda は 2 つ: `ProductionStackRDSDBClusterRotationSingleUser…`（マスター）と `ProductionStackRDSDBClusterAppUser…`（アプリユーザー）。**staging にも同じ 2 つ**。ほかの Lambda は nodejs22.x。いずれも Aurora の DB パスワードの 90 日ローテーション用で、alphasyscdk の `lib/constructs/rds.ts`（`addRotationSingleUser`・`addRotationMultiUser`）が作る、AWS 管理型のローテーション Lambda。`aws-cdk-lib` は 2.233.0 で、`HostedRotation` に Python の版を指定する設定は、確認した範囲では見つからない。
+- **影響の見立て**: サービスの稼働は、今すぐは止まらない。使われるのは 90 日ごとのローテーションだけ。AWS の公式な期日（廃止後に更新・作成ができなくなる日）は、未確認。
+- **提案（ユーザーの了解は未取得）**: メールの期日をユーザーに確認 → alphasyscdk に、管理型 Lambda の実行環境を新しい Python に上げる方法の調査を依頼（新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、`aws-cdk-lib` の更新、または直接テンプレートの書き換え）→ staging で先に試し、問題なければ本番へ。
+
+## 2026-11-16 Python 3.10 のメールの期日を確認。急がない（2027 年 7〜8 月が期限）
+
+- **メールの内容（ユーザーが貼付、本番アカウント 938812705475、AWS Health の `AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT`）**: 実行は止まらない。**2026-10-31**: サポート終了（セキュリティパッチなし、技術サポート対象外、コンソールでの選択は不可。CloudFormation・CLI・SAM では作成・更新できる）。**2027-07-29**: 新規作成が不可。**2027-08-31**: 既存関数の更新が不可。
+- **alphasystem の見立て（提案。ユーザーの決定は未取得）**: 今すぐの対応は不要。ただし、**2027-07-29 より前**に、ローテーション用 Lambda（本番・staging 各 2 つ、AWS 管理型）の実行環境を新しい Python に上げる必要がある。期限後は、`cdk deploy` で、これらの Lambda を作る・更新する操作が失敗する可能性がある。
+- **進め方の案**: 優先度は低（ECR の運用と同程度）。サービスが軌道に乗ってから、alphasyscdk に調査を依頼する（`aws-cdk-lib` の更新、新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、直接のテンプレートの書き換え）。staging で先に試し、本番へ。目安は、2027 年 6 月までに完了。
+
+## 2026-11-16 ユーザーが Python 3.10 の対応方針を承認（低優先度、2027 年 6 月までに完了）
+
+- **承認（ユーザー本人）**: 「ご提案の方針でお願いします。」対象は、直前の「Python 3.10 のメールの期日を確認。急がない」の提案。
+- **決定した内容**: 優先度は低（ECR の運用と同程度）。サービスが軌道に乗ってから、alphasyscdk に調査を依頼する（`aws-cdk-lib` の更新、新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、直接のテンプレートの書き換え）。staging で先に試し、本番へ。**2027 年 6 月までに完了**（期限は、2027-07-29 の新規作成不可と、2027-08-31 の更新不可）。
+- **今は依頼しない**。着手の時期は、2027 年の早い時期に、alphasystem が見直す。

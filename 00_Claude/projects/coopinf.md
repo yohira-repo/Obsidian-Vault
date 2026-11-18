@@ -569,6 +569,15 @@ coop から申し送り（未追跡ファイル `INBOX_FROM_COOP.md`）を受領
 - prd の変更セットを作成済み（`arn:aws:cloudformation:ap-northeast-1:725011976834:changeSet/awscli-cloudformation-package-deploy-1793934073/1f03b7b6-c579-47b0-9046-3af165154996`）。内容は RegexPatternSet 2 つ・ALB アラーム 2 つの追加と WebACL の変更（置き換えなし）。既存パラメータは前回値（Block）を維持。**実行は auto mode でブロックされるため、ユーザーが手元で実行する**。
 - 2026-11-06 12:04 JST にユーザーが prd の変更セットを実行。Priority 8 SensitivePathBlock が Count、他の独自ルールは Block のまま（WCU 1,577→1,627）。`coopcde-prd-alb-Target5XX` は状態 OK（ディメンションが正しくメトリクスを拾えている）、`coopcde-prd-alb-ELB5XX` は 5xx が無いため INSUFFICIENT_DATA。通知先は prd のエラー通知 SNS。`cf/waf-settings.md` の稼働値を Count に更新し、PR #55 の適用状況にチェックを入れた。
 - 段取り（残り）: 数日（目安は 11/9 前後まで）、prd・stg の WAF ログで SensitivePathBlock に当たった通信を確認し、日本からの正規利用が含まれていないかをユーザーに報告 → ユーザーの go を得て stg → prd の順で Block に切り替え → その後、WAF 日次ダイジェスト（PR #54）の実装に入る。
+- 2026-11-06: PR #54・#55 は 12:10〜12:11 JST にユーザーがマージ。
+- 2026-11-06: ユーザーの指示で、③①② の適用結果を coop セッション（coop-d8）に SendMessage で報告した。内容は、適用内容・時刻、確認結果と未確認の点、`/.well-known/` と waf-ALL への影響、今後の段取り（11/9 前後まで観察 → go を得て Block → ダイジェスト実装 → prd 投入後に coop へ結合確認を依頼）。
+- 2026-11-06: coop から受領の返信。
+  - ③の観察で、日本からの正規利用が当たっていないかを重点的に見ること。特に、`/web`・`/api` 配下のドットで始まる区切りと、機微な拡張子の誤検知。
+  - ③を Block にして waf-ALL アラームの閾値調整が要りそうなら、coop に相談する。
+  - ダイジェストは INBOX_FROM_COOP.md の仕様どおりでよい（毎朝 7:00 JST、prd のみ、既存のアラート宛先、本文に要注意シグナル）。③の遮断件数を含めることに coop も賛成。
+  - 手動実行で通知を 1 回出せる状態になったら coop に連絡する。結合確認（メールが届くか、本文の体裁、要注意シグナルを検知できるか）は coop が担当する。
+  - ダイジェストが stg と prd に入ったら、それぞれ連絡する。
+  - INBOX_FROM_COOP.md は取り込み済みで、削除済み。
 
 ## 2026-11-11 coop から 3 件の依頼（③の Block 化・管理画面 IP 制限・日次ダイジェスト）
 
@@ -818,3 +827,43 @@ coop セッション（coop-2a）から SendMessage で依頼を受けた（coop
   - 残: メール受信・本文体裁・⚠表示の最終確認はcoopがユーザーのmailboxで依頼中（prd手動実行で1通送信済み）。stgは構成同一のため追加送信なし。
   - coop記録: coop `conversations/2026-11-12.md`「C（WAF日次ダイジェスト）結合確認（coop担当）」。
 - **A（SensitivePathBlock Block化）・B（管理画面IP制限Block化）・C（WAF日次ダイジェスト）、coopinf側・coop側双方の確認がすべて完了**。
+
+## 2026-11-16 coop からの申し送り（INBOX_FROM_COOP.md、2026-11-10 付け）を取り込み、削除
+
+- coopinf 直下に、2026-11-10 付けの `INBOX_FROM_COOP.md`（未追跡・未コミット）が残っていた。内容は管理画面の IP 制限（IPSet ＋ AdminIpAllowList）の設計。
+- 内容はすべて対応済み。2026-11-11 に coop から SendMessage で同じ内容を受け取って実装し、stg は 2026-11-11、prd は 2026-11-12 に Block にした（[2026-11-11.md](2026-11-11.md)・[2026-11-12.md](2026-11-12.md)・[cf/waf-settings.md](../cf/waf-settings.md)）。
+- 2026-11-11 の記録では「11-10 の INBOX は届いていない」としていたが、実際にはファイルは届いていて、気づかれていなかった。
+- ユーザーの指示（2026-11-16）で、取り込みを確認したうえでファイルを削除した。設計の原本は coop の `conversations/2026-11-10.md`（PR alphacmc/coop#30）に残っている。
+- coop の 2026-11-16 の申し送り（請求データ K020 で同じ請求年月の行が複数来る問題）は coopbatch・coopcdeweb 宛てで、coopinf への依頼は無い。
+
+## 2026-11-16 coop からの依頼: オンデマンド実行の既定をリカバリモードにする（方式案を提示、ユーザーの了承待ち）
+
+- **受信（coop-c6、SendMessage）**: coop 側でユーザー承認済みの依頼。`cf/ecs-batch-ondemand-cf.yaml` の `CheckRecoveryMode` を変え、入力なし・`{}`・打ち間違いはすべてリカバリモード（SFTP に触らない側）にする。通常の実行は `batchRecoveryMode` が `"false"` か `false` のときだけ。理由は、本番 SFTP はダウンロードするといつ消されるか分からないため。
+  - `CheckSftpCheckOnly` は今までどおり最初に判定する。毎日の定時実行（`ecs-batch-cf.yaml`）は変えない。
+  - 追加の依頼: Draft PR の番号と、マージされたことを、coop-c6 と coopbatch-9c の両方に直接送る（coopbatch はマージ後に cf の複製を同期する）。stg での確認結果も coop-c6 に返す。
+- **事前確認（2026-11-16）**:
+  - stg・prd とも、このステートマシンを起動する EventBridge ルール・Scheduler は無い（影響は手動実行だけ）。
+  - prd は本日 12:00 に入力なしの手動実行があり、通常モードで SUCCEEDED。
+  - `migration/plan.md` の「3-2. オンデマンド実行」が `--input '{}'` で通常実行する前提なので、`{"batchRecoveryMode": "false"}` に直す必要がある。`migration/cutover-plan.md` の旧バッチの手順は別のステートマシン（`coopcde-*`）なので対象外。
+- **提示した段取り（ユーザーの了承待ち）**:
+  1. `feature/ondemand-default-recovery` で修正し、Draft PR を作る（base は main）。PR の番号を coop-c6・coopbatch-9c に送る。
+  2. stg スタック `coop-ecs-batch-ondemand-stg` を更新する。入力なしで実行して `RunEcsTaskRecovery` を通ることを確認する。`{"batchRecoveryMode": "false"}` で実行して `RunEcsTaskNormal` に入ったら、すぐに止める案（stg で通常の実行は最後まで走らせない）。
+  3. prd スタック `coop-ecs-batch-ondemand-prd` を更新する。変更セットの作成と実行は、ユーザーの承認を得てから行う。
+- **ユーザー了承（2026-11-16）**: 上記の方式・段取りでよい（stg の通常の実行は `RunEcsTaskNormal` に入ったら止める）。
+- **実施（2026-11-16）**:
+  - Draft PR #61 を作成し、coop-c6・coopbatch-9c に番号を送った。coop-c6 は差分を確認し「依頼どおり」と返信。
+  - stg スタック `coop-ecs-batch-ondemand-stg` を変更セットで更新（17:45 JST、UPDATE_COMPLETE）。変更は `OnDemandStateMachine` の Modify のみ（置き換えなし）。デプロイ後の定義で `CheckRecoveryMode` の Default が `RunEcsTaskRecovery` であることを確認。
+  - 入力なしで実行（`verify-noinput-20261116-174613`）: `CheckRecoveryMode` → `RunEcsTaskRecovery` を通り、SUCCEEDED。
+  - `{"batchRecoveryMode": "false"}` で実行（`verify-false-20261116-174721`）: `CheckRecoveryMode` → `RunEcsTaskNormal` に入ったことを確認し、直後に停止（ABORTED）。ECS タスクは Step Functions の中止で StopTask され、コンテナは起動前（`startedAt` なし）に STOPPED。
+  - 次: prd スタック `coop-ecs-batch-ondemand-prd` の更新（ユーザー承認待ち）。
+- **ユーザー承認（2026-11-16）**: prd も stg と同じ手順で更新してよい。prd での実行による確認はユーザーが行う（エラーレコード対応のファイルがあるため）。
+- **prd 更新（2026-11-16 17:51 JST）**: `coop-ecs-batch-ondemand-prd` を変更セット（`ondemand-default-recovery`）で更新し、UPDATE_COMPLETE。変更は `OnDemandStateMachine` の Modify のみ（置き換えなし）。デプロイ後の定義で、`CheckRecoveryMode` の Default が `RunEcsTaskRecovery`、`"false"` / `false` のときだけ `RunEcsTaskNormal`、`CheckSftpCheckOnly` が先に判定されることを確認した。prd での実行による確認は、ユーザーが行う。
+- **PR #61 マージ（2026-11-16 17:58 JST、ユーザー）**: coop-c6・coopbatch-9c にマージを連絡した。coopbatch-9c には、cf の複製の同期とあわせて、coopbatch `docs/coop/overview.md`「オンデマンド実行（Step Functions）」の表（「入力なし = 通常走行」のまま）の修正を依頼した。
+- **段取り（ユーザーが実行）**: prd の `coop-prd-batch-ondemand` を入力なしで実行し、リカバリ走行で `untreated/122128334IF-K020_2026110608164701_errorfix00..csv`（エラーレコード対応のファイル、17:29 にユーザーが配置）を処理する。
+  - 事前確認: `treated/` に同名ファイルは無い（処理済みスキップにならない）。ファイル名に `K020` を含むので請求として判定される。`..csv` でも末尾が `.csv` なので対象になる。`untreated/errors/` の 4 ファイルは対象外。
+  - 実行後: 成功ならファイルは `treated/` へ、失敗なら `temporary/` へ移動する。
+- **ファイル名の変更（2026-11-16 18:00 JST、ユーザー）**: `untreated/` のファイルを `122128334IF-K020_2026110608164701_errorfix00.csv`（`..csv` → `.csv`）に置き直した。再確認の結果、末尾 `.csv`・`K020` を含む・`treated/` に同名なし・`untreated/` 直下はこの 1 ファイルのみ・`temporary/` は空。入力なしの実行でリカバリ走行に進めてよい状態。
+- **coopbatch の同期（coopbatch-9c から連絡）**: Draft PR alphacmc/coopbatch#39 で、`cf/ecs-batch-ondemand-cf.yaml` を coopinf main と同期し、`docs/coop/overview.md` の実行入力の表とリカバリー手順を修正（マージはユーザー）。coopinf 側で複製を main と diff し、違いは冒頭の「正本は coopinf」の注記だけであることを確認した。
+- **prd リカバリ走行（2026-11-16 18:02 JST、ユーザーが実行）**: `coop-prd-batch-ondemand` を入力なし（`{}`）で実行し、SUCCEEDED（18:02:01〜18:02:55）。実行履歴は `DescribeSecurityGroup` → `RunEcsTaskRecovery`（新しい既定どおり）。
+  - ログ（`/ecs/logs/coop-prd-batch-loggroup`）: `recoveryMode: true`、`step0_s3Recovery`（SFTP アクセスなし）。`122128334IF-K020_2026110608164701_errorfix00.csv` は件数 1・追加/更新 1・エラー 0。ジョブ全体は COMPLETED（totalRead 1、totalWrite 1、totalErrors 0）。
+  - ファイルは `treated/` へ移動し、`untreated/` 直下と `temporary/` は空。エラーレコード対応は完了。

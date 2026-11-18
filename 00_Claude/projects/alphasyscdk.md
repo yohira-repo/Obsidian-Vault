@@ -717,3 +717,31 @@
 - ユーザーの依頼で、(1) の PAT の登録を Windows（PowerShell）で行うコマンドを示した。Read-Host -AsSecureString で入力を受け、import-source-credentials を --profile prod で実行する（トークンは画面にも履歴にも残らない）。手順書に書き足すとき（(4)）も、この PowerShell 版を載せる。(2)(4) の了解はまだ。
 - ユーザーが本番アカウントに PAT を登録した。list-source-credentials で、arn:aws:codebuild:ap-northeast-1:938812705475:token/github（GITHUB / PERSONAL_ACCESS_TOKEN）があることを確認した。(1) は完了。(2) のロググループの削除と (4) の手順書は、まだ了解待ち。
 - ユーザー了解（「2,4 お願いします」）→ (2) 空のロググループ /alphasys/prod/nightly-migration（0 バイト）を削除した。(4) 手順書に「1-3-B-2. CodeBuild 用の GitHub トークンの登録（アカウントごとに1回）」を新設し（トークンの条件、PowerShell での登録、確認の CLI、未登録だと失敗すること）、「個別にデプロイ」の deploy:prod にも前提として注記した。次はユーザーが deploy:prod を流し直す。
+
+## 2026-11-16 本番の初回デプロイの完了を確認
+
+- 2026-11-15 の夜に流し直した deploy:prod は成功していた（ProductionStack は 2026-11-15 21:56 JST に CREATE_COMPLETE）。2026-11-16 朝に確認した。
+- ECS: prod-alphasys-unified-service は 2/2 で steady state（イメージは 0.5.0）。
+- backend のログ: 22:00〜22:02 に P1001 と alphasys_app の認証失敗が出ていたが、DB と app ユーザーを作っている途中のもの。22:07 に 2 タスクとも「Nest application successfully started」が出ていて、「営業メール取り込みは無効」（想定どおり false）。
+- https://alphasys.alphacmc.com/ は 307（ログインへのリダイレクト）。SES の alphasys.alphacmc.com は、送信可・DKIM・MAIL FROM とも SUCCESS。
+- alphasystem-62 に報告した。
+- 残り: (a) prod-github-connection は PENDING → ユーザーがコンソールで承認し、MainEcsDeployPipeline を 1 回動かす（1-3-B-1）。(b) 本番のサービスアカウントの共有ドライブ書き込み権限は未確認。(c) DB のスキーマとデータ（マイグレーション・移行）の状態は、alphasyscdk では見ていない。
+
+## 2026-11-16 本番のパイプラインが 0.1.0 に戻した件
+
+- ユーザーが prod-github-connection を承認し（AVAILABLE）、MainEcsDeployPipeline を手で動かした（08:26、Source / ImageBuild / Deploy とも Succeeded）。
+- ユーザーの指摘「alphasysdeploy が 0.1.0 のまま」で確認したところ、パイプラインが alphasysdeploy の main の version.json（0.1.0）を読み、本番の ECS をタスク定義 :2（frontend/backend とも 0.1.0）に入れ替えていた。
+- 0.1.0 は SALES_MAIL_POLLING_ENABLED を見ないため、本番が共有のメールボックスを取り込み始めた（08:30 に IMAP に接続し、UID SEARCH UNSEEN を実行した）。10 分ごとに動く。staging の未読メールが本番に取られるおそれがある。
+- 手順書の 1-3-B-1 にある「承認した後に、パイプラインを手で 1 回動かす」は、alphasysdeploy の version.json がリリースする版になっていることが前提だった。この前提が抜けていた。
+- 提案（了解待ち）: (1) 今すぐ `aws ecs update-service --task-definition prod-alphasys-unified:1`（CDK が作った版。0.5.0、取り込みは false）で戻す。(2) alphasysdeploy の main の version.json を 0.5.0 にする（担当と時期は alphasystem と調整する）。それまではパイプラインを手で動かさない。
+- ユーザー承認（「今すぐの対処案、承認します」）→ 08:35 に update-service で本番をタスク定義 :1（0.5.0、取り込みは false）に戻した。08:40 に 2 タスクとも :1 で RUNNING。
+- 影響の確認: 0.1.0 のタスクは 08:30 と 08:40 に取り込みを実行していたが、2 回とも UID SEARCH UNSEEN の結果が空で、FETCH も STORE も無い。メールは取られていない。
+- alphasystem-62 に報告し、alphasysdeploy の main の version.json を 0.5.0 にするよう依頼した（担当と時期は先方で調整）。直るまではパイプラインを手で動かさない。
+- 手順書の 1-3-B-1 に「パイプラインを動かす前に version.json の版を確かめる」を書き足すことを、ユーザーに提案する（了解待ち）。
+- alphasystem-62 から: alphasysdeploy の main と staging は、どちらも version.json が 0.1.0 のまま。alphasysdeploy に担当のセッションは無く、修正はユーザーの了解を取ってから alphasystem が行う。案: staging の version.json を 0.5.0 にして staging のパイプラインの成功を確かめ、その後 main にも反映する。それまで alphasysdeploy には push せず、パイプラインも手で動かさない。手順書 1-3-B-1 の追記には同意（ユーザーに提案する）。
+- 補足（こちらの気づき）: staging も、パイプラインが今の version.json（0.1.0）で動くと、0.1.0 に戻る。staging の 0.1.0 は取り込みのフラグを見ないが、staging はもともと取り込み ON なので、メールの面では影響しない。
+- ユーザー承認（「1> 修正案で進めてください。2> 書き足してください。」）:
+  - (1) alphasysdeploy の version.json の修正案（staging を 0.5.0 にする → staging のパイプラインの成功を確かめる → main に反映）を了承。alphasystem-62 に伝えた。main に反映したら、本番の ECS が 0.5.0 で安定するかをこちらで確かめる。
+  - (2) 手順書の 1-3-B-1 に「パイプラインを動かす前に alphasysdeploy の version.json を確かめる」を書き足した（今回の経緯と、戻し方も添えた）。
+- alphasystem-62 から: alphasysdeploy の PR #4（staging）と #5（main）をユーザーがマージした。staging のパイプラインは成功（タスク定義 :90、0.5.0、取り込み true）。本番の MainEcsDeployPipeline は 08:59 に自動で動いて成功した（タスク定義 :3、2/2、0.5.0、取り込み false）。
+- こちらで本番を確認した（09:05）: タスク定義 :3、frontend/backend とも 0.5.0、SALES_MAIL_POLLING_ENABLED=false。09:01 に新しいタスク 2 つが「営業メール取り込みは無効」を出している。IMAP の接続は 0.1.0 のタスクの 08:30 と 08:40 の 2 回だけで、それ以降は無い。直近 20 分の ERROR は 0 件。alphasystem-62 に報告し、手順書の追記が済んでいることも伝えた。→ 本番のパイプラインが 0.1.0 に戻した件は解決。
