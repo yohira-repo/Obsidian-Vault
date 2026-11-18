@@ -4839,3 +4839,33 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
 - **確認（alphasystem、読み取り、CloudWatch `/alphasys/prod/nightly-migration`）**: `nightly-20261117-010036`（11/17 01:00:43 JST）と `nightly-20261118-010036`（11/18 01:00:43 JST）が、ともに `check ok`・`RESULT: SUCCESS`。ダンプの LastModified は、それぞれ前日 15:00 UTC。仕様 6.4 の本番の夜間移行が、毎晩動いている。
 - **確認期間中の毎日の目視確認**（alphadb 経由の報告、ユーザー本人の確認は未取得。仕様 9-2 の案）は、alphasystem でも、このとおり実施した。
 - **Mods パネル**: ホットリロードが有効になり、`alpha-projects` が読み込まれた（システム通知）。
+
+## 2026-11-18 本番で契約情報画面が表示できない件：原因は googledrivemanager の共有ドライブ権限。ユーザーが権限付与し解消
+
+- **事象（ユーザー本人の報告）**: 本番の契約情報画面（契約番号 6247）で「契約書ファイルを取得できませんでした。…保存・削除はできません」が出て表示できない。
+- **調査（alphasystem、読み取り）**: 本番 `prod-alphasys-frontend` に status=500、`prod-alphasys-backend` に Google Drive の 404 `File not found`（fileId `1wu6iTIl…`）。401 ではなく、トークン切れではない。ファイルは存在するが、本番のサービスアカウント `googledrivemanager` から見えない状態だった。この画面の案内は、Drive 取得失敗時に保存・削除だけ止める防御策B（誤削除防止）で、設計どおりの動作。
+- **対応（ユーザー本人が実施）**: 本番の `googledrivemanager` のメールアドレスを、共有ドライブの「コンテンツ管理者」として追加した。追加後、画面でファイルが見えるようになった。
+- **結論**: 本番の共有ドライブに対する `googledrivemanager` の権限は「コンテンツ管理者」が必要。本番の確認項目「`googledrivemanager` が本番の共有ドライブに書き込めるか」のうち、読み取りは確認できた。書き込み（アップロード・テンプレートフォルダ）は未確認。
+- **記録上の注意**: 仕様の本番構築の前提（共有ドライブへのサービスアカウント追加）に入れるかは、ユーザーに確認してから反映する。
+
+## 2026-11-18 本番の請求一覧の明細（契約情報画面）が読み込み中のまま止まる件：本番 DB の読み取り調査をユーザーが承認、DB は原因ではないと確認
+
+- **事象（ユーザー本人の報告）**: 請求管理で 2026年2月を選んで検索 → 一覧の明細（行）を押すと、読み込み中の画面のまま応答がない。どの行でも止まる。7月以降は Google Drive にファイルを持っていないが、それでも止まる（Drive 取得は原因ではない）。
+- **承認（ユーザー本人）**: 「本番 DB の読み取り調査」を承認。範囲は、Bastion 経由の読み取りのみ（`pg_stat_activity`、ロック、件数、取得クエリの実行時間）。書き込みなし、シークレットは出力しない。
+- **実施（alphasystem、読み取りのみ。`default_transaction_read_only=on`、`statement_timeout=20s`）**: ロック待ちなし、実行中のクエリなし（idle 11）。取得クエリは契約明細 0.12ms、請求 1.96ms。件数は `alp_contract` 6,386、`alp_bill_recipt` 14,962、`alp_customer` 248、`alp_project` 294、`alp_divs` 10。**`alp_cont_detail` と `alp_members` は 0 件**（止まる原因ではないが、契約明細・担当者名が空になる。夜間移行の対象かは要確認）。
+- **その他の確認**: ECS の CPU（10% 以下）・メモリ（約35%）、ALB（応答最大 0.49 秒、5xx・504 なし）、フロントエンドのログ（Prisma・NaN などのエラーなし）はいずれも正常。一覧の行押下は `window.location.href = /sales/contract/edit/{contractNo}`（`columns.tsx`）。
+- **結論**: サーバー側のログと DB からは止まる箇所が特定できない。ブラウザ側の情報（止まったときの URL、F12 のネットワーク・コンソール、契約情報画面の直接表示の可否）をユーザーに依頼した。回答待ち。
+- **未解決**: 原因。`alp_cont_detail`・`alp_members` が 0 件の扱い（夜間移行の対象外かの確認）。
+
+## 2026-11-18 請求一覧の契約名リンクが止まる件・請求情報画面の文字化け：案A→案B の順で修正することをユーザーが了承
+
+- **確認（ユーザー本人の報告）**: 請求情報画面の「文書ファイル」の PDF が文字化けする。請求一覧（契約名リンク）から契約情報画面へ遷移すると読み込み中のまま止まる。プロジェクト一覧から遷移すると全て開ける。**staging でも全く同様に再現する**（本番だけの問題ではない）。
+- **原因（alphasystem の調査、コード読み取り）**: (1) 請求情報画面 `EditBillContent.tsx` が、表示用ファイルに種別 `application/pdf` を付けていない（契約情報画面 `EditContractInfo.tsx` には付いている）。(2) 請求一覧 `columns.tsx` の契約名リンクが `window.location.href`（ページ全体の再読み込み）で、プロジェクト一覧は `router.push`（差分取得）。ページ全体の読み込みでは応答が途中で切れる（ブラウザ `ERR_HTTP2_PROTOCOL_ERROR`、状態 200）。契約書 PDF 本体を画面へ丸ごと渡す作りが有力な原因（仮説）。
+- **承認（ユーザー本人）**: 「案A（請求情報画面の文字化け: `type: "application/pdf"` の追加）」→「案B（請求一覧のリンクを `router.push` に変更）」の順で進める。
+- **段取り**: alphasys で feature ブランチ（base `staging`）を作り、Draft PR を作成。TDD で実装。案C（契約情報画面が PDF 本体を画面へ渡す作りをやめる根本対策）は、staging で再現を確かめてから別途方式案を出す（未着手・ユーザーの了承なし）。
+
+- **実施結果（alphasys）**: 案A・案B を実装し、Draft PR #330（base `staging`、ブランチ `fix/bill-pdf-type-and-contract-link`）を作成。テスト 17 suites / 88 tests 通過（追加テストは実装前に失敗を確認）。**ユーザー待ち**: PR #330 の Draft 解除とマージ、staging 反映後の確認（請求一覧の契約名リンクが開く／請求情報画面の PDF が正しく表示される）。案C（契約情報画面の直打ち・リロードの停止対策）は未着手、方式案を別途提示する。
+
+- **PR #330 マージ（ユーザー本人、11/18 11:08 UTC = 20:08 JST）**: マージコミット `9f35163`。フロントエンドのイメージ `9f35163`（タグ `0.5.0`）が 20:11 JST に ECR へ push 済み（確認済み）。
+- **再起動の段取り（alphasystem が案内、ユーザーが実行）**: `version.json` は `0.5.0` のままでパイプラインは動かないため、ECS を強制再デプロイする（`aws ecs update-service --force-new-deployment`）。順序は **(1) staging**（クラスタ `staging-alphasys-cluster`、サービス `staging-alphasys-unified-service`）→ **(2) staging で確認**（請求一覧の契約名リンクが開く／請求情報画面の PDF が正しく表示される）→ **(3) 問題なければ本番**（クラスタ `prod-alphasys-cluster`、サービス `prod-alphasys-unified-service`、業務の少ない時間帯）。入れ替わりは `rolloutState=COMPLETED` で確認する。
+- **注意（既知）**: 同じタグ `0.5.0` にイメージを上書きしているため、本番の `0.5.0` の中身が PR #328 版から変わる（ECR が MUTABLE のため。IMMUTABLE 化は優先度低で残課題）。今後の修正は版を `0.5.1` に上げて `version.json` を更新する方式が確実。
