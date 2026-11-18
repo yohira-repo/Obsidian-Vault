@@ -4806,3 +4806,22 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
   - **仕様 9-2**: 確認期間中は、本番も毎日 CloudWatch Logs（`/alphasys/prod/nightly-migration`）を目で確認する（ユーザー「OK」）。
   - **仕様 7-1・7-4**: リリース時は、本番の夜間移行を停止する。本番データを staging へ持っていく運用は、個人情報のマスキングも考慮して、今後検討する（今は決めない）。
 - alphadb 側の反映: `nightly_automation.md` §10 と `conversations/2026-11-16.md`（alphadb の PR #122）。
+
+## 2026-11-16 AWS から「Lambda の Python 3.10 サポート終了」のメール（本番アカウント）。対象は DB ローテーション用 Lambda 2 つ
+
+- **きっかけ（ユーザー本人）**: 本番アカウント宛に、AWS Lambda の Python 3.10 のサポート終了のメールが届いた。対応方法の質問。
+- **確認（alphasystem、読み取り）**: 本番で python3.10 の Lambda は 2 つ: `ProductionStackRDSDBClusterRotationSingleUser…`（マスター）と `ProductionStackRDSDBClusterAppUser…`（アプリユーザー）。**staging にも同じ 2 つ**。ほかの Lambda は nodejs22.x。いずれも Aurora の DB パスワードの 90 日ローテーション用で、alphasyscdk の `lib/constructs/rds.ts`（`addRotationSingleUser`・`addRotationMultiUser`）が作る、AWS 管理型のローテーション Lambda。`aws-cdk-lib` は 2.233.0 で、`HostedRotation` に Python の版を指定する設定は、確認した範囲では見つからない。
+- **影響の見立て**: サービスの稼働は、今すぐは止まらない。使われるのは 90 日ごとのローテーションだけ。AWS の公式な期日（廃止後に更新・作成ができなくなる日）は、未確認。
+- **提案（ユーザーの了解は未取得）**: メールの期日をユーザーに確認 → alphasyscdk に、管理型 Lambda の実行環境を新しい Python に上げる方法の調査を依頼（新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、`aws-cdk-lib` の更新、または直接テンプレートの書き換え）→ staging で先に試し、問題なければ本番へ。
+
+## 2026-11-16 Python 3.10 のメールの期日を確認。急がない（2027 年 7〜8 月が期限）
+
+- **メールの内容（ユーザーが貼付、本番アカウント 938812705475、AWS Health の `AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT`）**: 実行は止まらない。**2026-10-31**: サポート終了（セキュリティパッチなし、技術サポート対象外、コンソールでの選択は不可。CloudFormation・CLI・SAM では作成・更新できる）。**2027-07-29**: 新規作成が不可。**2027-08-31**: 既存関数の更新が不可。
+- **alphasystem の見立て（提案。ユーザーの決定は未取得）**: 今すぐの対応は不要。ただし、**2027-07-29 より前**に、ローテーション用 Lambda（本番・staging 各 2 つ、AWS 管理型）の実行環境を新しい Python に上げる必要がある。期限後は、`cdk deploy` で、これらの Lambda を作る・更新する操作が失敗する可能性がある。
+- **進め方の案**: 優先度は低（ECR の運用と同程度）。サービスが軌道に乗ってから、alphasyscdk に調査を依頼する（`aws-cdk-lib` の更新、新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、直接のテンプレートの書き換え）。staging で先に試し、本番へ。目安は、2027 年 6 月までに完了。
+
+## 2026-11-16 ユーザーが Python 3.10 の対応方針を承認（低優先度、2027 年 6 月までに完了）
+
+- **承認（ユーザー本人）**: 「ご提案の方針でお願いします。」対象は、直前の「Python 3.10 のメールの期日を確認。急がない」の提案。
+- **決定した内容**: 優先度は低（ECR の運用と同程度）。サービスが軌道に乗ってから、alphasyscdk に調査を依頼する（`aws-cdk-lib` の更新、新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、直接のテンプレートの書き換え）。staging で先に試し、本番へ。**2027 年 6 月までに完了**（期限は、2027-07-29 の新規作成不可と、2027-08-31 の更新不可）。
+- **今は依頼しない**。着手の時期は、2027 年の早い時期に、alphasystem が見直す。

@@ -827,3 +827,64 @@ coop セッション（coop-2a）から SendMessage で依頼を受けた（coop
   - 残: メール受信・本文体裁・⚠表示の最終確認はcoopがユーザーのmailboxで依頼中（prd手動実行で1通送信済み）。stgは構成同一のため追加送信なし。
   - coop記録: coop `conversations/2026-11-12.md`「C（WAF日次ダイジェスト）結合確認（coop担当）」。
 - **A（SensitivePathBlock Block化）・B（管理画面IP制限Block化）・C（WAF日次ダイジェスト）、coopinf側・coop側双方の確認がすべて完了**。
+
+## 2026-11-16 coop からの申し送り（INBOX_FROM_COOP.md、2026-11-10 付け）を取り込み、削除
+
+- coopinf 直下に、2026-11-10 付けの `INBOX_FROM_COOP.md`（未追跡・未コミット）が残っていた。内容は管理画面の IP 制限（IPSet ＋ AdminIpAllowList）の設計。
+- 内容はすべて対応済み。2026-11-11 に coop から SendMessage で同じ内容を受け取って実装し、stg は 2026-11-11、prd は 2026-11-12 に Block にした（[2026-11-11.md](2026-11-11.md)・[2026-11-12.md](2026-11-12.md)・[cf/waf-settings.md](../cf/waf-settings.md)）。
+- 2026-11-11 の記録では「11-10 の INBOX は届いていない」としていたが、実際にはファイルは届いていて、気づかれていなかった。
+- ユーザーの指示（2026-11-16）で、取り込みを確認したうえでファイルを削除した。設計の原本は coop の `conversations/2026-11-10.md`（PR alphacmc/coop#30）に残っている。
+- coop の 2026-11-16 の申し送り（請求データ K020 で同じ請求年月の行が複数来る問題）は coopbatch・coopcdeweb 宛てで、coopinf への依頼は無い。
+
+## 2026-11-16 coop からの依頼: オンデマンド実行の既定をリカバリモードにする（方式案を提示、ユーザーの了承待ち）
+
+- **受信（coop-c6、SendMessage）**: coop 側でユーザー承認済みの依頼。`cf/ecs-batch-ondemand-cf.yaml` の `CheckRecoveryMode` を変え、入力なし・`{}`・打ち間違いはすべてリカバリモード（SFTP に触らない側）にする。通常の実行は `batchRecoveryMode` が `"false"` か `false` のときだけ。理由は、本番 SFTP はダウンロードするといつ消されるか分からないため。
+  - `CheckSftpCheckOnly` は今までどおり最初に判定する。毎日の定時実行（`ecs-batch-cf.yaml`）は変えない。
+  - 追加の依頼: Draft PR の番号と、マージされたことを、coop-c6 と coopbatch-9c の両方に直接送る（coopbatch はマージ後に cf の複製を同期する）。stg での確認結果も coop-c6 に返す。
+- **事前確認（2026-11-16）**:
+  - stg・prd とも、このステートマシンを起動する EventBridge ルール・Scheduler は無い（影響は手動実行だけ）。
+  - prd は本日 12:00 に入力なしの手動実行があり、通常モードで SUCCEEDED。
+  - `migration/plan.md` の「3-2. オンデマンド実行」が `--input '{}'` で通常実行する前提なので、`{"batchRecoveryMode": "false"}` に直す必要がある。`migration/cutover-plan.md` の旧バッチの手順は別のステートマシン（`coopcde-*`）なので対象外。
+- **提示した段取り（ユーザーの了承待ち）**:
+  1. `feature/ondemand-default-recovery` で修正し、Draft PR を作る（base は main）。PR の番号を coop-c6・coopbatch-9c に送る。
+  2. stg スタック `coop-ecs-batch-ondemand-stg` を更新する。入力なしで実行して `RunEcsTaskRecovery` を通ることを確認する。`{"batchRecoveryMode": "false"}` で実行して `RunEcsTaskNormal` に入ったら、すぐに止める案（stg で通常の実行は最後まで走らせない）。
+  3. prd スタック `coop-ecs-batch-ondemand-prd` を更新する。変更セットの作成と実行は、ユーザーの承認を得てから行う。
+- **ユーザー了承（2026-11-16）**: 上記の方式・段取りでよい（stg の通常の実行は `RunEcsTaskNormal` に入ったら止める）。
+- **実施（2026-11-16）**:
+  - Draft PR #61 を作成し、coop-c6・coopbatch-9c に番号を送った。coop-c6 は差分を確認し「依頼どおり」と返信。
+  - stg スタック `coop-ecs-batch-ondemand-stg` を変更セットで更新（17:45 JST、UPDATE_COMPLETE）。変更は `OnDemandStateMachine` の Modify のみ（置き換えなし）。デプロイ後の定義で `CheckRecoveryMode` の Default が `RunEcsTaskRecovery` であることを確認。
+  - 入力なしで実行（`verify-noinput-20261116-174613`）: `CheckRecoveryMode` → `RunEcsTaskRecovery` を通り、SUCCEEDED。
+  - `{"batchRecoveryMode": "false"}` で実行（`verify-false-20261116-174721`）: `CheckRecoveryMode` → `RunEcsTaskNormal` に入ったことを確認し、直後に停止（ABORTED）。ECS タスクは Step Functions の中止で StopTask され、コンテナは起動前（`startedAt` なし）に STOPPED。
+  - 次: prd スタック `coop-ecs-batch-ondemand-prd` の更新（ユーザー承認待ち）。
+- **ユーザー承認（2026-11-16）**: prd も stg と同じ手順で更新してよい。prd での実行による確認はユーザーが行う（エラーレコード対応のファイルがあるため）。
+- **prd 更新（2026-11-16 17:51 JST）**: `coop-ecs-batch-ondemand-prd` を変更セット（`ondemand-default-recovery`）で更新し、UPDATE_COMPLETE。変更は `OnDemandStateMachine` の Modify のみ（置き換えなし）。デプロイ後の定義で、`CheckRecoveryMode` の Default が `RunEcsTaskRecovery`、`"false"` / `false` のときだけ `RunEcsTaskNormal`、`CheckSftpCheckOnly` が先に判定されることを確認した。prd での実行による確認は、ユーザーが行う。
+- **PR #61 マージ（2026-11-16 17:58 JST、ユーザー）**: coop-c6・coopbatch-9c にマージを連絡した。coopbatch-9c には、cf の複製の同期とあわせて、coopbatch `docs/coop/overview.md`「オンデマンド実行（Step Functions）」の表（「入力なし = 通常走行」のまま）の修正を依頼した。
+- **段取り（ユーザーが実行）**: prd の `coop-prd-batch-ondemand` を入力なしで実行し、リカバリ走行で `untreated/122128334IF-K020_2026110608164701_errorfix00..csv`（エラーレコード対応のファイル、17:29 にユーザーが配置）を処理する。
+  - 事前確認: `treated/` に同名ファイルは無い（処理済みスキップにならない）。ファイル名に `K020` を含むので請求として判定される。`..csv` でも末尾が `.csv` なので対象になる。`untreated/errors/` の 4 ファイルは対象外。
+  - 実行後: 成功ならファイルは `treated/` へ、失敗なら `temporary/` へ移動する。
+- **ファイル名の変更（2026-11-16 18:00 JST、ユーザー）**: `untreated/` のファイルを `122128334IF-K020_2026110608164701_errorfix00.csv`（`..csv` → `.csv`）に置き直した。再確認の結果、末尾 `.csv`・`K020` を含む・`treated/` に同名なし・`untreated/` 直下はこの 1 ファイルのみ・`temporary/` は空。入力なしの実行でリカバリ走行に進めてよい状態。
+- **coopbatch の同期（coopbatch-9c から連絡）**: Draft PR alphacmc/coopbatch#39 で、`cf/ecs-batch-ondemand-cf.yaml` を coopinf main と同期し、`docs/coop/overview.md` の実行入力の表とリカバリー手順を修正（マージはユーザー）。coopinf 側で複製を main と diff し、違いは冒頭の「正本は coopinf」の注記だけであることを確認した。
+- **prd リカバリ走行（2026-11-16 18:02 JST、ユーザーが実行）**: `coop-prd-batch-ondemand` を入力なし（`{}`）で実行し、SUCCEEDED（18:02:01〜18:02:55）。実行履歴は `DescribeSecurityGroup` → `RunEcsTaskRecovery`（新しい既定どおり）。
+  - ログ（`/ecs/logs/coop-prd-batch-loggroup`）: `recoveryMode: true`、`step0_s3Recovery`（SFTP アクセスなし）。`122128334IF-K020_2026110608164701_errorfix00.csv` は件数 1・追加/更新 1・エラー 0。ジョブ全体は COMPLETED（totalRead 1、totalWrite 1、totalErrors 0）。
+  - ファイルは `treated/` へ移動し、`untreated/` 直下と `temporary/` は空。エラーレコード対応は完了。
+
+## 2026-11-17 coopbatch から相談: 本番（DDL-2 後）の DB を stg に戻す方法（補正 SQL の予行のため）
+
+- **受信（coopbatch-09、SendMessage）**: 本番は 11/17 にリリース完了（DDL-1 → coopcdeweb 1.9.0 → DDL-2 → バッチ 1.4.0。gas_bill / denki_bill の主キーは member_code, contract_number, usage_year, usage_month）。過去 2 年分（請求年月 2024-12〜2026-08）の請求の補正 SQL を stg で予行する（ユーザー決定、stg の今の確認環境は上書きしてよい）。材料は 11/18 01:00 の本番日次ダンプ。日次同期の状態・戻す手順・注意点を知りたい。
+- **確認した事実（2026-11-17）**:
+  - `backup-prd-db.sh`（coop-prd-manage、JST 01:00）は稼働中。最新は 11/17 01:00 分。`restore-stg-db.sh` の cron は 2026-09-09 から停止中（cutover-plan Task 8）。
+  - ダンプのファイル名の日付は取得日の前日（UTC で評価されるため）。11/18 01:00 のダンプは `coopcde-prd-batch-tables_20261117.dump` になる。
+  - リレーバケットの `db-copy-to-stg/` は 7 日で自動削除。未解決フラグは無し。
+  - `coop-stg-batch-schedule` は DISABLED。stg / prd の Aurora と manage サーバーは稼働中。
+- **回答した内容（coopinf では何も実行していない）**:
+  - 手順: ユーザーが coop-stg-manage で `sh ~/coop-migration/restore-stg-db.sh coopcde-prd-batch-tables_20261117.dump` を実行する。4 テーブルを同じ時点に揃える今のスクリプトのまま使う（2 テーブルだけ戻す引数は無い）。
+  - 前提: `--data-only` なので、stg に DDL-1・DDL-2 が当たっていること。当たっていないと TRUNCATE 後に COPY が失敗し、4 テーブルが空のまま止まる。
+  - 予行中は stg のオンデマンド実行を走らせない。手で restore を再実行すれば予行をやり直せる。coop-stg-manage のスクリプトが main と同じ版かを diff で確かめる。
+- **方式の決定は coopbatch 側でユーザーの了承を得てから**。日時と結果の連絡を受けたら、ここに追記する。
+- **未決（ユーザーの判断待ち）**: `migration/cutover-plan.md` Task 9 の「ダンプの `YYYYMMDD` はその日の 01:00 時点」という注記の誤りを直すか。
+- **ユーザー承認（2026-11-17）**: 上記の注記を直す。`migration/cutover-plan.md` Task 9 を「ファイル名の日付は取得日の前日。中身はファイル名の日付のバッチ実行後。9/8 のバッチ実行前に戻すなら `20260907` を使う」に修正した。
+- **方式の決定（coopbatch-09 から連絡、ユーザー了承 2026-11-17）**:
+  - 戻すダンプは `coopcde-prd-batch-tables_20261117.dump`（11/18 01:00 JST 取得分）。過去分の補正リストの突き合わせにも同じダンプを使う。
+  - ユーザーが coop-stg-manage で `restore-stg-db.sh` を手で実行し、4 テーブルまとめて戻す。実行前に、スクリプトを coopinf main の `migration/script/` と diff で確認する。
+  - 実行の時期は、リスト作り → ユーザーのレビュー → 補正 SQL の作成の後（11/18 以降、日は未定）。予行中は stg のオンデマンド実行をしない。11/25（ダンプの自動削除）を越えそうなら、ダンプを別の場所に写す。
+  - 戻した日時と結果は、coopbatch から連絡を受けて追記する。
