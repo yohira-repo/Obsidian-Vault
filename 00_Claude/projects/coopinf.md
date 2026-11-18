@@ -888,3 +888,25 @@ coop セッション（coop-2a）から SendMessage で依頼を受けた（coop
   - ユーザーが coop-stg-manage で `restore-stg-db.sh` を手で実行し、4 テーブルまとめて戻す。実行前に、スクリプトを coopinf main の `migration/script/` と diff で確認する。
   - 実行の時期は、リスト作り → ユーザーのレビュー → 補正 SQL の作成の後（11/18 以降、日は未定）。予行中は stg のオンデマンド実行をしない。11/25（ダンプの自動削除）を越えそうなら、ダンプを別の場所に写す。
   - 戻した日時と結果は、coopbatch から連絡を受けて追記する。
+
+## 2026-11-18 stg に本番の DB を戻した（請求の補正 SQL の予行のため、coopbatch から連絡）
+
+- 2026-11-17 に決めた方式（[2026-11-17.md](2026-11-17.md)）どおりに実施した。coopbatch-09 から SendMessage で受けた結果を記録する。
+- **日時**: 2026-11-18 12:31〜12:33 JST。ユーザーが coop-stg-manage で実行した。
+- **実行前の確認**:
+  - stg の `00_check` で、DDL-2 適用後であることを確認した（主キーが `member_code, contract_number, usage_year, usage_month`、`usage_year` / `usage_month` が NOT NULL）。
+  - `restore-stg-db.sh` は sha256 `057726c2…`・139 行で、coopinf main と一致した。
+- **コマンド**: `sh ~/coop-migration/restore-stg-db.sh coopcde-prd-batch-tables_20261117.dump`（`--no-mask` なし）
+- **結果**: 未解決のフラグなし → TRUNCATE → pg_restore → contract のマスク（UPDATE 108266）→ 完了。
+- **次（coopbatch が実施）**: stg で補正 SQL を流す（確認のみ → `commit=1` → 画面で確認）。予行中は stg のオンデマンド実行をしない。
+- 使ったダンプは中継バケットで 7 日後に消える（2026-11-25 ごろ）。予行がそれ以降まで続くなら、別の場所にコピーしておく。
+
+## 2026-11-18 stg をもう一度本番の DB に戻して予行をやり直し、合格（coopbatch から連絡）
+
+- coopbatch-09 から SendMessage で連絡があった。過去分の補正 SQL を直したため、予行をやり直した。
+- **戻し**: 2026-11-18 の午後、ユーザーが coop-stg-manage で `sh ~/coop-migration/restore-stg-db.sh coopcde-prd-batch-tables_20261117.dump` をもう一度実行した（`--no-mask` なし）。
+- **予行の結果**: 合格。
+- **今の stg の状態**: 本番の 11/18 01:00 時点の DB に、過去分の補正を加えたもの。補正は 2 つ:
+  - 補正 SQL
+  - 名義変更前の人に結び付いていた請求の組合員番号を直す個別の SQL
+- **次**: coopbatch が本番で実行する（coopinf 側の作業はない）。

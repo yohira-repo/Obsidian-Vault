@@ -4825,3 +4825,16 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
 - **承認（ユーザー本人）**: 「ご提案の方針でお願いします。」対象は、直前の「Python 3.10 のメールの期日を確認。急がない」の提案。
 - **決定した内容**: 優先度は低（ECR の運用と同程度）。サービスが軌道に乗ってから、alphasyscdk に調査を依頼する（`aws-cdk-lib` の更新、新しい形式のトランスフォーム `AWS::SecretsManager-2024-09-16`、直接のテンプレートの書き換え）。staging で先に試し、本番へ。**2027 年 6 月までに完了**（期限は、2027-07-29 の新規作成不可と、2027-08-31 の更新不可）。
 - **今は依頼しない**。着手の時期は、2027 年の早い時期に、alphasystem が見直す。
+
+## 2026-11-18 配下プロジェクト用の Mods パネルを作成（ユーザーが内容と更新方法を選択）
+
+- **依頼（ユーザー本人）**: 配下プロジェクトを対象とした Mods パネルを出せるか。
+- **選択（ユーザー本人）**: 内容は「リポジトリの状態」「Draft PR の一覧」「未決・待ち事項」の 3 つ。更新は「ボタンで手動更新」。「本番の状態」は選ばれなかった。
+- **実施**: mod `alpha-projects` を作成（読み取りのみ。`git`・`gh`・会話記録の読み取り）。置き場所は `C:\Users\yohira\.claude\dev-mods\2b5ced6c-e0e8-4808-b895-9d0e37ddf364\alpha-projects\`（リポジトリの外。コミットしない）。`claude plugin validate` は通った。読み込みの可否は、ターン終了後の確認待ち。`/alpha-projects` でも開ける。
+- **未実施（alphasystem）**: 11/17 朝の夜間移行（初回の自動実行）の確認（CloudWatch `/alphasys/prod/nightly-migration`）。
+
+## 2026-11-18 夜間移行の本番の自動実行を確認（11/17・11/18 とも成功）。Mods パネルも読み込まれた
+
+- **確認（alphasystem、読み取り、CloudWatch `/alphasys/prod/nightly-migration`）**: `nightly-20261117-010036`（11/17 01:00:43 JST）と `nightly-20261118-010036`（11/18 01:00:43 JST）が、ともに `check ok`・`RESULT: SUCCESS`。ダンプの LastModified は、それぞれ前日 15:00 UTC。仕様 6.4 の本番の夜間移行が、毎晩動いている。
+- **確認期間中の毎日の目視確認**（alphadb 経由の報告、ユーザー本人の確認は未取得。仕様 9-2 の案）は、alphasystem でも、このとおり実施した。
+- **Mods パネル**: ホットリロードが有効になり、`alpha-projects` が読み込まれた（システム通知）。
