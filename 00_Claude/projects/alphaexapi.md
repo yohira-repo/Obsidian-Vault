@@ -1490,3 +1490,102 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - **原因**: `GET /member/employee-info` が `parseEmergency(user.emgInfo)` の結果をそのまま返していた。契約書 2.1 は `current` を「未設定は null」と書いていたが、例は配列で、配列の項目の扱いがあいまいだった。
 - **決定（ユーザー）**: `emergencyContacts` だけ、未設定（NULL・空文字・配列でない値）なら `[]` を返す。`address`・`bankAccount` は、オブジェクトなので null のまま。契約書 2.1 にも明記した。
 - **ほかのエンドポイント**: `emergencyContacts` を返すのはこの 1 か所だけ。総務用の CHANGE_EMERGENCY の `changeInfo` は、PUT で保存した配列を読むので対象外。
+
+## 2026-11-14 alphasystem-62から: 営業メール取り込みを環境変数でon/offする依頼(仕様8-2)
+
+- 依頼元: alphasystem-62(alphasystemでユーザーが「進めてください」と承認済み)。仕様は alphasystem の `docs/design/2026-11-10-本番環境構築-仕様.md` の6.3・7・8章。
+- 内容: `src/sales-mail/mail-polling.job.ts`の`@Cron`(10分ごと)を、環境変数でon/offできるようにする。
+  - 本番の構築時はOFF(既定)。stagingはONのまま。カットオーバー後は、本番をON・stagingをOFFにする(仕様7章の2)。
+  - 環境変数の名前・既定値・OFFのときのログは、方式案を先に示す。alphasystem-62経由で、ユーザーの了解を得てから着手する。
+  - ECSに環境変数を渡すのはalphasyscdkの作業なので、必要な変数名をalphasyscdk-ecに伝える。
+  - 完了したら、Draft PR(base=staging)のリンクをalphasystem-62に知らせる。
+- 0.5.0への版の統一(alphadb・alphaexapi・alphasys)は、進行中の作業がstagingに入り終えてから行う。時期はalphasystemから別途知らされる。
+- 調べたこと: alphaexapiで定期実行しているのは、この`@Cron`だけ(`@Interval`・`@Timeout`は無い)。IMAPの設定値は、alphasyscdkの`lib/constructs/ecs.ts`でSSMから渡している。
+
+### 方式案(承認待ち)
+
+1. 環境変数は`SALES_MAIL_POLLING_ENABLED`とする。値が`true`のときだけ取り込む。未設定・`false`・それ以外の値はOFFとする(既定はOFF)。
+2. `true`・`false`以外の値(例: `ture`)が入っていたら、起動時にwarnを出す。OFFとして扱う。
+3. ログ: 起動時に1回だけ、ONかOFFかを出す(OFFなら「営業メール取り込みは無効(SALES_MAIL_POLLING_ENABLED=true ではない)」)。10分ごとの呼び出しでは、OFFのとき何も出さずに戻る(ログが溜まらないように)。
+4. 実装: `@Cron`は残し、`runPolling`の最初で設定を見て、OFFなら戻る(ロックも取らない)。値は起動時に1回だけ読む(ECSの環境変数は、タスクを起動し直さないと変わらないため)。
+5. `.env.example`に`SALES_MAIL_POLLING_ENABLED=false`と説明を足す。ローカルの開発環境も、`true`にしない限り取り込まなくなる。
+6. テスト: OFFのとき取り込みもロックの取得もしないこと、ONのとき取り込むこと、想定外の値でwarnが出ること。
+7. 切り替えの順番: 先にalphasyscdkがstagingに`SALES_MAIL_POLLING_ENABLED=true`を渡す。そのあとでalphaexapiの修正をstagingにデプロイする。逆の順にすると、その間stagingの取り込みが止まる。本番は渡さない(または`false`)。
+
+## 2026-11-15 alphasystem-62から: 0.5.0への版上げの予告と、8-2を0.5.0に含める方針
+
+- alphasystemのユーザーが「0.5.0 の統一でお願いします」と承認した(仕様3章の手順2)。**alphaexapiはまだ着手しない。** 先にalphadb-86がalphadb 0.5.0をpublishする。
+- 8-2(営業メール取り込みのon/off)は0.5.0に含める。理由: ECRのタグはimmutableに戻す予定で、0.5.0は一度pushすると上書きできない。8-2が入っていないイメージで本番を起動すると、登録済みの`SALES_MAIL_IMAP_*`で取り込みが動いてしまう(仕様では本番はOFF)。
+- 8-2の方式案(2026-11-14の記録)は、まだユーザーの了解待ち。alphasystem-62が別途ユーザーに確認する。**了解が出るまで、版上げのPRは作らない。**
+- 了解が出たあとの順番:
+  0. alphaexapiが、alphasyscdk-ecに変数名`SALES_MAIL_POLLING_ENABLED`を伝える(stagingは`true`、本番は渡さないか`false`)。
+  1. alphasyscdkが、stagingに`SALES_MAIL_POLLING_ENABLED=true`を渡す。
+  2. alphaexapiのPRを1つ作る。8-2のコード、versionを0.5.0にする変更、`alphadb`の依存を`^0.5.0`にする変更、lockfileの更新を入れる。
+  3. stagingにマージする。CIが0.5.0をpushする。
+  - 2の作業は、alphadb 0.5.0がpublishされたという連絡を受けてから始める(alphasystem-62に回答済み)。
+- 今の状態(alphaexapiから回答): 開いているPRは無い。stagingに入っていないブランチも無い。versionは`0.1.0`、`alphadb`の依存は`^0.2.8`。PR #215(8-2の方式案の記録)はマージ済みで、8-2のコードは未着手。
+- #208の確認: ECRの`alphasys-backend`のイメージに、コミットハッシュのタグが付くようになった(例: 11/10 15:55の`0.1.0,e19e5cb`)。リポジトリは今もMUTABLE。
+
+## 2026-11-15 8-2の方式案をユーザーが了解(alphasystem-62経由)
+
+- ユーザーの言葉(alphasystemのセッション): 「機能がまだ開発途中なので、しばらくは、staging:ON prod:OFF で、リリース時に逆にしたい」。2026-11-14の方式案(`SALES_MAIL_POLLING_ENABLED`が`true`のときだけ取り込む、既定はOFF)で進める。
+- 運用: 今はstagingを`true`、本番を`false`(または渡さない)にする。リリースのときは、stagingを`false`、本番を`true`にする。切り替えは、環境変数の値を変えてタスクを起動し直すだけにする(コードは変えない)。
+- 切り替えの手順(どの環境変数を、どの環境で、何に変えるか)を書く(alphasystem-62からの依頼)。PRの説明とdocsの両方に書くと回答した。
+- 段取り:
+  1. alphasyscdk-ecに、変数名と値(stagingは`true`、本番は`false`)を伝えた(2026-11-15)。stagingに反映したら知らせてもらう。
+  2. alphasyscdkがstagingに反映するのを待つ。
+  3. 8-2のコード、version 0.5.0、`alphadb`を`^0.5.0`にする変更、lockfileを、1つのDraft PR(base=staging)にする。3は、alphadb 0.5.0がpublishされたという連絡を待ってから始める(alphadbのDraft PR #114は、ユーザーのマージ待ち)。
+
+## 2026-11-15 alphasyscdk-ecから: SALES_MAIL_POLLING_ENABLEDのDraft PR(alphasyscdk ＃142)
+
+- alphasyscdk #142(Draft、alphasyscdkのユーザー承認済み)。`cdk.json`の環境ごとの設定に`salesMailPollingEnabled`を持たせ、backendに`"true"`か`"false"`で渡す。stagingは`true`、本番は`false`を明示する。diff:stagingでは、タスク定義にこの変数が加わるだけ。
+- リリース時の切り替えは、`cdk.json`の値を逆にして`cdk deploy`する(alphasyscdkの作業)。alphaexapiのコードは変えない。
+- まだstagingに入っていない。マージと`deploy:staging`は人が行う。alphasyscdkが反映したら知らせてくるので、**それまでalphaexapiの8-2・0.5.0はstagingに入れない。**
+
+## 2026-11-15 alphadb 0.5.0のpublish完了と、staging反映の確認
+
+- alphasystem-62から: alphadb 0.5.0のpublishが完了した(CodeArtifactで`latest`=0.5.0)。8-2・0.5.0のPRを始める条件の2つのうち、1つが満たされた。
+- alphaexapiで確認: alphasyscdk #142はマージ済み(2026-11-15 04:38Z)。ただし、stagingのタスク定義`staging-alphasys-unified`は、最新のrevision 86(11/10 15:10登録)のままで、`SALES_MAIL_POLLING_ENABLED`が入っていない。deploy:stagingはまだと判断し、alphasyscdk-ecに進み具合を問い合わせた。反映の連絡が来てから、PRの作業を始める。
+
+## 2026-11-15 8-2と0.5.0のDraft PR ＃218を作成(マージはstaging反映後)
+
+- alphasyscdk-ecから: deploy:stagingはまだ。先に本番のdeployの失敗を直すalphasyscdk #144のマージとdeploy:prodがあり、そのあとでdeploy:stagingを行う。反映したら知らせてもらう。**それまで8-2・0.5.0はstagingに入れない**(PRの準備は進めてよい)。
+- そのため、PRを先に作った: Draft PR #218(base=staging)。タイトルに「staging反映後にマージ」と付け、説明の先頭にも書いた。
+  - 8-2のコード: `SALES_MAIL_POLLING_ENABLED`が`true`のときだけ取り込む(2026-11-14の方式案どおり)。テストは703件すべて成功し、ビルドも通った。
+  - version 0.5.0、`alphadb` `^0.5.0`。lockfileはalphadbとバージョンの箇所だけを更新した。`npm install`をすると`@swc/core`が`devOptional`に変わり、本番のイメージに入るおそれがあるため、その変更は入れなかった。`npm ci`は通った。
+  - 切り替えの手順は、`docs/design/2026-11-15-営業メール取り込みのon-off.md`とPRの説明の両方に書いた。
+- 分かったこと: 取り込みはINBOXの**未読だけ**を読み、取り込んだメールを**既読にする**(除外ルールに一致したメールは削除する)。staging・本番・ローカルは同じメールボックスを読む。
+  - リリース時は、**stagingを先にOFFにし、そのあとで本番をONにする**。両方がONだと、メールがstagingと本番に分かれる。両方がOFFの間に届いたメールは未読のまま残るので、問題ない。
+  - stagingがONの間に取り込んだメールは、本番には入らない。必要なら、データ移行の計画で扱う(alphasystem-62に知らせる)。
+  - ローカルも同じメールボックスを既読にするので、`.env.example`は`false`にした。
+- alphasyscdk-ecから: リリース時の切り替えの順番(stagingを`false`にしてdeploy:staging → そのあとで本番を`true`にしてdeploy:prod)と、その理由を、alphasyscdkの構築・メンテナンス手順の5-2-2に書いた(alphasyscdk #146)。本番で動かすのは0.5.0以降のイメージであることも書いた。deploy:stagingはユーザーに依頼中で、反映したら知らせてもらう。
+
+## 2026-11-15 stagingにSALES_MAIL_POLLING_ENABLED=trueが反映され、PR ＃218をマージできるようになった
+
+- alphasyscdk-ecから: deploy:stagingが完了した。タスク定義`staging-alphasys-unified:88`のalphaexapiコンテナに`SALES_MAIL_POLLING_ENABLED=true`が入った(alphaexapiでも確認済み。イメージはまだ`alphasys-backend:0.1.0`なので、この値は読まれていない)。
+- これで、PR #218(8-2・0.5.0)をマージする前提がそろった。マージはユーザーが行う。
+- マージ後の段取り:
+  1. ユーザーがPR #218のDraftを解除し、stagingにマージする。
+  2. CodeBuildが`alphasys-backend:0.5.0`(とコミットハッシュのタグ)をECRにpushする。alphaexapiが確かめて、alphasyscdk-ecとalphasystem-62に知らせる。
+  3. stagingを0.5.0にするデプロイ(バージョンの指定の更新とパイプライン)は、alphasyscdk・alphasystemの段取りで行う。
+  4. デプロイ後、staging のbackendのログに「営業メール取り込みは有効（SALES_MAIL_POLLING_ENABLED=true）」と「メール取り込み完了: ...」が出ることを、alphaexapiが確かめる。
+
+## 2026-11-15 PR ＃218をマージし、0.5.0がECRにpushされた
+
+- ユーザーが、PR #217と#218をstagingにマージした。
+- CodeBuildが`alphasys-backend:0.5.0`をpushした(19:39 JST、タグ`0.5.0,8381871`。8381871は#218のマージコミット)。alphasyscdk-ecとalphasystem-62に知らせた。
+- 次は、stagingを0.5.0にするデプロイ(alphasyscdk・alphasystemの段取り)。終わったら、alphaexapiがbackendのログで「営業メール取り込みは有効（SALES_MAIL_POLLING_ENABLED=true）」と「メール取り込み完了: ...」を確かめる。
+- alphasyscdk-ecから: stagingを0.5.0にするのは、frontendの0.5.0を待ってからになる。版は`.env`の1か所でfrontendとbackendの両方を決めるが、`alphasys-frontend:0.5.0`はまだECRに無い(alphasysの版上げPRはこれから)。段取り(alphasystemの提案で、ユーザーの了解待ち): frontendの0.5.0がECRに入る → `.env`を両方0.5.0にする → deploy:staging → 本番。時期はalphasystemが指示する。stagingのdeployが終わったら、alphasyscdk-ecから知らせてもらい、alphaexapiがログを確かめる。
+
+## 2026-11-15 stagingが0.5.0になり、取り込みのジョブが動いていることを確認した
+
+- alphasyscdk-ecから: stagingを0.5.0にするdeployが終わった(21:27 JST)。タスク定義は`staging-alphasys-unified:89`、イメージは`alphasys-frontend:0.5.0`・`alphasys-backend:0.5.0`。
+- alphaexapiの確認(CloudWatch `staging-alphasys-backend`):
+  - 12:28:25Z、新しいタスク479f248c…で「営業メール取り込みは有効（SALES_MAIL_POLLING_ENABLED=true）」。
+  - 12:30:00Zに「メール取り込み完了: 新規0件、重複スキップ0件、除外0件、失敗0件」。IMAPへの接続、ロック、取り込みが、エラー無く1周した。
+  - 同じ12:30:00Zに、古いタスクbebb5270…(:88)も取り込みを実行していた(0件)。入れ替えの途中で2つのタスクが重なったため。確認時点では:89だけがRUNNING。
+- **未確認**: 未読メールが無かったので、メールを実際に処理できるかは確かめていない。テスト用のメールを1通送り、次の回で「新規1件」になるかで確かめる。送るかどうかはユーザーに確認中。
+- alphasyscdk-ecに上の結果を返した。
+- alphasyscdk-ecから: 本番はDesiredCount 2なので、2タスクが同時に取り込もうとする。ロックはタスクをまたいで効くか、と確認があった。
+  - 回答: 効く。`polling-lock.service.ts`で、共有DBのadvisory lock(`pg_try_advisory_lock`)を使っている。ロックを取れなかったタスクは、その回をスキップする。既読にする仕組みと「重複スキップ」もあるので、二重には取り込まない。**本番をONにする前の対策は不要**。
+  - 今日の2タスクがどちらも「完了」を出したのは、0件ですぐにロックを放したため(0.35秒と0.60秒で、順番に動いた)。
