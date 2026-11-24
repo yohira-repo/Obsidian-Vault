@@ -672,3 +672,224 @@
 - **リリース時は本番の夜間移行を停止する**（仕様 7-1。止め方は `nightly_automation.md` §9.2 と同じく `disable --now`、`--profile prod`）。
 - **本番データを staging へ持っていく運用は、個人情報のマスキングも考慮して今後検討する**（今は決めない）。
 - `nightly_automation.md` §10 の注意書き・§10.3 の「未決」を上記の決定に更新。alphasystem-62 に連絡。
+
+## 2026-11-21 alphasystem からの申し送り：受領請求書（MF 債務支払）の申請番号を請求に持たせる
+
+- 発端: `INBOX_FROM_ALPHASYSTEM.md`（2026-11-21、改訂版）と alphasystem-24 からの連絡。取り込み後にファイルを削除した。
+- 背景: 仕入（債務支払）の請求は、2024/09 から証憑が MF クラウド債務支払の電帳法書類にあり、`bill_doc_id` は空。
+  債務支払 CSV の「申請番号」（例 `AP1286`）を取り込み時に保存し、MF 債務支払 API の電帳法書類一覧
+  （`ex_transactionable_number` が申請番号）から e_doc ID（例 `3452`）を引いて証憑を表示する。1請求に1申請。
+  順序は alphadb → alphaexapi → alphasys。
+- **ユーザーの決定**（alphasystem `docs/conversations/2026-11-21.md`「申請番号の持たせ方：請求に列を追加（B）」）:
+  申請番号は **`alp_bill_recipt` に列を追加する（案B）**。ただし移行期間中は請求IDと申請番号の対応を一時テーブルで保持し、
+  夜間移行の際に戻す。先に届いた「独立表 `alp_bill_recipt_payable`」の案は**採用しない**（旧版の申し送りは破棄）。
+- 後続（alphadb の公開後）: 公開した版を alphaexapi-61・alphasys-bb に知らせる。alphaexapi は CSV 取り込みで申請番号を保存し、
+  e_doc ID を引いてファイルを中継する API。alphasys は仕入の請求情報画面にプレビュー。staging で確認してから本番。
+  CSV の取り込み直し（ADD モード）は、alphaexapi を本番に入れたあとユーザーが実施。
+
+## 2026-11-21 申請番号の列追加と夜間移行の退避・復元：方式をユーザーが承認
+
+- ユーザー承認「B を含めて、1〜5 の方針で進めてください」。確定した方式:
+  1. 申し送りを本ファイルに取り込み、`INBOX_FROM_ALPHASYSTEM.md` を削除。
+  2. スキーマ: `alp_bill_recipt` に nullable の `payable_application_no` VarChar(32)・`payable_e_doc_id` Int を追加。索引は付けない
+     （申請番号から請求を逆引きする要件が無いため）。版は **0.5.0 → 0.5.1**（alphaexapi・alphasys は `^0.5.0` のまま取り込める）。
+     `extract.sql`・`load.sql` は列を名前で指定しているため変更なし（入れ直した直後は 2 列とも NULL）。
+  3. 夜間移行: 退避テーブル `nightly.bill_recipt_payable_keep`（別スキーマ。Prisma 管理外・FK なし。主キー bill_no、契約番号・請求日・
+     申請番号・e_doc ID）を夜間移行のスクリプトが `CREATE ... IF NOT EXISTS` で作る。既存の 1 トランザクションの中で
+     `keep_payable.sql`（退避）→ `clear.sql` → ロード → `restore_payable.sql`（復元）→ `verify.sql` → `check.sql` の順に実行。
+     - 退避: 申請番号または e_doc ID が入っている行を追加・更新。
+     - **B（ユーザー提案から採用）**: 退避と bill_no・契約番号・請求日が一致する請求で、いま 2 列とも NULL なら、日中に空にしたと
+       みなして退避から削除する（アプリから申請番号を空にできるようにするため）。
+     - 復元: bill_no が同じで、契約番号・請求日も一致する行だけ戻す。戻した件数・不一致件数・行が無い件数をログに出し、
+       不一致の bill_no は最大 20 件ログに出す。不一致があっても失敗にはしない。
+     - 失敗時はトランザクションごとロールバックされ、退避テーブルも元のまま。
+  4. 後片付け: 旧システム停止で夜間移行を止めるときに `DROP SCHEMA nightly CASCADE`。手順を `nightly_automation.md` に書き、
+     cutover 計画への追記を alphasystem に依頼する。
+  5. 反映の順序: staging・本番それぞれ、**マイグレーションの適用（`staging-`/`prod-prisma-merge-project-build`）を先に**、
+     その後に `deploy.sh` でスクリプトを配布する（逆だと、列が無いためその晩の夜間移行が失敗する）。
+- 割り切り（ユーザー了承）: 新システムで作った請求（旧システムに無い）は毎晩行ごと消えるため、その申請番号は戻らない
+  （旧システムにある請求を更新した場合は戻る）。手動フロー（`load.ps1`）は退避・復元しない。
+
+## 2026-11-21 申請番号の列追加：Draft PR ＃123 作成とリリースの段取り
+
+- 実装: Draft PR **#123**（base: staging、0.5.1）。`npm test` 10 pass、`test_lib.sh` ALL PASS。PGlite で全 17 マイグレーションの適用と
+  退避・復元の 6 ケースを確認。Docker が無いため `integration_local.sh` は未実施（staging の手動 1 回実行で初確認）。
+- リリースの段取り（確定）: ① #123 を staging にマージ → ② staging→main 同期 PR をマージ → ③ `alphadb-publish`（0.5.1）→
+  ④ `staging-prisma-merge-project-build` で staging DB に列を追加 → ⑤ **④の後に** staging Bastion へ `deploy.sh` →
+  ⑥ 本番は `prod-prisma-merge-project-build` → `AWS_PROFILE=prod deploy.sh`（時期はユーザー判断）。
+  ③の後、alphadb が 0.5.1 の Published・`latest` を確認し、alphaexapi-61・alphasys-bb に版を知らせる。
+- alphasystem-24 へ PR を報告し、cutover 計画に「夜間移行停止後、staging・本番で `DROP SCHEMA nightly CASCADE`」の追記を依頼。
+- #122（11/16 の記録）と `nightly_automation.md` の末尾が隣接。#122 を先にマージしたら #123 側で staging を取り込んで解消する。
+
+## 2026-11-22 0.5.1 の反映状況（申請番号の列）
+
+- #122・#123・#124（staging→main）はマージ済み。0.5.1 は CodeArtifact に Published。
+- `staging-prisma-merge-project-build` は 11/22 14:30 JST に SUCCEEDED（main e0bcf67）。staging DB に 2 列が入った。
+- alphasystem-24 の確認（11/22）: staging・本番の Bastion に 0.5.1 のスクリプト（`keep_payable.sql`・`restore_payable.sql`・
+  `nightly_migrate.sh`・`lib.sh`）が配布済み（origin/main とハッシュ一致）。本番のマイグレーション（0.5.1）はユーザーが適用済みと報告。
+
+## 2026-11-22 payable_e_doc_id を VarChar(40) に変更：方式をユーザーが承認
+
+- 発端: alphasystem-24 からの依頼（alphasystem でユーザー承認済み。記録は alphasystem `docs/conversations/2026-11-22.md`）。
+  MF 債務支払の e_doc の `id` は 22 文字の文字列（例 `vSXUguKk1Ib1fm-o_aQCDg`）で、Int では持てない。既存の値は空。
+- **ユーザー承認**「この方式でお願いします」。確定した方式（版は **0.5.2**）:
+  1. マイグレーション `20261122100000_bill_recipt_payable_e_doc_id_varchar`:
+     `ALTER COLUMN payable_e_doc_id SET DATA TYPE VARCHAR(40) USING payable_e_doc_id::text`。`schema.prisma` は `String? @db.VarChar(40)`。
+     `payable_application_no` は変更しない。
+  2. 退避テーブルは**作り直さない**。`keep_payable.sql` の CREATE を varchar(40) にし、続けて毎回
+     `ALTER TABLE nightly.bill_recipt_payable_keep ALTER COLUMN payable_e_doc_id TYPE varchar(40) USING ::text` で既存の表も型を合わせる
+     （既に varchar(40) なら書き換えは起きない）。`restore_payable.sql` は型に依存しないので変更しない。
+  3. `nightly_automation.md` §11、`alp_billrecipt.md` の 13 行目を更新。
+- **反映の段取り（0.5.1 より厳しい）**: staging・本番それぞれ、**マイグレーションの適用と `deploy.sh` を同じ日中
+  （01:00 JST の夜間移行より前）に続けて**行う。片方だけだと型が合わず、その晩の夜間移行が `STEP load` で失敗する
+  （ロールバックされデータは変わらない。揃えればその晩から戻る）。PR のマージ・適用は夜間移行の時間帯を避ける。
+  alphasystem-24 が段取り・cutover 計画・仕様に反映する。
+- 型の影響: 0.5.2 は `^0.5.0` にも入り、`payableEDocId` が number → string になる。alphasystem-24 が alphaexapi-61・alphasys-bb に伝える。
+  公開後、alphadb から alphaexapi-61 と alphasystem-24 に版を知らせる。
+- 確認: PGlite で全 18 マイグレーション、0.5.1 の int 退避テーブルが varchar(40) に変わり値が文字列で残ること、
+  退避・復元の各シナリオ（ALL OK）。`npm test` 10 pass、`test_lib.sh` ALL PASS、`prisma validate` OK。
+
+## 2026-11-22 VarChar(40) 化：Draft PR ＃125 作成とリリースの段取り
+
+- 実装: Draft PR **#125**（base: staging、0.5.2、ブランチ `feature/bill-recipt-edoc-varchar`）。マージ済みの
+  `feature/bill-recipt-payable` はローカルから削除。
+- リリースの段取り（確定）: ① #125 を staging にマージ → ② staging→main 同期 PR をマージ → ③ `alphadb-publish`（0.5.2）→
+  ④ staging: `staging-prisma-merge-project-build` と Bastion への `deploy.sh` を**同じ日中（01:00 JST より前）に続けて** →
+  ⑤ 本番: `prod-prisma-merge-project-build` と `AWS_PROFILE=prod deploy.sh` を同じく同じ日中に続けて（時期はユーザー判断）。
+  マージ・適用は夜間移行の時間帯を避ける。
+- ③の後、alphadb が 0.5.2 の Published・`latest` を確認し、alphaexapi-61・alphasystem-24 に版を知らせる。
+- alphasystem-24 へ #125 を報告済み。
+
+## 2026-11-22 0.5.2 のリリース（①〜⑤実施）と確認
+
+- ユーザー報告: ① #125 マージ、② 同期 PR #126 マージ、③ `alphadb-publish`、④⑤ staging・本番ともマイグレーション適用と `deploy.sh` を実施。
+- alphadb の確認（staging）: 0.5.2 Published・CodeArtifact の既定版 0.5.2。`staging-prisma-merge-project-build` 17:02 JST SUCCEEDED（main 07a2c01、
+  ログに `Applying migration 20261122100000_bill_recipt_payable_e_doc_id_varchar`）。staging Bastion（i-08f13fc70ac372bde）の
+  `keep_payable.sql`・`restore_payable.sql`・`nightly_migrate.sh`・`lib.sh` は origin/main とハッシュ一致（配布 16:52 JST）。
+- 本番は prod プロファイルが使えないため、ユーザーに確認コマンドを渡して結果待ち。
+- alphaexapi-61 に 0.5.2（`payableEDocId` が string）を通知、alphasystem-24 に報告。
+- 次の確認: 11/23 01:00 JST の夜間移行（staging・本番）で `RESULT: SUCCESS` と `payable keep`/`payable restore` の NOTICE。
+- alphaexapi-61 の返答: 現在は lockfile で 0.5.1 固定、`payableEDocId` には null を入れるだけなので型エラーにならない。
+  0.5.2 へは e_doc ID を引く処理を作るときに上げる（alphaexapi 側で方式のユーザー了承待ち）。
+- 本番の確認（ユーザー実行の結果を alphadb が確認）: `prod-prisma-merge-project-build` 17:05 JST SUCCEEDED（main 07a2c01、
+  `Applying migration 20261122100000_bill_recipt_payable_e_doc_id_varchar`・`All migrations have been successfully applied.`）。
+  本番 Bastion（i-09831ef844ed1f96f）の 4 スクリプトは origin/main とハッシュ一致。**staging・本番とも 0.5.2 の反映完了**。
+
+## 2026-11-23 0.5.2 反映後の初回夜間移行（11/23 01:00 JST）
+
+- staging（alphadb が確認）: `nightly-20261123-010017` で `RESULT: SUCCESS`（01:00:24）。
+  `payable keep: upserted=0 cleared=0`・`payable restore: restored=0 mismatched=0 missing=0`（申請番号はまだ未投入のため 0 件）。
+  varchar(40) に変えた `keep_payable.sql` が本番相当の流れで通ることを確認。
+- 本番（ユーザー実行の結果を alphadb が確認）: `nightly-20261123-010036` で `RESULT: SUCCESS`（01:00:43）。
+  `payable keep: upserted=0 cleared=0`・`payable restore: restored=0 mismatched=0 missing=0`。**staging・本番とも 0.5.2 後の夜間移行は正常**。
+
+## 2026-11-23 staging で債務支払 CSV（2024/10）を追加モードで取り込み：申請番号の保存を確認
+
+- ユーザーが staging で債務支払 2024/10 CSV を追加モードで取り込んだ（18:16〜18:17 JST）。
+- alphadb の確認（staging DB、読み取りのみ）: 請求日 **2024-08-31** の請求 52 件に `payable_application_no`・`payable_e_doc_id` が
+  両方入った（申請番号 36 種類。例 bill_no 12034 = `AP90` / `1588Zr_gT-TwvzgNTPUOqQ`）。申請番号あり・e_doc ID 空は 0 件。
+  2024-10-31 の請求（106 件）には入っていない。ユーザー回答: 取り込み画面の年月設定が誤りで、CSV は **8 月計上分**（想定どおり）。
+- 退避テーブルは現在 0 件。次の確認: **11/24 01:00 JST の staging 夜間移行**で `payable keep: upserted=52`・
+  `payable restore: restored=52 mismatched=0 missing=0` と、DB で 52 件が戻っていることを alphadb が確認する。
+
+## 2026-11-23 記録コミットを origin/staging に直接 push：そのまま残すとユーザーが決定
+
+- #127 のマージ後、ユーザーがローカルを staging に切り替え・`docs/record-052-release` を削除していたのに気付かず、alphadb が
+  記録コミット e08d9d1（`conversations/2026-11-23.md` の追記のみ）を staging でコミットし、PR を通さず origin/staging に push した。
+- **ユーザー決定: revert せず、このまま staging に残す**（次の staging→main 同期 PR で main に入る）。
+- 再発防止: コミット・push の直前に `git branch --show-current` で現在ブランチを確認する。
+
+## 2026-11-23 staging で債務支払 CSV を全件取り込み：2024/08 以降の仕入請求を確認
+
+- ユーザーが staging で債務支払の全 CSV を投入（更新は 18:16〜19:09 JST）。
+- alphadb の確認（staging DB、読み取りのみ。仕入 = `alp_contract.order_contract IS NOT NULL`）:
+  - 2024-08〜2026-09 の仕入請求 1,799 件のうち **1,731 件に申請番号と e_doc ID が両方入った**（申請番号ありで e_doc ID 空は 0、
+    e_doc ID はすべて 22 文字、1 つの e_doc ID が複数の申請番号に付いた例なし）。
+  - 売上（受注契約）の請求・2024-07 以前の請求に申請番号が入った例はない。
+  - 申請番号が無い仕入請求は 68 件（各月 0〜7 件、`bill_doc_id` も空）。CSV に無い（手動登録など）か、取り込みでスキップされたかを
+    alphaexapi の取り込みログ（「契約番号…がalphadbに存在しないためスキップ」等）と照合するのが次の確認。
+- 11/24 01:00 の staging 夜間移行の期待値は `payable keep: upserted=1731`・`payable restore: restored=1731 mismatched=0 missing=0` に更新。
+- **ユーザー判断: 申請番号の無い 68 件は問題なしとし、追加調査はしない**（MF クラウドの債務支払データには仕入勘定ではないものも
+  若干含まれるため、件数の差は想定の範囲）。alphaexapi のログ照合・一覧の作成は行わない。
+
+## 2026-11-23 申請番号・e_doc ID を staging から本番へ SQL で写す：方式をユーザーが承認
+
+- 背景: 本番で債務支払 CSV を全件取り込み直すのは時間がかかる。staging と本番の請求は同じ旧システムのダンプから毎晩入るので、
+  請求番号・契約番号・請求日は一致する。
+- **ユーザー承認「その方式で進めてください」**。方式:
+  - staging の 1,731 件（請求番号・契約番号・請求日・申請番号・e_doc ID）を SQL に固めて、本番 Bastion から Aurora に 1 トランザクションで流す。
+  - 3 つが一致し、本番で 2 列とも空の請求だけを更新する（既存の値は上書きしない）。
+    `payable copy: src= updated= already_set= mismatched= missing=` をログに出す。
+  - 退避テーブル（`nightly.bill_recipt_payable_keep`）には直接入れない。`keep_payable.sql` が「2 列とも空＝日中に空にされた」として
+    消してしまうため、`alp_bill_recipt` に入れ、翌晩の夜間移行で退避させる。
+  - SQL・スクリプトはリポジトリに入れない一回限りのもの（alphadb のスクラッチパッド `payable_copy/`）。
+- staging での確認（いずれも ROLLBACK）: そのまま流すと `updated=0 already_set=1731`。同じトランザクション内で値を空にしてから流すと
+  `updated=1731 mismatched=0 missing=0`。Bastion へ送った SQL と手元のハッシュの一致も確認。
+- 段取り: ① 11/24 01:00 の staging 夜間移行で 1,731 件の退避・復元を確認 → ② ユーザーが本番で `bash run_payable_copy.sh prod dry`
+  （期待値 `updated=1731 mismatched=0 missing=0`）→ ③ 期待どおりなら `bash run_payable_copy.sh prod commit`（01:00 前後は避ける）→
+  ④ 翌晩の本番夜間移行で `payable keep: upserted=1731`・`restored=1731` を確認。
+- ユーザー回答: staging で取り込んだ MF の事業所は本番と同じ（e_doc ID はそのまま本番で使える）。本番での取り込みの有無は ②の
+  `already_set` で確かめる。
+- 本番 dry run（ユーザー実行）: `src=1731 updated=1602 already_set=0 mismatched=0 missing=129`（ROLLBACK）。
+- alphadb の調査（staging）: missing の 129 件は、CSV 取り込みで staging に**新規作成された請求**（bill_no 15468〜15596。旧システムに
+  同じ契約・同じ請求日の請求が無い）。本番には無く、staging でも毎晩の入れ直しで消える（新システムで作った請求は戻らない、の割り切り）。
+  - 2026-04-30: 旧システムに仕入請求が **0 件**（75 件すべて新規作成）。
+  - 2026-08-31: 旧システム 31 件、新規作成 50 件。
+  - 残り 4 件（2024-08・2024-10・2024-12・2025-02）は、同額の旧システム請求が別の契約番号にある（MF 側と旧システムで契約番号が違う疑い。
+    例 MF 契約 4838 / 旧 4884 の 101,888 円）。
+- これにより、11/24 01:00 の staging 夜間移行の期待値は `payable keep: upserted=1731`・`payable restore: restored=1602 mismatched=0 missing=129`
+  に修正。1,799 件・68 件の集計にも新規作成の 129 件が含まれていた。
+- **ユーザー報告: 本番で `run_payable_copy.sh prod commit` を実行し確定**（1,602 件）。
+- ユーザー回答: 2026-04-30 の仕入請求 0 件は旧システム側の取り込み漏れ。2026/08 分も同様。**本番側で取り込み直した**。
+  → alphadb から確認中: 「本番側」が新システム（alphaexapi の CSV 取り込み）なら、旧システムに無い請求として作られるため、
+  夜間移行が続く間は毎晩の入れ直し（clear.sql）で請求ごと消える。旧システムへの登録か、取り込み先の確認が必要。
+- ユーザー回答: **新システムの本番では何もしていない**（取り込み直しは旧システム側）。→ 新システムで作った請求が夜間に消える問題は無い。
+  旧システムに登録した 2026/04・2026/08 の仕入請求は、次の夜間移行（11/24 01:00）で staging・本番に入る。申請番号はまだ空なので、
+  入った後にその 2 か月分の申請番号を付ける必要がある（方法はユーザーと相談）。
+
+## 2026-11-24 11/24 01:00 夜間移行（staging）：旧システムでの再登録で請求番号が変わり、申請番号が一部戻らず
+
+- staging `nightly-20261124-010017`: `RESULT: SUCCESS`。`payable keep: upserted=1731 cleared=0`、
+  `payable restore: restored=1491 mismatched=129 missing=111`。
+- 原因: 旧システムでの取り込み直しで、2026-04-30（75 件、新規）・2026-08-31（81 件。既存 31 件も番号が変わった）・
+  2026-09-30（80 件。旧 約15391〜15467 → 15624〜15703）の仕入請求が新しい bill_no で入った。
+  - missing 111 = 消えた旧 bill_no（08 月 31 + 09 月 80）。mismatched 129 = staging で新規作成した bill_no（15468〜）が別の請求に使われた
+    （照合で弾かれ、誤復元なし）。
+  - 04・08・09 月の仕入請求は申請番号 0 件。退避テーブルには 1,731 件（契約番号・請求日付き）が残っている。
+- 本番も同様と見込む（本番の退避は 1,602 件のみで、04 月 75 件・08 月 50 件は本番の退避に無い）。本番ログはユーザーに確認依頼。
+- 付け直し方をユーザーに提示（未決定）: A 3 か月分の CSV を staging・本番で取り込み直す / B staging の退避テーブルから
+  契約番号＋請求日（各 1 件）で突き合わせる一回限りの SQL を staging→本番に流す。あわせて、restore を契約番号＋請求日でも
+  照合する恒久対策の要否、09 月も旧システムで登録し直したかをユーザーに確認中。
+- 本番 `nightly-20261124-010036`（ユーザー実行の結果を alphadb が確認）: `RESULT: SUCCESS`。`payable keep: upserted=1602 cleared=0`、
+  `payable restore: restored=1491 mismatched=0 missing=111`。見込みどおり（08 月 31 + 09 月 80 の旧 bill_no が消えた分）。
+  本番も 04・08・09 月の仕入請求は申請番号なし。
+
+## 2026-11-24 付け直しは B（SQL）、恒久対策は契約番号＋請求日での照合：ユーザー決定
+
+- **ユーザー決定**: ① 付け直しは **B**（staging の退避テーブルから契約番号＋請求日で突き合わせる一回限りの SQL）。
+  ② 旧システムでは「しばしば訂正が入る」ので、夜間移行の復元を**契約番号と請求日でも照合して戻す**ようにする。
+- B の実施（staging、alphadb）: 退避 1,731 件（契約番号＋請求日はすべて一意）を元に、組の請求がちょうど 1 件・2 列とも空のものだけ更新。
+  試行 → 確定とも `payable relink: src=1731 updated=236 already_set=1428 ambiguous=63 nomatch=4`、`RESULT: COMMITTED`。
+  04 月 75/75・08 月 81/81・09 月 80/80 に申請番号あり、全体 1,727 件。nomatch 4 件は MF と旧システムで契約番号が違う 4 件。
+  スクリプト: alphadb スクラッチパッド `payable_relink/run_payable_relink.sh`（SQL は同フォルダの `apply_payable_copy.sql`）。
+- 恒久対策: Draft PR **#130**（`feature/nightly-payable-relink`、base staging。スクリプトのみ、版・マイグレーションなし）。
+  - restore に ② relinked（組の請求 1 件・未復元の退避行 1 件・請求が空のときだけ）、ambiguous（組の請求が 2 件以上）を追加。
+  - keep に superseded（付け直し済みの旧 bill_no 行を消す）と、付け直した請求を空にした場合の「空にされた」扱いを追加
+    （PGlite のテスト作成中に、付け直した翌日に空にすると値が戻る抜けに気付き、対処）。
+  - staging Aurora で keep→restore を ROLLBACK 付きで試行: `upserted=1727 superseded=236`、`restored=1727 mismatched=0 missing=0`。
+- **段取り（順序が重要）**: 本番は ③ `bash run_payable_relink.sh prod dry`（期待値 `updated=236`）→ ④ `prod commit` → ⑤ #130 をマージ →
+  ⑥ staging・本番に `deploy.sh`（マイグレーション不要。01:00 は避ける）。**付け直し（④）より前に #130 を本番に配布しない**
+  （「空にされた」判定の拡張で、付け直されていない 236 件相当が退避から消えるため）。staging は付け直し済みなので #130 マージ後すぐ配布してよい。
+
+## 2026-11-24 本番の付け直し・＃130 マージ完了、スクリプト配布の段取り
+
+- ユーザー報告: ③④ 本番で `run_payable_relink.sh prod dry` → `prod commit` を実施（出力は未共有）。⑤ #130 をマージ（main 同期 #131 済み）。
+- ⑥ 配布の段取り（確定）: `deploy.sh` は手元の作業ツリーを固めて送るため、alphadb の作業ツリーを main（a1259b6）にそろえ、
+  配布が終わるまでブランチを切り替えない。ユーザーが Git Bash で `bash prisma/doc/migration/nightly/deploy.sh`（staging）→
+  `AWS_PROFILE=prod bash prisma/doc/migration/nightly/deploy.sh`（本番）を実行。01:00 前後は避ける。
+  配布確認は Bastion の sha256（keep_payable.sql `41b19815…cc6e`、restore_payable.sql `87402faf…6f50`。nightly_migrate.sh・lib.sh は変更なし）。
+  staging は alphadb、本番はユーザーが確認コマンドを実行。
+- 次の確認: 11/25 01:00 の夜間移行。staging は `superseded=236`・`restored=1727 relinked=0 mismatched=0 missing=0` の見込み。
+  本番は `mismatched=0 missing=0`（restored は付け直し結果次第で約 1,727）。
+- ⑥ 完了: ユーザーが staging・本番に配布し、本番の配布後確認も問題なし（ユーザー報告）。staging Bastion は alphadb が確認し、
+  keep_payable.sql・restore_payable.sql・nightly_migrate.sh・lib.sh とも main とハッシュ一致（配布 07:34 JST）。

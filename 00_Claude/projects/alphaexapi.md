@@ -1589,3 +1589,185 @@ alphacdkのstagingにマージ済み(PR #18・#21・#23)。`npm run synth:native
 - alphasyscdk-ecから: 本番はDesiredCount 2なので、2タスクが同時に取り込もうとする。ロックはタスクをまたいで効くか、と確認があった。
   - 回答: 効く。`polling-lock.service.ts`で、共有DBのadvisory lock(`pg_try_advisory_lock`)を使っている。ロックを取れなかったタスクは、その回をスキップする。既読にする仕組みと「重複スキップ」もあるので、二重には取り込まない。**本番をONにする前の対策は不要**。
   - 今日の2タスクがどちらも「完了」を出したのは、0件ですぐにロックを放したため(0.35秒と0.60秒で、順番に動いた)。
+
+## 2026-11-21 alphasystem-24から: 受領請求書(MF債務支払)の証憑表示の依頼(alphadbの公開後に着手)
+
+- 依頼元: alphasystem-24。ユーザーの了承は alphasystem `docs/conversations/2026-11-21.md` の「提案の方式で着手することをユーザーが了承」(このメッセージ自体は承認ではない)。
+- 経緯: 仕入の請求は、2024/09から証憑がMF債務支払の電帳法書類にあり、`bill_doc_id`は空。
+- **着手はalphadbのスキーマ追加が公開されてから**。今は準備だけ。
+- alphaexapiの担当:
+  1. 債務支払CSVの取り込み(`payable-csv-import.service.ts`)で「申請番号」列も読む。alphadbに追加される独立した表`alp_bill_recipt_payable`(主キーはcontract_no+bill_date。application_no・e_doc_id。外部キーなし)に保存する。CSVは同じ契約・同じ費用計上日の行を合算するが、複数の申請がまとまることは無いと確認済み。
+  2. 申請番号からe_doc IDを引く: `GET {MF_PAYABLE_API_BASE_URL}/offices/{MF_PAYABLE_OFFICE_ID}/e_docs`(ページ送りだけで、検索条件は無い。`ex_transactionable_number`が申請番号)。引けたら保存して再利用する。既存のPAYABLEのuser tokenを使う。
+  3. `GET .../e_docs/{e_doc_id}/mf_file`でファイルを取得し、中継するAPIを追加する(alphasysから呼ぶ)。
+  - 実装はTDD。featureブランチ(base staging)とDraft PRで進める。
+- alphasystem-24に確認したこと(回答待ち):
+  1. ユーザーが了承した方式は「列の追加」だった。独立した表への変更もユーザーの了承済みか。
+  2. MFのAPIは本人のトークンで呼ぶ作りなので、証憑を開く人ごとに債務支払のOAuth認可が要る。それでよいか。
+  3. e_doc IDは、CSVの取り込みのときに一覧を1回だけ全部読んで、まとめて引く。ファイルを開いたときにまだIDが無ければ、そのときにも引く。
+  4. 今の`request<T>()`では、Content-Typeを返せない。ファイルを中継するためのメソッドを追加する。
+- 方式案は、回答を受けてから、このセッションでユーザーに示し、了承を得てから着手する。
+- alphasystem-24から回答:
+  - 1: **独立した表への変更は、ユーザーの了承を取っていなかった**(夜間移行への影響は、了承のあとで分かった)。alphasystemが記録を訂正し、ユーザーに確認する。それまで、独立した表は「案」として扱う(alphadbへの申し送りも案)。
+  - 2: 閲覧する人ごとのOAuth認可が要る件は、alphasystemがユーザーに確認する(MF側のスコープはoffice_setting:writeなので、債務支払の管理者権限が必要になる)。
+  - 3・4: alphasystemに異論は無い。alphaexapiのセッションで、方式案としてユーザーに示す。
+
+### 方式案(ユーザーの承認待ち)
+
+1. 債務支払のCSVを取り込むときに、「申請番号」の列も読んで保存する。保存先(別の表か、列の追加か)は、alphasystemからユーザーへの確認の結果に従う。
+2. e_doc IDは、CSVの取り込みのときに、IDがまだ無い申請番号があれば、e_docsの一覧を1回だけ全部読んでまとめて引き、保存する(取り込みを実行した人のトークンを使う)。証憑を開いたときにまだIDが無ければ、そのときにも引いて保存する。
+3. `mf_file`を取得して中継するAPIを追加する。ファイルの種類(Content-Type)も返せるように、MFのクライアントにファイルを受け取るメソッドを追加する。MF側でファイルやIDが見つからないときは404を返す。認可していない人には、今ある「再認可が必要」のエラーをそのまま返す。
+4. TDDで作る。featureブランチ(base staging)とDraft PRで進める。着手はalphadbの公開後。
+
+## 2026-11-21 申請番号の保存先は、alp_bill_recipt に列を追加する方式(B)にユーザーが決定
+
+- alphasystem-24から(ユーザー本人の決定。記録は alphasystem `docs/conversations/2026-11-21.md` の「申請番号の持たせ方：請求に列を追加（B）」)。**独立した表(alp_bill_recipt_payable)は採用しない**。
+- alphadb: `alp_bill_recipt`に、nullableの`payable_application_no`(申請番号)と`payable_e_doc_id`(e_doc ID)を追加する。
+- 夜間移行(毎晩TRUNCATEして再ロード)で値が消える件は、alphadb側の夜間移行スクリプトが、再ロードの前に退避用の表へ退避し、再ロードのあとで請求番号を使って戻す。**alphaexapiの作業ではない**。
+- alphaexapi: 債務支払CSVの取り込み(追加モードは契約番号+請求日でupsertする)で、新規作成と更新のどちらでも申請番号を保存する。e_doc IDは、引けたら保存する。
+- 方式案の2・3(e_doc IDの引き方、ファイルの中継)は、引き続きユーザーの承認待ち。証憑を開く人の範囲も、ユーザーの回答待ち(alphasystemが確認する)。
+- alphadbの公開までは準備だけ。
+
+## 2026-11-22 ユーザー承認: 証憑表示の方式案2・3、テストメールの送信。インスタンス作成の確認は後回し
+
+- **証憑表示(受領請求書・MF債務支払)**: ユーザーが方式案2・3を承認した(内容は [2026-11-21](2026-11-21.md) の「方式案」)。
+  - 2: e_doc IDは、CSVの取り込みのときに、IDがまだ無い申請番号があれば、一覧を1回だけ全部読んでまとめて引き、`payable_e_doc_id`に保存する。証憑を開いたときにまだIDが無ければ、そのときにも引く。
+  - 3: `mf_file`を中継するAPIを追加する。MFのクライアントに、Content-Typeも返す、ファイルを受け取るメソッドを追加する。見つからないときは404を返す。
+  - 申請番号は`alp_bill_recipt.payable_application_no`に保存する(2026-11-21の決定B)。
+  - **着手はalphadbの公開後**。証憑を開く人の範囲は、alphasystemからのユーザーの回答待ち。
+- **テストメール**: 取り込み用のメールボックスにテストメールを1通送ることを、ユーザーが了承した。staging 0.5.0で「新規1件」になるかを確かめる。SESはsandboxで、こちらからは未認証の宛先に送れないので、ユーザーに送ってもらう。
+- **stagingでのインスタンス作成の実機確認(#192・#193・#195)は後回しにする**(ユーザーの判断)。2026-11-09に決めた順番(① インスタンス作成 → ② 受発注採算表のサプレス確認 → ③ 5_4_3)のうち、①を後ろに回す。
+
+## 2026-11-22 alphadb 0.5.1が公開され、証憑表示の実装に着手
+
+- alphasystem-24から: alphadb 0.5.1を公開した(alphadb PR #123)。マイグレーション`20261121230000_bill_recipt_payable_application`は、stagingと本番の両方に適用済み。夜間移行の退避と復元(`nightly.bill_recipt_payable_keep`。`bill_no`・契約番号・請求日が一致する請求だけを戻す)も、両方のBastionに配布済み。
+- 閲覧者の範囲は、ユーザーがまだ回答していない。閲覧者の範囲によらない部分(CSV取り込みでの申請番号の保存、e_docs一覧の取得、mf_fileの中継API)から着手してよい。**認可の方式は、閲覧者の範囲が決まってから確定する**。
+- 方式は、2026-11-21の決定(B)と、本日ユーザーが承認した方式案2・3のとおり。実装は別のfeatureブランチとDraft PRで行う。
+- stagingでのインスタンス作成の確認で関係するのは、#192(5_5_3、テンプレートの差し替え。Windowsの初期パスワードのメールとRDP)、#193(5_5_4、AMIの指定)、#195(同名スタックのときの400)。ユーザーに説明した。
+
+## 2026-11-22 証憑表示: 申請番号の保存をPR ＃227で実装。e_docの3点はユーザーに確認中
+
+- PR #227(Draft、base staging): alphadbを`^0.5.1`に上げた。債務支払CSVの「申請番号」列を`alp_bill_recipt.payable_application_no`に保存する(列は任意。空欄なら触れない。合算する行で食い違えば最初の値を使いWARNを出す。更新で申請番号が変わったら`payable_e_doc_id`を消す)。テストは712件すべて成功。
+- MFのSwagger(`https://payable.moneyforward.com/api/index.json`)で分かったこと:
+  - `GET /offices/{office_id}/e_docs`は、`page`だけを受け取る(検索条件は無い)。レスポンスは`e_docs`と`next`。
+  - `EDocMetaDatum.id`は**string(最大40文字)**、`ex_transactionable_number`は**integer**、`ex_transactionable_type_text`は「経費明細」「事前・各種申請」「支払依頼」のどれか。
+  - `mf_file`は、バイナリを返す。必要なスコープは`office_setting:write`。
+- alphasystem-24経由で、ユーザーに確認中(alphasystemが確認する):
+  1. e_doc IDの型。列はIntだが、Swaggerではstring。stringの可能性があるなら、データが空の今のうちに、alphadbの列をVarChar(40)に変える(alphasystem案)。確かめるためにMFのAPIを1回呼ぶ場合は、ユーザーのトークンを使うので、ユーザーの了承が要る。
+  2. 突き合わせ方。「AP」を外した数字と`ex_transactionable_number`を比べ、種別が「支払依頼」のものだけを対象にする案。
+  3. 1つの申請に複数の書類が付く場合。暫定案は、書類番号(number)が最小のものを保存し、WARNを出す。全部を見せる必要があれば、alphadbの設計に戻る。
+- 「e_doc 3452 は AP1286」は、ユーザーが示したURL(`.../offices/MC1100/e_docs/3452/mf_file`)とユーザーの答えによるもので、APIで確かめた結果ではない。
+- **e_doc IDを引く処理と、mf_fileの中継APIは、上の3点の回答を待ってから実装する**。
+
+## 2026-11-22 証憑表示: 複数書類と閲覧者の範囲についてユーザーが回答
+
+- alphasystem-24から(ユーザーの回答。記録は alphasystem `docs/conversations/2026-11-22.md`):
+  - **1つの支払依頼に、複数の請求書ファイルが付くことは無い**。書類番号が最小のものを保存してWARNを出す処理は、想定外のときの保険として残すだけでよい。alphadbの設計は変えない。
+  - **閲覧者の範囲は、adminユーザーのうち、MF債務支払の権限を持っている人**。認可の方式の案を、方式案に含める。
+- 参考のCSV(電子帳簿保存法書類一覧_2026-11-21.csv、61行。alphasystemが調べた):
+  - 「明細または申請種別」は、支払依頼が58件、空が3件(手動登録で申請番号が無いので、対象外)。支払依頼の申請番号は重複が無く、1申請に1書類。
+  - **AP1286の「番号」は3395で、URLのe_doc idは3452**。「番号」はAPIの`number`、URLの数字は`id`で、別の値である可能性が高い(未検証)。**保存するのは`id`(mf_fileのURLに使う値)**で、`number`ではない。
+  - 支払明細CSVでは、「明細番号」(AP2168など)と「申請番号」(AP1286など)は別の列で、どちらもAP付き。突き合わせでは、種別を「支払依頼」に絞る必要がある。
+  - 1つの申請が複数の契約にまたがる例がある。同じ申請番号を持つ請求が複数できるが、列は請求ごとなので問題ない。
+- まだ決まっていないこと: IDの型(VarCharに変えるか)は、APIで確かめた結果で決める。「AP」の意味は、alphasystemがユーザーに確認中。2024年9月以降のCSVがすべて手元にあるかも、まだ回答が無い。
+
+### 認可の方式と、IDを確かめる方法(ユーザーの承認待ち)
+
+- 認可の方式:
+  - **A(おすすめ)**: 見る人ごとの連携。今のMFクライアントのとおり、見る人本人の債務支払トークンで呼ぶ。alphaexapiでは、admin(DBのrole)であることも確かめる。MFの権限が無い人は、MF側で拒否される。連携していない人には「再認可が必要」のエラーを返す(alphasysの画面でも分かるようにしてもらう)。CSVの取り込みのときに引く分は、取り込みを実行した人のトークンを使う。
+  - B: 1人の共有トークン。MFの権限が無いadminも見られてしまい、条件に合わない。MF側の記録がすべてその人の名前になる。その人がいなくなると止まる。
+- IDを確かめる方法: ローカルで、ユーザーの債務支払トークンを使ってe_docsの1ページ目を1回だけ取得する(読み取りだけ。ファイルは取らない)。表示するのは、id・number・種別・申請番号だけ。ローカルのDBにトークンが無ければ、先にローカルでMF連携を一度通してもらう。idが数字だけでなければ、alphadbの列をVarChar(40)に変えるよう、alphasystem経由で依頼する。
+
+## 2026-11-22 証憑表示: MFのAPIを1回呼んで確かめることをユーザーが了承(alphasystem経由)
+
+- alphasystem-24から(ユーザーの回答。記録は alphasystem `docs/conversations/2026-11-22.md` の「API を1回呼んでの確認を了承」):
+  - **MF債務支払のAPIを1回呼んで確かめることを、ユーザーが了承した**(ユーザーの債務支払トークンを使う)。確かめるのは、e_docの`id`の型と実際の値(数字だけか)、`id`と`number`の違い、`ex_transactionable_number`と`ex_transactionable_type_text`の実際の値。結果は、まずalphasystemに知らせる。
+  - 「AP」の意味は、ユーザーにも分からない。種別を「支払依頼」に絞る案のまま、APIの値で確かめる。
+  - 2024/09以降のCSVは`G:\マイドライブ\社内システム\MFクラウド\債務支払\過去データ`にある(支払明細50本、電帳法書類一覧5本)。
+  - CSVの「番号」は、3395がAP1286、3452がAP1354。ユーザーが先に示した「3452はAP1286」とは合わない(CSVの「番号」がURLのidと同じなら、ユーザーの記憶違いの可能性が高い。未検証)。
+- ローカルのDB(localhost:5432)が止まっていて、トークンを読めなかった。進め方をユーザーに確認中: (a) ローカルのDBとalphaexapiを起動し、必要ならローカルでMF連携を通す、(b) stagingのDBにあるトークンを使う。
+- 認可の方式(A・B)は、まだユーザーの回答待ち。
+
+## 2026-11-22 ユーザー承認: 証憑表示の認可は方式A。APIの確認はstagingのトークンで行う
+
+- **認可の方式はA(見る人ごとの連携)に決定**(ユーザー)。見る人本人の債務支払トークンでMFを呼ぶ。alphaexapiでは、admin(DBのrole)であることも確かめる。連携していない人には「再認可が必要」のエラーを返す。CSVの取り込みのときに引く分は、取り込みを実行した人のトークンを使う。
+- **APIの確認は(b) stagingのDBにあるトークンで行う**(ユーザー)。
+  - 手順: Bastion経由のSSMポートフォワード(alphasyscdkの`scripts/backup-db.sh`と同じ方法)で、stagingのDBにつなぐ。PAYABLEのトークンを読み、stagingの`MF_TOKEN_ENCRYPTION_KEY`で復号する。e_docsの1ページ目を1回だけ取得する。
+  - トークンの期限が切れていたら、こちらではリフレッシュしない(新しいリフレッシュトークンをDBに戻さないと、stagingの連携が壊れるため)。ユーザーにstagingでMF連携を通し直してもらう。
+  - 表示するのは、id・number・種別・申請番号だけ。トークンや支払先名は出さない。
+- 結果: stagingのDBにつないだ(Bastion経由。DBは`alphasys`、請求は14,962件)。しかし、**MFのトークンが1件も無かった**(どの製品も0件)。stagingでは、まだ誰もMF連携をしていない。APIは呼んでいない。トンネルは閉じた。
+  - stagingのMF連携の設定(クライアントID、コールバックURL `https://alphasys.alphacmc-test.com/money-forward/oauth/callback`、債務支払のスコープ)はSSMにそろっている。
+  - 次: ユーザーに、stagingのalphasysの`/common/mf-oauth`で「MF認可（債務支払）」を通してもらう。そのあとで、もう一度APIを1回呼ぶ。
+
+## 2026-11-22 staging のMF認可でコンテナ内部のホスト名に飛ぶ件(alphasys)と、e_docs APIの確認結果
+
+- ユーザー報告: stagingで「MF認可（債務支払）」「MF認可（請求書）」を通すと、最後に`ip-10-0-3-152.ap-northeast-1.compute.internal`(ERR_NAME_NOT_RESOLVED)に飛ぶ。
+  - 原因(alphasys): `src/app/money-forward/oauth/callback/route.ts`の`backToOauthPage`が、`new URL("/common/mf-oauth", req.url)`で戻り先を作っている。stagingでは`req.url`のホストがコンテナ内部のホスト名になる。`api/money-forward/oauth/authorize/route.ts`のエラー時の戻り先も同じ作り。
+  - 認可そのものは通っていた(backendに07:26と07:27のcallbackが届いた)。stagingのDBに、ユーザーの債務支払トークンが保存されていた(期限は2027-02-20)。
+  - alphasys-bbに知らせた。直すかどうかと方式は、alphasysのセッションでユーザーと決める。
+- **e_docs APIを1回呼んだ結果**(staging、ユーザーのトークン、1ページ目だけ。ファイルは取っていない):
+  - 25件(`next`あり)。numberは3430〜3454、種別はすべて「支払依頼」、書類はすべて「請求書」。
+  - **`id`は22文字の文字列**(例: `vSXUguKk1Ib1fm-o_aQCDg`。number 3452の行)。数字ではない。→ **`payable_e_doc_id`(Int)には入らない。VarChar(40)への変更が必要**。
+  - `number`は数値。CSVの「番号」と同じ値(3452などが一致)。ユーザーが示したURLの3452は`number`だった(URLは画面のもので、APIのものではない)。
+  - **`ex_transactionable_number`は、レスポンスに含まれていなかった**(Swaggerには載っている)。`ex_transactionable_type_text`は入っていた。→ APIだけでは申請番号と突き合わせられない可能性がある。
+- 次の判断(ユーザー・alphasystem): ①alphadbの列をVarChar(40)にする。②突き合わせ方。案は、APIの全項目名を確かめるためにもう1回呼ぶこと。申請番号が別の名前で入っていればそれを使う。無ければ、電帳法書類一覧CSVの「番号」(=`number`)と申請番号の対応を使い、APIで`number`から`id`を引く。
+- **ユーザー承認: (1) e_docs APIをもう1回呼び、レスポンスの全項目名を確かめる**。表示するのは項目名と型だけ。申請番号らしい項目(名前に ex_ / number / application / report / transaction を含む)だけ、先頭3件の値を表示する。支払先名・登録者名などの値は出さない。
+- **結果(2回目)**: 申請番号は、Swaggerの`ex_transactionable_number`ではなく、**`ex_transaction_number`(数値)**という名前で入っていた。
+  - number 3452 → `ex_transaction_number` 1354(= AP1354)。CSVの「番号3452 = AP1354」と一致した。number 3454 → 1351、3453 → 1352。
+  - ほかの項目は、Swaggerのとおり(id・number・business_partner_name・trade_date・amount・ex_transactionable_type_text・name・document_type_text・画像やタイムスタンプの情報・scan_office_member_*)。
+  - → 突き合わせは、**申請番号から「AP」を外した数字と`ex_transaction_number`が一致し、`ex_transactionable_type_text`が「支払依頼」のもの**を選び、その`id`(文字列)を保存する。APIだけで突き合わせられる(CSVは使わなくてよい)。
+  - 念のため、`ex_transactionable_number`の名前で返ってきた場合も読むようにする(Swaggerどおりに直された場合に備える)。
+
+## 2026-11-22 証憑表示: e_doc IDの文字列化(alphadb 0.5.2)と、e_docを引く処理・中継APIの方式案
+
+- alphasystem-24から: `payable_e_doc_id`をVarChar(40)にすることを、ユーザーが承認した。alphadb-47が方式を示している最中で、まだ着手していない(版は0.5.2になる見込み)。0.5.2では、`payableEDocId`がstringになる。公開されたらalphasystemから連絡が来る。
+- PR #227への影響は無い(本体は、申請番号が変わったときにnullを入れる1か所だけ)。テストのモックの値を、実際の形の文字列に直した(PR #227にpush済み)。lockfileで0.5.1に固定しているので、0.5.2は自動では入らない。
+
+### 方式案(ユーザーの承認待ち。今までに承認された2・3・Aを具体化したもの)
+
+1. alphadbを0.5.2に上げる。
+2. MFのクライアントに、ファイルを受け取るメソッドを追加する。トークン・401のときの再試行・429のときの待ち合わせは、今の`request`と同じ。ファイルの中身とContent-Typeを返す。MFが404を返したら、502ではなく404として扱う。
+3. e_doc IDをまとめて引く処理: 申請番号はあるがe_doc IDが空の請求があれば、e_docsの一覧を全ページ読む(今は約1,240件、約50回)。「AP」を外した数字と`ex_transaction_number`(`ex_transactionable_number`も読む)が一致し、種別が「支払依頼」のものの`id`を保存する。複数あれば、numberが最小のものを保存してWARNを出す。引けた件数と、見つからなかった件数をログに出す。
+4. 債務支払CSVの取り込みが成功したら、取り込みを実行した人のトークンで3を動かす。失敗しても、ジョブは成功のままにし、WARNを出す。
+5. 中継API `GET /money-forward/payable/bill-recipts/:billNo/e-doc-file`: adminだけが呼べる。MFは見る人本人のトークンで呼ぶ(方式A)。e_doc IDが空なら、3を動かしてから取得する。ファイルは画面の中で表示できる形(inline)で返す。請求が無い・申請番号が無い・MFに書類が無いときは404(理由が分かるメッセージ付き)。MF連携をしていない・切れているときは412(MFのジョブのAPIと同じ扱い)。
+
+- 着手はalphadb 0.5.2の公開後。
+- alphadb-47から: **alphadb 0.5.2を公開した**(`payable_e_doc_id`はVarChar(40)、Prismaでは`payableEDocId: string | null`)。stagingには11/22 17:02 JSTにマイグレーションを適用済み。本番も、ユーザーが適用済みと報告していて、alphadb-47が確認を進めている。alphaexapiはlockfileで0.5.1に固定しているので、影響は無い。0.5.2へは、上の方式案の承認後に上げる。
+
+- **ユーザー承認: 方式1〜5で進める**。ブランチは`feature/payable-e-doc-file`(PR #227はマージ済みのため、新しいPR)。TDDで実装する。
+- **実装した(PR #229)**: 方式1〜5。
+  - alphadbを0.5.2にした。
+  - MFのクライアントに`requestFile`を追加した。MFの404は404として投げる。`request`の404は、今までどおり502。
+  - `PayableEDocService`を追加した。
+    - `resolveMissingEDocIds`: e_docsを全ページ読んで、e_doc IDを保存する。
+    - `getEDocFile`: ファイルを取得する。
+    - 保存する条件は「申請番号が変わっていないこと」。引いている間に取り込みで申請番号が変わったら、古いIDは書かない。
+    - 見つからない申請番号は、WARNに先頭20件まで並べる。
+  - 債務支払CSVの取り込みが成功したら、ロックを解放してから、実行した人のトークンでe_doc IDを引く(ほかのジョブを待たせないため)。失敗しても、ジョブは成功のままにし、WARNを出す。実行した人が分からないときは引かない。
+  - 中継API `GET /money-forward/payable/bill-recipts/:billNo/e-doc-file`: ADMINだけが呼べる。
+    - inlineで返すのは、PDFと画像(png・jpeg・gif・webp)だけ。それ以外はattachmentで返す(HTMLなどを画面の中で開かせないため)。
+    - `Cache-Control: private, no-store`と`X-Content-Type-Options: nosniff`を付ける。
+  - テストは全752件が成功し、ビルドも通った。
+- 注意: MFのe_docsに無い申請番号(古い請求など)は、取り込みのたび、また表示のたびに、全ページ(約50回)を読み直す。件数が多くて遅いようなら、「見つからなかった」ことを覚えておく仕組みを、別途検討する。
+- 次: stagingにデプロイしたら、実際のmf_fileを1件取得して確かめる(Content-Typeと、MFがリダイレクトを返すかどうか)。画面(alphasys)から中継APIを呼ぶ部分は、alphasys側の作業。
+
+## 2026-11-22 証憑の中継(PR ＃229)のデプロイと、実際のファイルでの確認
+
+- ユーザー報告: PR #229をマージした。stagingと本番の両方にデプロイした。
+- **ユーザー承認: スクリプトで、実際のmf_fileを1件取得して確かめる**(e_docsを呼んだときと同じやり方)。
+  - Bastion経由でstagingのDBにつなぎ、ユーザーの債務支払トークンを使う。
+  - 取得するのは、e_doc 1件(number 3452、AP1354、id `vSXUguKk1Ib1fm-o_aQCDg`)のmf_fileを1回だけ。
+  - 表示するのは、HTTPステータス・Content-Type・サイズ・リダイレクトの有無だけ。ファイルは保存しない。
+  - トークンの期限が切れていたら、リフレッシュせずに止める。- **結果**: HTTP 200。**リダイレクトは無かった**(MFが直接ファイルを返す)。Content-Typeは`application/pdf`、サイズは69,564バイト、先頭は`%PDF`。MFはContent-Dispositionも返していた(中継APIでは使わず、PDFなのでinlineで返す)。
+  - → 中継APIの作り(`requestFile`でバイナリをそのまま受け取り、Content-Typeを引き継ぐ)で問題ない。トークンはリフレッシュしていない。トンネルは閉じた。
+- 残り: 画面(alphasys)から中継APIを呼ぶ部分。債務支払CSVの取り込みのあとにe_doc IDが引けるかは、次にstagingで取り込んだときに、ログ(「電帳法書類IDを引いた: 対象…件」)で確かめる。
+
+## 2026-11-22 MF認可の戻り先の不具合(alphasys PR ＃338)の確認の段取り
+
+- alphasys-bbから: MF認可のあとに内部のホスト名へ飛ぶ不具合を、Draft PR #338(alphasys、base=staging)で直した。
+  - 戻り先を作る4か所(callbackの`/common/mf-oauth`・`/login`・`/unauthorized`と、authorizeの失敗時)を、`AUTH_URL`を基準に作るようにした。`x-forwarded-host`は使っていない。
+  - 進め方はユーザーの了承済み。マージはユーザーが行う。
+- 確認の段取り(この順で行う):
+  1. ユーザーがPR #338をマージし、stagingにデプロイする。
+  2. ユーザーが、stagingのalphasysの`/common/mf-oauth`で「MF認可（債務支払）」と「MF認可（請求書）」を通す。最後に`/common/mf-oauth`に戻ることを確かめる(内部のホスト名に飛ばないこと)。
+  3. alphaexapiが、ログにcallbackが届いたことと、DBにトークンが保存されたことを確かめる。
+  4. 結果をalphasys-bbに伝える。

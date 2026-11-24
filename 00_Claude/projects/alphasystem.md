@@ -4888,3 +4888,320 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
 - **実施結果（alphasys、①）**: 契約情報画面を請求情報画面と同じ表示（最初から画面内にプレビュー、「最大化」でポップアップ）に変更し、Draft PR #332（base `staging`、ブランチ `fix/contract-doc-preview-like-bill`）を作成。契約関連テスト 5 suites / 41 tests 通過（追加テストのうち表示とポップアップの2件は実装前に失敗を確認）。eslint の `any` 1件は変更前から存在。
 - **ユーザー待ち**: PR #332 の Draft 解除とマージ → staging で表示確認 → ECS の強制再デプロイ（staging→本番。`version.json` は `0.5.0` のまま、同じタグへの上書きになる）。②（MF クラウドBOX 参照）の回答。
 - **未着手（案C）**: 契約情報画面の URL 直打ち・リロードの停止対策（契約書 PDF 本体を画面へ渡す作り）。①により初期表示からプレビューを出すので、方式案を別途提示する。
+
+## 2026-11-21 ②請求ドキュメントの MF クラウドBOX 参照：方式は「案C または一気に B」。受領請求書と発行請求書で扱いが異なると回答
+
+- **回答（ユーザー本人）**: 方式は「案C（まずリンクのみ、API 連携は後）または一気に B（API 連携）」。ただし、受領請求書と発行請求書で扱いが異なる。
+- **事実（ユーザー本人の回答）**:
+  - 2026年7月以降の請求は `bill_doc_id` が**空**。
+  - **発行請求書（MF 請求書）**: 証憑を MF クラウドBox に保存したあと、その **URL を備考欄に入れている**。
+  - **受領請求書（MF 債務支払）**: 証憑を**直接 MF 債務支払にアップロード**している（Box ではない）。
+  - **Box API のトライアルは申請済み**。
+- **解釈（alphasystem、要確認）**: 発行請求書＝売上（`order_contract` が null）、受領請求書＝仕入と対応づく見込み。ユーザーに確認する。
+- **未決（ユーザー判断待ち）**: 発行・受領それぞれの参照方法の方式案を提示し、了承を得る。コード修正は了承後に着手する。
+
+- **調査結果（alphasystem）**: 発行請求書は備考欄（`bill_note`）の Box URL からリンクを出せる（DB 変更・Box API 不要）。受領請求書は MF 債務支払に直接アップロードされており Box では取れない。MF 債務支払の API 仕様ページ（`payable.moneyforward.com/api/index.html`）は JavaScript 描画のため読めず、証憑取得 API の有無は未確認（公式告知にあるのは受領請求書へのアップロード API）。alphaexapi の MF 連携は MF 請求書 API と MF 債務支払の CSV のみで、証憑取得は未実装。
+- **方式案（提示済み、ユーザーの了承待ち）**: 第1段階＝発行請求書の備考欄 Box URL から「MF クラウドBOX で開く」リンクを請求情報画面に表示（alphasys のみ、`bill_doc_id` が空で備考欄に URL があるときだけ）。第2段階＝alphaexapi に Box 用 OAuth と取得処理を追加して画面内プレビュー（トライアルの認証方式・スコープ確認後に別途方式案）。受領請求書＝MF 債務支払の API 仕様確認が先。暫定は、備考欄に MF 債務支払の URL を入れる運用ならリンク表示で対応可。
+- **ユーザーへの確認事項（回答待ち）**: (1) 備考欄の Box URL の実例（書式）、(2) 発行＝売上・受領＝仕入の対応、(3) 受領請求書は備考欄に MF 債務支払の URL を入れる運用にできるか、または API 仕様の貼り付け、(4) 第1段階を先行してよいか。あわせて、PR #332 反映後の staging・本番の ECS 再起動が済んでいるかの確認。
+
+## 2026-11-21 ②第1段階（発行請求書の Box リンク表示）の着手を了承。受領請求書は MF 債務支払の API 仕様を確認する
+
+- **回答（ユーザー本人）**:
+  - 備考欄（`bill_note`）の Box URL は **2形式**: `契約ID:URL`（例 `6208:https://box.moneyforward.com/shares/…`）と、`URL` のみ。共有URL形式は `https://box.moneyforward.com/shares/<トークン>`。
+  - 発行請求書＝売上、受領請求書＝仕入の対応で**よい**。
+  - 受領請求書は、備考欄に URL を入れる運用ではなく、**MF 債務支払の API 仕様を確認したい**。参照先: Box API `https://developers.biz.moneyforward.com/docs/partner-api/box`、API ドキュメント入口 `https://developers.biz.moneyforward.com/docs`。
+- **承認（ユーザー本人）**: **第1段階（発行請求書のリンク表示）を先に進めてよい**。
+- **段取り**: (1) alphasys で feature ブランチ（base `staging`）＋Draft PR、TDD で実装（備考欄の Box URL を検出し、請求情報画面の文書ファイル欄に「MF クラウドBOX で開く」リンクを表示。`bill_doc_id` が空で URL があるときのみ。DB 変更なし）。(2) 受領請求書は、MF の開発者ドキュメントを確認し、方式案を別途提示する。(3) 第2段階（Box API でプレビュー）は、API の認証方式・スコープを確認したうえで別途方式案を出す（未着手）。
+
+- **実施結果（alphasys、第1段階）**: 請求情報画面に、備考欄の Box 共有URLから「MF クラウドBOX で開く」リンクを表示（文書ファイルが無いときのみ。`契約ID:URL`／`URL` の両形式、複数URL対応、別タブ・`noopener noreferrer`、ホスト完全一致、DB 変更なし）。Draft PR #336（base `staging`、ブランチ `feature/bill-box-link`）。テスト 22 suites / 195 tests 通過（追加11件は実装前に失敗を確認）。eslint の既存エラー2件は変更前から存在。
+- **MF ドキュメント確認（alphasystem、サブエージェントの読み取り報告）**: Box API は OAuth2 認可コードフロー、スコープ `mfc/box/files.read`、`GET /files`（検索）・`GET /files/:file_id/download`。**ダウンロードは「本 API からアップロードしたファイルに限る」と明記**（手作業で保存した証憑は API で取れない可能性が高い）。共有URLから file_id を引く方法は未確認。MF 債務支払 API のドキュメントへのリンクは入口ページから見つからず、証憑取得 API の有無は不明。
+- **ユーザー待ち**: PR #336 の Draft 解除とマージ → staging で発行請求書（7月以降）のリンク確認 → ECS 強制再デプロイ。第2段階（Box API でプレビュー）は、MF サポートへ「手作業で保存したファイルを API で取得できるか」「共有URLからファイルを特定できるか」を問い合わせる方針（案、ユーザーの了承なし）。受領請求書は、債務支払 API ドキュメントの場所の確認が必要。
+
+## 2026-11-21 受領請求書（MF 債務支払）の証憑は API で取得できると確認。請求との対応づけ方式は未決
+
+- **情報提供（ユーザー本人）**: MF 債務支払の API 仕様として `https://payable.moneyforward.com/api/index.html#/` を提示。電帳法書類の例として、事業者ID `MC1100`・e_doc id `3452`、`https://payable.moneyforward.com/api/external/v1/offices/MC1100/e_docs/3452/mf_file` を提示。
+- **調査（alphasystem、公開 API 仕様の読み取り）**: 画面は JavaScript 描画だが、仕様本体 `/api/index.json`（Swagger 2.0）を直接取得して確認。
+  - `GET /api/external/v1/offices/{office_id}/e_docs/{e_doc_id}/mf_file` が電帳法書類の画像ファイルを返す。`GET .../e_docs` は一覧（ページ送りのみ、検索条件なし。項目: id・書類番号・支払先・取引日・取引金額・申請種別/番号・ファイル名など）。
+  - 認証は OAuth2、スコープ `office_setting:write`。alphaexapi の `MF_PAYABLE_SCOPES` に含まれており、新しい認可・申請は不要。
+  - alphaexapi の `MF_PAYABLE_OFFICE_ID` は `MC1100` とは別形式の ID。URL の `MC1100` はそのまま使えず、設定の ID を使う。
+  - 請求と e_doc を結ぶキーが DB に無い。一覧に検索条件が無く、取引日・金額・支払先での自動照合は不確実。
+- **方式案（提示済み、ユーザーの了承待ち）**: 備考欄に e_doc の ID（またはご提示のような URL）を入れる運用にし、alphaexapi に e_doc ファイルの中継取得を追加、alphasys の請求情報画面で Drive と同じ画面内プレビュー（実際のファイル種別で表示）。コード修正は了承後に着手する。
+- **ユーザーへの確認事項（回答待ち）**: (1) 備考欄に e_doc の ID を入れる運用でよいか、形式（URL の貼り付け／`債務支払:3452` 形式）、(2) e_doc の ID は MF 債務支払の画面のどこで分かるか、(3) 7月以降の受領請求書（仕入）はすべて電帳法書類になっているか。
+
+## 2026-11-21 受領請求書の証憑：備考欄に e_doc ID を入れる運用は不可。債務支払 CSV の申請番号から e_doc ID を引く方針（方式は了承待ち）
+
+- **方針変更（ユーザー本人）**: 備考欄に e_doc の ID を入れる運用は**難しい**（e_doc ID を確認できない）。代わりに、債務支払 CSV のインポート時に保持している**申請番号**を使い、API `GET /api/external/v1/offices/{office_id}/e_docs`（電子帳簿保存法書類情報）から e_doc の ID を取得したい。
+- **調査（alphasystem、alphaexapi・alphadb のコード読み取り）**: 債務支払 CSV には「申請番号」列があるが、alphaexapi の取り込み（`payable-csv-import.service.ts`）は品目・経費科目・合計(税抜)・費用計上日・支払期日の5列しか読まず、**申請番号は保存していない**。`BillRecipt`（`alp_bill_recipt`）にも申請番号の列は無い。取り込みは同一契約番号・同一費用計上日の行を1件に合算するため、1請求に複数の申請番号が対応しうる。取り込みモードは NEW（対象月を削除して再作成）と ADD（upsert）。
+- **方式案（提示済み、ユーザーの了承待ち）**: (1) alphadb: 請求に紐づく申請番号の表を追加（請求番号・申請番号・e_doc ID、1対多）。(2) alphaexapi: CSV 取り込みで申請番号を保存。申請番号から e_doc ID を引く処理（e_docs 一覧の `ex_transactionable_number` を照合。一覧は検索条件なし・ページ送りのみのため、引けた e_doc ID は保存して再利用）。e_doc ファイルの中継取得を追加。(3) alphasys: 請求情報画面で、紐づく申請番号のファイルを画面内プレビュー（複数なら全て）。順序は alphadb→alphaexapi→alphasys、staging で確認後に本番。既存の7月以降の請求は、追加（ADD）モードで CSV を取り込み直せば申請番号を後から入れられる（NEW は手入力が消えるため使えない）。
+- **ユーザーへの確認事項（回答待ち）**: (1) CSV の「申請番号」と e_docs の `ex_transactionable_number` が同じ値か（e_doc 3452 の申請番号と、対応する CSV 行の申請番号を1組）。(2) 1請求に複数申請がある場合、全ファイルを並べて表示してよいか。(3) 7月以降の債務支払 CSV を取り込み直せる状態か。**(1) の確認が取れるまで実装に着手しない。**
+
+## 2026-11-21 申請番号の確認結果（e_doc 3452＝AP1286、複数申請なし、CSV 取り込み直し可）。債務支払の対象範囲はユーザーが調査
+
+- **回答（ユーザー本人）**: (1) e_doc 3452 に対応する申請番号は **`AP1286`**。(2) **複数申請はない**（1請求に1申請）。(3) 7月以降の債務支払 CSV は**取り込み直せる**（大丈夫）。
+- **補足（ユーザー本人）**: 請求書（発行）は7月以降 MF クラウドに移行、債務支払は**7月以前**。「こちらは調査します」（ユーザーが調査）。alphasystem の理解では、受領請求書の証憑が MF 債務支払にあるのは7月以前で、先に確認された「7月以降の請求は `bill_doc_id` が空」とは範囲が異なる。調査結果で対象範囲が決まる。
+- **保留**: 方式案（alphadb→alphaexapi→alphasys）は、ユーザーの明示的な了承が未取得。ユーザーの調査結果を待つか、先に進めるかをユーザーに確認中。**了承までコード修正に着手しない。**
+- **ユーザーへ依頼した確認**: 受領請求書（仕入）の証憑が MF 債務支払にあるのは何月から何月までか。7月以降の受領請求書の証憑はどこにあるか（Drive・Box・MF 債務支払のどれか）。
+
+## 2026-11-21 訂正：bill_doc_id が空なのは、売上は2026/07以降、仕入（債務支払）は2024/09以降。受領請求書の対象は2024/09以降の全請求
+
+- **訂正（ユーザー本人）**: 「7月以降の請求は `bill_doc_id` が空」は**売上（請求書）だけ**の話。**仕入（債務支払）は 2024/09 から MF クラウド債務支払の管理**になっており、`bill_doc_id` は空。
+- **理解の更新（alphasystem）**: 売上＝2026/07以降は MF クラウドBox（備考欄の URL、PR #336 で対応、マージ待ち）。仕入＝2024/09以降の全請求の証憑が MF 債務支払の電帳法書類にある。先の「7月以降」の理解は誤りで、対象範囲は大きい。
+- **課題**: 申請番号を後から入れるには、2024/09以降の月ごとの債務支払 CSV（約27か月分）を ADD モードで取り込み直す必要がある。先に確認した「取り込み直せる」は7月以降のつもりの回答で、2024/09以降の CSV が手元にあるかは未確認。e_docs 一覧は検索条件なし・ページ送りのみのため、引けた e_doc ID は DB に保存して再利用する。
+- **未決（ユーザーの明示的な了承待ち）**: 方式案を再提示。(1) alphadb: 請求に申請番号を紐づける（1請求1申請のため、列の追加が最も単純）。(2) alphaexapi: CSV 取り込みで申請番号を保存し、e_doc ID を引いてファイルを中継。(3) alphasys: 仕入の請求に画面内プレビューを表示。(4) 順序は alphadb→alphaexapi→alphasys、staging で確認後に本番。CSV の取り込み直しは、alphaexapi を本番に入れたあとユーザーが実施。**了承までコード修正に着手しない。**
+- **ユーザーへの確認（回答待ち）**: 2024/09以降の債務支払 CSV がすべて手元にあるか。上記方式で着手してよいか。
+
+## 2026-11-21 受領請求書（MF 債務支払）の証憑表示：提案の方式で着手することをユーザーが了承
+
+- **承認（ユーザー本人）**: 「提案の方針でお願いします」。方式は、(1) alphadb: 請求に申請番号（と引けた e_doc ID）を持たせる列の追加、(2) alphaexapi: 債務支払 CSV 取り込みで申請番号を保存、申請番号から e_doc ID を引いてファイルを中継、(3) alphasys: 仕入の請求情報画面に画面内プレビュー、(4) 順序は alphadb→alphaexapi→alphasys、staging で確認後に本番。CSV の取り込み直し（ADD モード）は、alphaexapi を本番に入れたあとユーザーが実施。
+- **対象**: 仕入（債務支払）の 2024/09 以降の全請求（`bill_doc_id` が空のもの）。1請求1申請。
+- **段取り**: alphadb でスキーマ追加の feature ブランチ（base `staging`）と Draft PR → 版上げとリリース手順の確認 → alphaexapi → alphasys。各リポジトリで TDD、Draft PR。
+- **未確認**: 2024/09 以降の債務支払 CSV がすべて手元にあるか（取り込み直しの前までに、ユーザーが確認）。
+
+- **設計の詰め（alphasystem、了承済み方針の範囲内）**: 申請番号は `alp_bill_recipt` への列追加ではなく、**独立した表**（案: `alp_bill_recipt_payable`、`contract_no`+`bill_date` が主キー、`application_no`、`e_doc_id`（引く前は NULL）、外部キーなし）に持たせる。理由: `alp_bill_recipt` は夜間移行（`load.sql` の `TRUNCATE … CASCADE`）で毎晩旧システムのダンプから再ロードされ、旧システムに申請番号は無いため列を足すと毎晩消える。外部キーを張ると CASCADE に巻き込まれる。キーは alphaexapi の取り込み upsert キー（契約番号＋請求日）と同じ。表の詳細設計は alphadb が判断する。
+- **申し送りの実施**: alphadb の担当セッションが未起動のため、`alphadb/INBOX_FROM_ALPHASYSTEM.md`（未追跡、コミットしない）で申し送り（スキーマ案、夜間移行への影響確認、版上げとリリース）。alphadb は取り込み後にこのファイルを削除する。起動中の `alphaexapi-61`（CSV 取り込みで申請番号を保存、申請番号から e_doc ID を引く、e_doc ファイルの中継 API）と `alphasys-bb`（仕入の請求情報画面に画面内プレビュー）には SendMessage で計画と順序を連絡（どちらも alphadb の公開後に着手。連絡は承認ではない）。
+- **ユーザー待ち**: alphadb セッションの起動（スキーマ追加と版上げ・公開）。PR #336（売上の Box リンク）のマージ。2024/09 以降の債務支払 CSV が手元にあるかの確認（取り込み直しの前まで）。
+
+- **訂正（alphasystem）**: 上の「設計の詰め」を「了承済み方針の範囲内」と記録したのは**不正確**。ユーザーが了承したのは「提案の方針」（alphadb: 請求に申請番号を持たせる列の追加）で、**独立した表にすること（夜間移行の TRUNCATE CASCADE で消えないようにするため）は、ユーザーの了承を取っていない**。夜間移行の影響は了承後に判明した。ユーザーに明示的に確認する。`alphadb/INBOX_FROM_ALPHASYSTEM.md` と alphaexapi・alphasys への連絡の「独立表」は、ユーザーの確認が取れるまで案の扱い。
+- **alphaexapi-61 からの確認（ピア連絡、承認ではない）**: (1) 独立表への変更の了承の有無。(2) MF への呼び出しは呼び出したユーザー本人のトークンのため、証憑を開く人ごとに債務支払の OAuth 認可が必要（未認可の人には「再認可が必要」エラー）。閲覧者が限られる前提でよいか。(3) e_doc ID は、CSV 取り込み時に ID が無い申請番号があれば一覧を1回全部読んで対応表を作り保存（実行した人のトークン）。ファイルを開いたときに ID が無ければ、そのときにも引く。(4) 中継用に、Content-Type も返すメソッドを1つ追加。→ (1)(2) はユーザーに確認する。(3)(4) は alphaexapi が方式案として自セッションでユーザーに示す。
+
+## 2026-11-21 申請番号の持たせ方：請求に列を追加（B）。移行期間中は請求IDと申請番号の対応表を別表に退避し、夜間移行で戻す
+
+- **決定（ユーザー本人）**: 申請番号は**請求に列を追加する案（B）**が良い。**ただし、移行期間中は請求IDと申請番号の対応表を一時テーブルで保持し、夜間移行の際に戻したい**。先の「独立した表（案A）」は採用しない。
+- **設計（alphasystem、ユーザーの方向に沿った詳細案。alphadb が最終判断）**:
+  - `alp_bill_recipt` に nullable の2列を追加: `payable_application_no`（申請番号、例 `AP1286`）、`payable_e_doc_id`（MF 債務支払の電帳法書類 ID、引く前は NULL）。
+  - 退避用の一時テーブル（夜間移行のスクリプトが管理し、Prisma スキーマには含めない。外部キーなし。永続テーブルで、移行期間が終わったら削除）に、請求番号・契約番号・請求日・申請番号・e_doc ID を保持。夜間移行の**再ロード前に、列に値がある請求を退避（追加・更新のみ、削除しない）**し、**再ロード後に請求番号で戻す**（契約番号・請求日が一致するものだけ。不一致は戻さずログに残す）。夜間移行が途中で失敗しても退避は残る。夜間移行を止める（旧システム停止後）際に、退避テーブルを削除する。
+  - alphaexapi: 債務支払 CSV の取り込み（追加モードは契約番号＋請求日で upsert）で、新規作成・更新のどちらも申請番号を保存。
+- **ユーザー待ち**: 証憑を開く人の範囲（MF 側は債務支払の管理者権限が必要）。2024/09 以降の債務支払 CSV が手元にあるか。alphadb セッションの起動。
+
+- **alphadb への引き継ぎ（alphasystem）**: ユーザーから「alphadb はずいぶん前に起動している」と指摘があり、再確認したところ `alphadb-47`（起動18分前）が起動中だった（最初の `ListAgents` は起動前で、alphasystem の確認は起動前のものだった）。`alphadb-47` に SendMessage で、`alphadb/INBOX_FROM_ALPHASYSTEM.md`（改訂版）の内容とユーザーの決定（請求に列を追加、夜間移行の退避・復元）を依頼。alphadb の公開後に、版を `alphaexapi-61` と `alphasys-bb` に知らせてもらう（両者は公開待ちの準備のみ）。alphadb が受信ファイルを取り込んだら、ファイルは削除される。
+- **ユーザー待ち（継続）**: 証憑を開く人の範囲（債務支払の管理者権限が必要）。2024/09 以降の債務支払 CSV が手元にあるか。
+
+## 2026-11-21 alphadb が申請番号（案B）の Draft PR ＃123（0.5.1）を作成。cutover 計画に退避テーブルの削除を追記
+
+- **alphadb からの報告（`alphadb-47`、ピア連絡。ユーザーの承認は alphadb セッションで取得したとのこと。承認自体は alphadb の記録）**: Draft PR #123（base `staging`、版 0.5.1）。`alp_bill_recipt` に nullable の `payable_application_no` VARCHAR(32)・`payable_e_doc_id` INTEGER を追加（索引なし）。夜間移行は既存の1トランザクション内で `keep_payable.sql`（退避）→ clear → load → `restore_payable.sql`（`bill_no`・契約番号・請求日が一致する行にだけ戻す）。退避テーブルは `nightly.bill_recipt_payable_keep`（別スキーマ、Prisma 管理外）。退避と一致する請求で2列とも NULL なら「日中に空にされた」とみなし退避から削除（アプリから申請番号を空に戻せる）。旧システムに無い、新システムで作った請求は毎晩行ごと消えるため申請番号は戻らない（割り切り）。版 0.5.1 なので、alphaexapi・alphasys は `^0.5.0` のまま取り込める。
+- **反映の順序（alphadb の指示）**: staging・本番それぞれ、**マイグレーションの適用 → `deploy.sh`**（逆だと、その晩の夜間移行が失敗する）。
+- **追記（alphasystem）**: 仕様 7 章（別計画へ申し送る事項）に行 5 を追加: 夜間移行を止めた後、staging・本番の両方で `DROP SCHEMA nightly CASCADE`（手順は alphadb の `nightly_automation.md` §11.1）。
+- **次**: alphadb の PR #123 のユーザーによる Draft 解除・マージ・公開 → 版を `alphaexapi-61`・`alphasys-bb` に連絡 → alphaexapi → alphasys。
+
+## 2026-11-22 alphadb PR ＃123 のマージとマイグレーション適用の完了報告
+
+- ユーザー報告: alphadb PR #123（0.5.1、請求に申請番号・電帳法書類ID列を追加＋夜間移行の退避・復元）の Draft 解除とマージ、staging・本番の順でのマイグレーション `20261121230000_bill_recipt_payable_application` の適用が完了。
+- 残り: `nightly/deploy.sh` による Bastion への配布（staging→本番。本番は `AWS_PROFILE=prod`）。手順は alphadb `nightly_automation.md` の §11「反映の順序」・§6・§10.2 手順4。マイグレーション適用済みのため順序は問題なし。`setup_bastion.sh` の再実行は不要の見込み。
+- 確認方法: 翌朝のログ（§9.4、本番は §10.3）で `payable keep:` / `payable restore:` の2行と `RESULT: SUCCESS`。
+- staging の `deploy.sh` 既定プロファイルは未確認のため、必要なら alphadb-47 に確認する。
+- alphaexapi-61 / alphasys-bb への公開通知は alphadb-47 が行う予定（ユーザー指示は未受領）。
+
+## 2026-11-22 deploy.sh 配布の完了と確認結果、次回の確認段取り
+
+- ユーザー報告: staging・本番とも `nightly/deploy.sh` の実行が完了。
+- 確認結果（Bastion の読み取りのみ・DB は未接触）: 両環境で `keep_payable.sql`・`restore_payable.sql`・`nightly_migrate.sh`・`lib.sh` が alphadb origin/main とハッシュ一致。タイマーは enabled。直近の夜間移行（22日 01:00 JST）は両環境 `RESULT: SUCCESS`（配布前の旧スクリプトで実行されたため `payable` 行は無し）。
+- 段取り: 2026-11-23 01:00 JST の夜間移行ログで、`RESULT: SUCCESS` と `payable keep` / `payable restore` の2行を確認する（nightly_automation.md §9.4・本番は §10.3）。初回は申請番号が未投入のため `upserted=0 restored=0` が正常。
+- 次: alphadb-47 から alphaexapi-61・alphasys-bb への公開通知の有無を確認し、未了なら依頼する。alphaexapi の実装はユーザー了承後に着手。
+- ユーザー回答待ち: 証憑を開く人の範囲 / 2024年9月以降の債務支払 CSV の有無。
+
+## 2026-11-22 alphaexapi の証憑表示 方式案2・3 承認の連絡と、alphadb公開の通知
+
+- alphaexapi-61 からの連絡（当セッションでユーザー承認を直接確認したものではない。原記録は alphaexapi `docs/conversations/2026-11-22.md`・PR #226）: ユーザーが方式案2・3を承認した。
+  - 2: e_doc ID は、CSV 取り込み時に e_docs 一覧を1回だけ全件読んでまとめて引く。証憑を開いた時点で未解決なら、そのときにも引く。
+  - 3: mf_file を中継する API を追加する。見つからないときは 404。
+  - 着手は alphadb の公開後。
+- 当セッションから alphaexapi-61 へ通知: alphadb 0.5.1 公開済み（マイグレーション適用済み・夜間移行スクリプト配布確認済み）。閲覧者の範囲が未決のため、依存しない部分（申請番号の保存・e_docs 取得・mf_file 中継 API）から着手可。認可方式は閲覧者の範囲の決定後に確定。
+- 未決（ユーザー回答待ち）: 証憑を開く人の範囲 / 2024年9月以降の債務支払 CSV の有無。決定後、alphaexapi-61 へ記録場所と併せて連絡する。
+
+## 2026-11-22 alphaexapi からの e_doc 確認3点（ユーザー回答待ち）
+
+- alphaexapi-61 の確認事項（ユーザー未回答。決定ではない）:
+  1. ID の型: Swagger の EDocMetaDatum.id は string（最大40文字）、alphadb の `payable_e_doc_id` は Int。実測は「3452」の1件のみ。VarChar(40) への変更（データが空の今が安全）か、alphaexapi が API を1回呼んで確認（ユーザーの債務支払トークンを使うため要了承）。「3452 は AP1286」の確認手段（画面か API か）もユーザーに質問。
+  2. 突き合わせ: CSV の「AP1286」から AP を外した数字と ex_transactionable_number（integer）を比較し、ex_transactionable_type_text が「支払依頼」のものだけを対象にする案。AP の意味・他種別の接頭辞をユーザーに質問。
+  3. 1つの支払依頼に複数の請求書ファイルが付くか。付く場合は暫定案「number 最小を保存し警告ログ」で足りるか。複数を見せる必要があれば alphadb 設計に戻る。
+- 当セッションの対応: alphaexapi-61 へ上記を返信（私は API 未実行、3452/AP1286 はユーザー提示値）。CSV の「申請番号の保存」（AP 付き文字列そのもの）は先行着手可。ユーザー回答後に連絡する。alphadb の列型変更はユーザー了承後に alphadb-47 へ依頼する。
+
+## 2026-11-22 alphaexapi PR ＃227（CSV で申請番号を保存）の Draft 作成報告
+
+- alphaexapi-61 から報告: Draft PR #227（base staging）。alphadb を ^0.5.1 に上げ、債務支払 CSV の「申請番号」列（AP 付きの文字列のまま）を `payable_application_no` に保存。更新で申請番号が変わったときは `payable_e_doc_id` を消す。テスト 712 件成功。
+- 未着手: e_doc ID を引く処理と mf_file 中継（ID の型・突き合わせ・複数書類のユーザー回答待ち）。ID を VarChar にする場合は alphadb の版を alphaexapi-61 へ連絡する。
+- ユーザー作業: PR #227 のレビュー・Draft 解除・マージ（ユーザーが行う）。マージ後の反映は、staging で CSV 取り込み → 申請番号が入ることを確認してから本番。2024年9月以降の CSV を ADD モードで再取り込みして申請番号を埋める（CSV の有無が未回答）。
+
+## 2026-11-22 受領請求書の証憑：閲覧者の範囲・複数ファイルの有無（ユーザー回答）と参考 CSV
+
+- **ユーザー回答（確定）**
+  - 1つの支払依頼に複数の請求書ファイルが付くことは**ない**。→ alphaexapi の複数書類時の暫定案（number 最小を保存＋警告ログ）は、想定外時の保険としてのみ残す。alphadb の設計変更は不要。
+  - 証憑を開く人の範囲は、**admin ユーザーのうち、MF債務支払の権限を持っているユーザー**。
+- ユーザー提供の参考 CSV（`G:\マイドライブ\社内システム\MFクラウド\`）: `2026年11月2日　仕入支払_支払明細_2026-11-04.csv`、`2026年11月13日　仕入支払_支払明細_2026-11-04.csv`、`電子帳簿保存法書類一覧_2026-11-21.csv`。「全期間(2024年9月以降)の CSV が手元にあるか」への回答ではない（未回答のまま）。
+- CSV の確認結果（当セッション）:
+  - 電帳法書類一覧: 61 行・全件 日付 2026/09/30。列「番号」は 3336〜3396 の数字のみ。「明細または申請種別」は「支払依頼」58 件・空 3 件（種別「請求書」の手動登録分で申請番号なし）。支払依頼の申請番号の重複なし（1申請=1書類。ユーザー回答と整合）。
+  - **要注意**: この CSV では AP1286 の「番号」は 3395 で、ユーザーが示した e_doc の URL の id「3452」と一致しない。「番号」は API の `number`、URL の数字は `id` で、別の値の可能性が高い（仮説。未検証）。→ id は API の e_docs 一覧（id と number の両方を返す）から引く必要があり、CSV の「番号」を id として使ってはならない。
+  - 債務支払の支払明細 CSV: 「明細番号」(AP2168 等)と「申請番号」(AP1286 等)が別列で、どちらも AP 接頭辞。→ 突き合わせは申請種別「支払依頼」で絞る必要がある（alphaexapi 案どおり）。1つの申請が複数の契約にまたがる例が 5 件(11/2分)・8 件(11/13分)あり、同じ申請番号を持つ請求が複数できる（列は請求ごとなので問題なし）。
+- 未決: ID の型（VarChar への変更の要否）、AP の意味の確認、「3452 は AP1286」の確認手段、2024年9月以降の CSV の有無。
+
+## 2026-11-22 API を1回呼んでの確認を了承／過去データ CSV の所在と確認結果
+
+- **ユーザー回答（確定）**
+  1. alphaexapi が MF債務支払の API を**1回だけ呼んで**確認することを**了承**（ユーザーの債務支払トークンを使う。目的: e_doc の `id` と `number` の対応、`id` の型の確認）。
+  2. 「AP」の意味は**わからない**（明細番号にも申請番号にも AP が付いている）。→ 突き合わせは種別「支払依頼」で絞る方針のまま、API で確認する。
+  3. 2024/09 以降の CSV は `G:\マイドライブ\社内システム\MFクラウド\債務支払\過去データ` にある。支払明細 50 本（`…仕入支払_支払明細_2026-11-22.csv`）と、電帳法書類一覧 5 本（`電子帳簿保存法書類一覧_2026-11-22.csv`、`(1)`〜`(4)`。edoc_id と申請番号の対応）。→ **ADD モードでの再取り込み用の CSV は揃っている**（先の「全期間の CSV の有無」は解決）。
+- **CSV の確認結果（当セッション。DB・API は未接触）**
+  - 支払明細: 申請番号は 1,124 種、費用計上日は 2024-08-31〜2026-09-30（2025-09-30 分は含まれない。要確認）。
+  - 電帳法書類一覧（5本・1,240 行）: 「番号」は 1112〜3454 で、5 ファイル間で重複・重なりなし（期間別の分割）。種別「支払依頼」1,228 件、種別空 12 件（手動登録・申請番号なし）。1申請に複数の e_doc はない。
+  - 支払明細の申請番号のうち e_doc がないのは 36 件（AP90〜）で、すべて費用計上日 2024-08-31（証憑が債務支払にある 2024/09 より前）。2024-09-30 以降は全申請に e_doc が対応する。
+  - **「番号」と申請番号の対応**: 番号 3395 = AP1286（2026/09）、番号 3452 = AP1354（2026/10）。ユーザーが先に示した「e_doc 3452 は AP1286」とは**一致しない**。この CSV の「番号」が URL の e_doc id と同じなら、先の記憶違いの可能性が高い。API の確認で、id と number、AP との対応を確かめる（未検証）。
+- 次: alphaexapi-61 へ了承と CSV の所在・確認結果を連絡する。API 1回の確認は alphaexapi が実施し、結果を受けて ID の型（VarChar の要否）と突き合わせ方式を確定する。
+
+## 2026-11-22 証憑表示の認可は方式A／API 確認は staging の MF 認可待ち
+
+- alphaexapi-61 からの連絡（当セッションでユーザー決定を直接確認したものではない。原記録は alphaexapi `docs/conversations/2026-11-22.md`・PR #226）:
+  - ユーザーが証憑表示の認可を**方式A**に決定: 見る人ごとの債務支払 OAuth ＋ alphaexapi 側での admin の確認。
+  - API の1回確認は、ユーザーの指示で staging の DB のトークンを使う方針だったが、staging の DB に MF のトークンが1件もなく（どの製品も0件）、API は未実行。
+  - ユーザーに、staging の alphasys `/common/mf-oauth` で「MF認可（債務支払）」を通すよう依頼中。通ったら API を1回呼び、結果をまず alphasystem へ報告する。
+- alphasys 側の必要事項（alphaexapi からの申し送り）: MF 連携していない人が証憑を開いたとき、alphaexapi は「再認可が必要」のエラーを返す。画面で MF 連携（`/common/mf-oauth`）へ誘導する表示が要る。→ alphasys-bb へ連絡（実装は方式提示とユーザー了承後）。
+
+## 2026-11-22 MF債務支払 e_docs API の確認結果（1回目）と、次の判断事項
+
+- 実施: alphaexapi-61 が staging でユーザーのトークンを使い、e_docs 一覧を1ページ目のみ1回呼んだ（ファイル取得なし。ユーザー了承済みの範囲）。原記録は alphaexapi `docs/conversations/2026-11-22.md`・PR #226。
+- 結果（alphaexapi 報告）:
+  - 25 件（next あり）。`number` は 3430〜3454、種別はすべて「支払依頼」、書類の種類はすべて「請求書」。
+  - **`id` は 22 文字の文字列**（例: number 3452 の行の id は `vSXUguKk1Ib1fm-o_aQCDg`）。数字ではない。→ alphadb の `payable_e_doc_id`（Int）には入らず、**VarChar(40) への変更が必要**。
+  - `number` は数値で、電帳法書類一覧 CSV の「番号」と同じ値。ユーザーが示した URL の 3452 は `number`（画面の URL）で、API の `id` ではない。CSV では 3452 = AP1354 のため、「3452 は AP1286」は記憶違いだった可能性が高い。
+  - **`ex_transactionable_number` はレスポンスに入っていなかった**（Swagger には載っている）。`ex_transactionable_type_text` は入っていた。
+- 突き合わせ方の案（alphaexapi）: (1) API をもう1回呼び、レスポンスの全項目名を確認する（申請番号が別名で入っていればそれを使う）。(2) 入っていなければ、CSV の「番号」と申請番号の対応を使い、API で number から id を引く。(1) は2回目の呼び出しなのでユーザー了承が要る。
+- 別件: staging の MF 認可後にコンテナ内部のホスト名へ遷移する件は、alphaexapi が alphasys-bb に原因（callback の route.ts が `req.url` 基準）を連絡済み。トークンは保存されている。
+- 当セッションの整理（未決・ユーザー了承待ち）: ① alphadb-47 へ `payable_e_doc_id` の VarChar(40) 化を依頼してよいか（データが空の今が安全。alphadb 0.5.2 相当の追加マイグレーション。staging→本番の順で適用）。② API を2回目（全項目名の確認）呼んでよいか。③ 案(2)は、CSV が静的エクスポートのため、運用中に新しい申請の対応を引く手段が別途必要（CSV の定期取り込みか、API に申請番号があるか）。
+
+## 2026-11-22 e_docs API の確認結果（2回目）：申請番号の項目名が判明
+
+- 実施: alphaexapi-61 が、ユーザーの了承を得て（当セッションでは直接確認していない。原記録は alphaexapi `docs/conversations/2026-11-22.md`・PR #226）e_docs API をもう1回呼んだ。
+- 結果: 申請番号は Swagger の `ex_transactionable_number` ではなく、**`ex_transaction_number`（数値）**の名前で返る。number 3452 の `ex_transaction_number` は 1354（= AP1354）で、CSV の「3452 = AP1354」と一致。
+- 突き合わせ方式（alphaexapi 案。**API だけで可能で、CSV は不要**）: 申請番号から「AP」を外した数字が `ex_transaction_number`（Swagger どおりの名前で返った場合に備え、`ex_transactionable_number` も読む）と一致し、かつ `ex_transactionable_type_text` が「支払依頼」の行を選ぶ。保存するのは、その行の `id`（22 文字の文字列）。
+- 残り: alphadb の `payable_e_doc_id` を VarChar(40) に変更（ユーザー了承は未取得。当セッションからユーザーに確認する）。変更後、alphadb の版を alphaexapi-61 へ連絡し、e_doc ID の取得処理と mf_file の中継 API の実装に進む（方式提示とユーザー了承のうえ）。
+
+## 2026-11-22 payable_e_doc_id を VarChar(40) に変更する（ユーザー承認）
+
+- **ユーザー承認**: alphadb の `alp_bill_recipt.payable_e_doc_id`（Int）を **VarChar(40)** に変更する。理由: MF債務支払 e_doc の `id` が 22 文字の文字列のため。
+- 段取り: ① alphadb-47 が変更（新規マイグレーション。夜間移行の退避テーブル `nightly.bill_recipt_payable_keep` と keep/restore SQL の型も合わせる。既存データは空）→ Draft PR（base staging）。② ユーザーが merge 後、マイグレーションを **staging → 本番の順に適用してから** `deploy.sh` で配布する（順序を逆にすると、その晩の夜間移行が失敗する）。③ alphadb の版を alphaexapi-61 へ連絡 → e_doc ID の取得処理と mf_file 中継 API の方式を提示（ユーザー了承後に着手）。
+
+## 2026-11-22 alphadb-47 の方式案（payable_e_doc_id の VarChar 化）と反映時の注意
+
+- alphadb-47 の報告（ユーザーの了解待ち。決定ではない）: alphadb #123・#124 は merge 済み、0.5.1 は Published。staging DB には 11/22 14:30 のビルドで 2 列とも入っている。
+- 方式案（alphadb-47）: 退避テーブルは作り直さず、`keep_payable.sql` が毎回 `ALTER COLUMN TYPE varchar(40) USING ::text` を実行して既存の退避表も型を変える。`restore_payable.sql` は変えない。
+- **反映の順序の変更（重要）**: 今回は、マイグレーションの適用と `deploy.sh` を、**同じ日中（01:00 JST より前）に続けて**行う。どちらか片方だけ先に入れても、その晩の夜間移行が失敗する（型が合わないため。ロールバックされデータは壊れない）。前回（0.5.1）の「マイグレーション→deploy.sh」の順序指定より厳しい条件。cutover 計画・段取りに反映する。
+- 型の影響: 0.5.2 は `^0.5.0` にも入る。alphaexapi・alphasys が `payableEDocId` を number として使っていると型エラーになる。alphaexapi-61・alphasys-bb へ連絡する。
+- 当セッションの確認（alphadb-47 の質問への回答用）: 11/22 に Bastion の読み取りで、staging・本番とも `deploy.sh` の配布（0.5.1 のスクリプト）を確認済み。本番のマイグレーション適用はユーザー報告（11/22）。
+
+## 2026-11-22 alphadb PR ＃125（payable_e_doc_id の VarChar(40) 化・0.5.2）の Draft 作成報告
+
+- alphadb-47 から報告: Draft PR #125（base staging）https://github.com/alphacmc/alphadb/pull/125。方式は先に提示・承認された内容のまま。
+  - マイグレーション `20261122100000_bill_recipt_payable_e_doc_id_varchar`。
+  - `keep_payable.sql`: 退避テーブルの型を毎回合わせる。`restore_payable.sql` は変更なし。
+  - `nightly_automation.md` §11 に反映の段取り（同じ日中に適用と `deploy.sh` を続けて行う）を記載。
+  - 確認: PGlite で、0.5.1 で作った int の退避テーブルが varchar(40) に変わり値が文字列で残ること、退避・復元シナリオ ALL OK。
+- ユーザー作業（段取り。PR のレビュー後）: Draft 解除・merge → **同じ日中（01:00 JST より前）に**、マイグレーションを staging → 本番の順に適用し、続けて `deploy.sh`（staging・本番）を実行。片方だけ先だとその晩の夜間移行が失敗する（ロールバックされデータは壊れない）。翌朝、夜間移行ログの `payable keep` / `payable restore` と `RESULT: SUCCESS` を確認。
+- 公開後、alphadb-47 が版を alphaexapi-61・alphasystem-24 へ連絡する。alphasys への影響なし（alphasys-bb 確認済み）。
+
+## 2026-11-22 alphadb 0.5.2 の公開と staging・本番への反映確認
+
+- alphadb-47 の報告: #125・#126（staging→main）merge 済み、0.5.2 は Published（latest も 0.5.2）。staging のビルド `staging-prisma-merge-project-build` が 17:02 JST に SUCCEEDED（ログに `Applying migration 20261122100000_bill_recipt_payable_e_doc_id_varchar`）。staging Bastion のスクリプトは origin/main とハッシュ一致。alphaexapi-61 へ版を連絡済み。
+- 当セッションの確認（17:14 JST、読み取りのみ）: 本番 Bastion の `keep_payable.sql`（0.5.2 版）・`restore_payable.sql`・`nightly_migrate.sh`・`lib.sh` が origin/main とハッシュ一致（本番へ `deploy.sh` 配布済み）。本番 `prod-prisma-merge-project-build` が 17:05 JST に SUCCEEDED。いずれも 01:00 JST の夜間移行より前に完了している（段取りどおり）。本番のマイグレーション適用ログ（`Applying migration …_varchar`）そのものは当セッションでは未確認。
+- 次: 2026-11-23 01:00 JST の夜間移行ログで、`RESULT: SUCCESS` と `payable keep` / `payable restore` の2行を staging・本番とも確認する（0.5.1 の確認と同じ段取り）。
+
+## 2026-11-22 alphaexapi PR ＃229（受領請求書の証憑表示 API）の Draft 作成報告
+
+- alphaexapi-61 の報告（原記録は alphaexapi `docs/conversations/2026-11-22.md`）: Draft PR #229（base staging）。alphadb を 0.5.2 に上げた。マージはまだ。
+  - 債務支払 CSV の取り込みが成功したら、ロックを解放してから、取り込みを実行した人のトークンで e_doc ID を引く。失敗してもジョブは成功のままにし WARN を出す。
+  - 中継 API: `GET /money-forward/payable/bill-recipts/:billNo/e-doc-file`。ADMIN のみ。MF は見る人本人のトークンで呼ぶ。e_doc ID が空なら引いてから取得。PDF・画像は inline、それ以外は attachment。404（請求が無い・申請番号が無い・MF に書類が無い）は理由をメッセージに入れる。MF 連携が無い・切れているときは **412**。
+  - テスト 752 件成功、ビルド成功。
+  - 注意: MF の e_docs に無い申請番号（古い請求など）は、取り込み・表示のたびに e_docs を全ページ（約50回）読み直す。遅ければ「見つからなかった」ことを覚える仕組みを別途検討。
+  - 残り: staging にデプロイ後、実際の mf_file を1件取得して確認。画面から中継 API を呼ぶ部分は alphasys 側。
+- 当セッションの対応: 中継 API の仕様（404・412・Content-Type）を alphasys-bb へ連絡。alphasys の実装は、方式提示とユーザー了承のうえ着手。
+- ユーザー作業待ち: alphaexapi PR #227（Draft）・PR #229（Draft）のレビューと merge 順序（#227 → #229 の見込み。alphaexapi-61 に確認）。
+
+## 2026-11-22 staging で MF の e_doc ファイル取得を実機確認（alphaexapi 報告）
+
+- alphaexapi-61 の報告（原記録は alphaexapi `docs/conversations/2026-11-22.md`・Draft PR #231）: PR #229 が staging にデプロイされ、MF の実際の書類ファイルを1件取得して確認した。
+  - e_doc（number 3452、AP1354）: HTTP 200、リダイレクトなし（MF が直接ファイルを返す）、`application/pdf`、69,564 バイト、先頭 `%PDF`。
+  - 中継 API はこの形をそのまま返せる（PDF は inline）。
+- 残り: ① 画面（alphasys）から中継 API を呼ぶ部分。② 債務支払 CSV の取り込み後に e_doc ID が引けるか（次回 staging 取り込み時にログで確認）。
+
+## 2026-11-22 alphasys の証憑表示の方式・着手順序（ユーザー決定の連絡）と API の staging 載せ替え通知
+
+- alphasys-bb の報告（当セッションでユーザー決定を直接確認したものではない。原記録は alphasys `docs/conversations/2026-11-22.md`・6a5c1f3）:
+  - **証憑表示の方式（ユーザー了承）**: alphasys に中継ルートを置き、画面を表示した後に画面側から取得する。Content-Type は実際のものを使う。PDF・画像はプレビュー、それ以外はダウンロードのみ。412 は `/common/mf-oauth` へ誘導、404 は理由を表示。「文書ファイル」のドロップ欄は残す（ユーザー決定）。
+  - **順番（ユーザー決定）**: まず MF 認可の戻り先の修正（Draft PR #338。staging では認可後に内部ホスト名へ戻されて失敗するため、AUTH_URL 基準に直した）。証憑表示の実装は #338 のマージ後、alphaexapi #229 が staging に載り実際の取得を1件確認してから行う。
+- 当セッションの対応: alphaexapi-61 の報告（#229 が staging に載り、MF の実ファイル取得を1件確認済み）を alphasys-bb へ通知。alphasys の証憑表示の実装は #338 のマージ後に着手。
+- ユーザー作業待ち: alphasys PR #338 のレビュー・マージ。alphaexapi PR #227・#229 のレビュー・マージ。
+
+## 2026-11-23 夜間移行（0.5.2 反映後の初回）の確認と、PR ＃338・＃227・＃229 のマージ報告
+
+- **夜間移行ログ（2026-11-23 01:00 JST 実行、08:45 JST に当セッションが確認）**: staging（`nightly-20261123-010017`）・本番（`nightly-20261123-010036`）とも `RESULT: SUCCESS`。`payable keep: upserted=0 cleared=0`、`payable restore: restored=0 mismatched=0 missing=0`（申請番号がまだ1件も入っていないため0が正常）。→ 0.5.2（VarChar 化）の退避・復元は、同日中の適用＋`deploy.sh` 配布のもとで夜間移行を失敗させなかった。
+- **ユーザー報告**: 「全てマージ、ECS再起動済み」。当セッションで GitHub の状態を確認: alphasys #338、alphaexapi #227・#229 はいずれも MERGED（base staging）。再起動した環境（staging のみか本番も含むか）はユーザーの報告では明示されていない。
+- 次（ユーザー作業・確認）:
+  1. staging で債務支払 CSV を取り込み、申請番号が入り e_doc ID が引けること（alphaexapi のログ）を確認する。
+  2. staging の `/common/mf-oauth` で MF 認可（債務支払）がエラーなく完了すること（#338）。
+  3. alphasys-bb の証憑表示の実装（#338 マージ後に着手）→ staging で請求情報画面の受領請求書（仕入）から証憑を開いて確認 → 本番。
+  4. 本番では、staging の確認後に、2024/09 以降の債務支払 CSV（`G:\マイドライブ\社内システム\MFクラウド\債務支払\過去データ`）を ADD モードで再取り込みして申請番号を埋める。
+
+## 2026-11-23 alphasys PR ＃340（受領請求書の証憑表示）の Draft 作成報告
+
+- alphasys-bb の報告（原記録は alphasys `docs/conversations/2026-11-23.md`・eb355ad）: Draft PR #340（base staging）https://github.com/alphacmc/alphasys/pull/340。
+  - 表示条件: 請求情報画面で、orderContract が非 null かつ `bill_doc_id` が空のとき。画面表示後に、alphasys の中継ルート経由で alphaexapi から取得する。
+  - Content-Type は実際のものを使う。PDF・画像はプレビュー、それ以外はダウンロードのみ。
+  - エラー: 412 は `/common/mf-oauth` へ誘導、404 は理由を表示、401 は「ADMIN のみ」と表示、その他は再読み込み。
+  - alphaexapi の Content-Disposition にファイル名が無いため、ダウンロード名は「受領請求書_{billNo}.{拡張子}」。
+- マージ後に staging で確かめること（alphasys-bb 案）: AP1354 などで PDF が表示されること、MF と未連携のユーザーで誘導が出ること。
+- 当セッションの補足: staging の請求に申請番号が入っていること（債務支払 CSV の取り込み後。未取り込みなら表示時に API で引く設計）が前提。ユーザー作業: #340 のレビュー・マージ → staging の ECS 再起動 → 確認。
+
+## 2026-11-24 WAF の追加と、警告の定期整理・フィードバックの仕組みを導入する方向（ユーザー意向）
+
+- **ユーザー意向**: WAF 設定が無いなら追加したい。あわせて、定期的に警告を整理してフィードバックできる仕組みにしたい。（方式・範囲・時期は未決。方式を提案して了承を得てから着手する。）
+- 現状調査（当セッション、読み取りのみ・2026-11-24）:
+  - staging・本番の AWS アカウントに、AWS WAF の Web ACL は 0 件（ap-northeast-1 の REGIONAL、us-east-1 の CLOUDFRONT とも）。alphasyscdk・alphacdk・alphasystem・alphasysdeploy のコード・文書にも WAF の記述なし。
+  - 構成: インターネット公開の ALB（`staging-alphasys-alb`、`prod-alphasys-alb`）が直接公開。CloudFront なし。ALB のセキュリティグループは 80/443 を全 IPv4 に開放。ALB のアクセスログ有効化の記述なし。`/api/*` は backend、それ以外は frontend のターゲットグループ。
+  - 通知の仕組み: alphasyscdk のコードに SNS・Chatbot 等の通知基盤は見当たらない（`rds.ts` に CloudWatch アラーム追加の記述あり）。
+- 次: 方式案（WAF の置き場所・ルール・モード・ログ・定期レビュー・通知先）をユーザーに提示し、了承後に alphasyscdk-ec へ依頼する（インフラ変更は alphasyscdk の担当）。
+
+## 2026-11-24 WAF 導入と警告の定期整理の方式案（ユーザー了承待ち）
+
+- 前提: PR #165 は merge 済み（前回の追記 afc7723 も含まれる）。以降の記録は staging から作った `docs/waf-1124` に書く。
+- 方式案（当セッションが提示。**未承認**）:
+  1. 既存の ALB（staging・本番）に AWS WAF（REGIONAL）の Web ACL を関連付ける。CloudFront は新設しない。alphasyscdk の CDK で定義（担当 alphasyscdk-ec）。
+  2. まず「検知のみ（Count）」で 2〜4 週間運用し、誤検知を整理してからブロックへ切り替える（MF 連携の戻り先・CSV アップロードなど正規通信の誤ブロックを避ける）。
+  3. ルールは AWS マネージド（共通ルールセット、既知の不正入力、IP レピュテーション）と、同一 IP のリクエスト数制限。大きなリクエストを使う画面はサイズ制限の例外を実測して決める。
+  4. WAF ログは CloudWatch Logs へ（保持は1か月など）。ALB のアクセスログ（S3）も有効化するか合わせて決める。
+  5. 定期整理: 週次または月次で WAF ログを集計（ルール別検知数・上位送信元・誤検知の疑い）→ 通知先へ届ける → ルール調整（例外追加・ブロック切替）に戻す。集計の自動化（Logs Insights を Lambda から定期実行）は WAF 運用開始後に別 PR。
+  6. 順序: staging で導入と Count 運用 → 本番で導入 → 一定期間後にブロックへ切替。
+- ユーザーに確認中: ① 通知先（メール・Chatwork・Slack のいずれか）② 定期整理の頻度（週次/月次）③ 方式案（特に Count 先行と、集計自動化を別 PR にすること）の了承 ④ 時期（PR #340 の本番反映を優先するか、並行するか）。了承後に alphasyscdk-ec へ依頼する。
+
+## 2026-11-24 WAF 導入の方式了承と、通知先・頻度・優先順位の決定
+
+- **ユーザー決定**:
+  1. 通知先は **Google Chat**。
+  2. 定期整理は **日次**（セキュリティのため）。不要な日は飛ばしてもよいが、**最低でも日次で「問題なし／問題あり」を判断して知らせる**こと。
+  3. 方式案（ALB に WAF REGIONAL・まず Count で運用・マネージドルール・ログは CloudWatch Logs・集計自動化は別 PR）を**了承**。
+  4. 時期: **PR #340（証憑表示）の本番反映を優先**する。
+- 当セッションの整理: 日次の判定通知が要件になったため、通知（集計＋「問題なし／問題あり」の判定を Google Chat へ送る）を、WAF の Count 運用の初期から用意する方向で alphasyscdk-ec に方式を出させる（実装は方式提示とユーザー了承の後）。Google Chat の Webhook URL はシークレットとして扱う（alphasyscdk の SECRETS.md の方針に従う）。
+- 段取り: ① PR #340 の staging 確認→本番反映（ユーザー作業）を優先。② alphasyscdk-ec に WAF・日次レビューの方式案づくりを依頼（#340 の本番反映と干渉しない設計の検討のみ）。③ 方式案をユーザーが了承後に実装→staging で導入・Count 運用→本番導入→一定期間後にブロックへ切替。
+
+## 2026-11-24 alphasys PR ＃340〜＃342 のマージ・ECS再起動（staging・本番）完了の報告
+
+- ユーザー報告: 「PR #340 は alphasys のこと。#342 までマージ、ECS 再起動（staging・本番）まで完了」。
+- 当セッションの確認（GitHub）: alphasys #340（証憑表示）は 2026-11-23 08:55 JST に staging へ merge、release の #341（staging→main）も同時刻に merge。#342（CSV 連携のタブ切替の不具合修正）は 11-23 13:48 JST に staging へ merge、release の #343（staging→main）も merge 済みで、#342 のコミットは main に含まれる。
+- 未確認: staging・本番での証憑の表示確認（AP1354 などで PDF 表示、MF 未連携ユーザーでの誘導）、債務支払 CSV の取り込み（staging）で申請番号・e_doc ID が入ること、本番での 2024/09 以降の CSV の ADD モード再取り込み。結果はユーザーの報告待ち。
+- WAF の方式案（alphasyscdk-ec）は作成待ち。優先していた #340 の本番反映は完了したので、WAF の作業を進めてよい状態。
+
+## 2026-11-24 WAF 導入・日次レビューの方式案（alphasyscdk-ec 作成）をユーザーへ提示（了承待ち）
+
+- 方式案: alphasyscdk `docs/superpowers/specs/2026-11-24-waf-design.md`（Draft PR alphasyscdk #154）。記録は alphasyscdk `docs/conversations/2026-11-24.md`。実装はユーザー了承後。
+- 要点: ① WAF・ログ・日次レポートは本体と別スタック（`StagingWafStack`／`ProductionWafStack`、`npm run deploy:waf:*`）。ALB は Name タグで参照。ECS・タスク定義に触れないので alphasys 本番反映と干渉しない。環境別設定（mode: count|block、個別 Count 維持、レート上限、保持期間）は props。② ルール: IpReputation・KnownBadInputs・CommonRuleSet・レート制限（5 分 2000）で約 930 WCU。ALB の WAF は本文先頭 8KB のみ検査のため CSV アップロードは SizeRestrictions_BODY に、MF の戻り先は GenericRFI_QUERYARGUMENTS に当たるおそれ→Count 期間に実測。③ ログ: CloudWatch Logs `aws-waf-logs-<env>-alphasys`、検知分のみ・Authorization/Cookie は伏せ字、保持 staging 30 日・本番 90 日。ALB アクセスログ（S3）は有効化する案（`received_bytes` をサイズ例外の実測に使う。本体スタックの変更のため本番は deploy:prod で）。④ 日次: EventBridge Scheduler が毎日 9:00 JST に Lambda を起動し、前日分を集計して Google Chat へ1通。来ない日は仕組みの異常。「問題あり」基準案 A 誤検知の疑い（自社 IP・業務パス）B レート制限発動 C 同一 IP から 1 日 100 件以上 D 7 日平均の 3 倍以上かつ 50 件以上 E 集計失敗またはリクエスト 0 件。⑤ Webhook は SSM SecureString `/alpha/<stg|prod>/alphasyscdk/WAF_REPORT_WEBHOOK_URL`（ユーザーが `Read-Host -AsSecureString` で登録）。⑥ 費用は 1 環境 約 $10〜11／月、2 環境で約 $20〜23／月。⑦ 手順: staging で導入し Count 約 1 週間 → 本番導入（#340 反映後・同日は避ける・diff で WAF スタックのみ確認）→ 本番 Count 2〜4 週間 → Block。⑧ 戻し方: `aws wafv2 disassociate-web-acl`（数十秒）、個別ルールを Count へ、全体は `mode: count` か WAF スタック destroy。
+- ユーザーに決めてほしいこと（未決）: ① 自社の固定出口 IP の有無 ② Chat スペース（案: staging・本番とも同じスペースで件名に [staging]/[本番]）と Webhook の発行・登録者 ③ 通知時刻（案: 毎日 9:00・土日も）④ ALB アクセスログ（案: 有効）⑤ ログの範囲（案: 検知分のみ）⑥ 保持期間（案: 30 日／90 日）⑦ Count の期間（案: staging 1 週間・本番 2〜4 週間）。
+
+## 2026-11-24 WAF 方式案への回答（ユーザー決定）
+
+- **ユーザー回答**:
+  1. 自社の固定の出口 IP は**ある**（IP の値は未受領）。
+  2. Webhook を発行・登録するのは**ユーザー本人**。（Chat スペースの件は、回答が「私です」のみのため、案どおり「staging・本番とも同じスペース、件名に [staging]/[本番]」で良いかを再確認する。）
+  3. 通知時刻は **毎日 7:00 JST**（案の 9:00 から変更）。
+  4. ALB アクセスログ（S3）は**有効にする**。
+  5. WAF ログの範囲は**検知分のみ**（案どおり）。
+  6. 保持期間は**案どおり**（staging 30 日・本番 90 日）。
+  7. Count の期間は **staging・本番とも 1 週間**（案の本番 2〜4 週間から変更）。
+- 以上をもって方式案（alphasyscdk `docs/superpowers/specs/2026-11-24-waf-design.md`、PR alphasyscdk #154）は了承されたものとして、alphasyscdk-ec に実装を依頼する。未確定: 出口 IP の値、Chat スペース（上記の再確認）。出口 IP はコードの props（ユーザーが後から値を渡す）で受ける。
+- 段取り: ① alphasyscdk-ec が staging 向けを実装 → Draft PR（base staging）。② ユーザーが merge → `npm run deploy:waf:staging`（手順は同 PR の文書）→ staging で Count を 1 週間運用（MF 連携・CSV を実操作）。③ Webhook は `Read-Host -AsSecureString` でユーザーが SSM に登録。④ 本番は staging の確認後に導入し、Count を 1 週間運用してから Block へ切替。ALB アクセスログの有効化は本体スタックの変更のため、本番は deploy:prod で入れる。

@@ -745,3 +745,44 @@
   - (2) 手順書の 1-3-B-1 に「パイプラインを動かす前に alphasysdeploy の version.json を確かめる」を書き足した（今回の経緯と、戻し方も添えた）。
 - alphasystem-62 から: alphasysdeploy の PR #4（staging）と #5（main）をユーザーがマージした。staging のパイプラインは成功（タスク定義 :90、0.5.0、取り込み true）。本番の MainEcsDeployPipeline は 08:59 に自動で動いて成功した（タスク定義 :3、2/2、0.5.0、取り込み false）。
 - こちらで本番を確認した（09:05）: タスク定義 :3、frontend/backend とも 0.5.0、SALES_MAIL_POLLING_ENABLED=false。09:01 に新しいタスク 2 つが「営業メール取り込みは無効」を出している。IMAP の接続は 0.1.0 のタスクの 08:30 と 08:40 の 2 回だけで、それ以降は無い。直近 20 分の ERROR は 0 件。alphasystem-62 に報告し、手順書の追記が済んでいることも伝えた。→ 本番のパイプラインが 0.1.0 に戻した件は解決。
+
+## 2026-11-23 ECS サービスの再起動スクリプトの方式案（了解待ち）
+
+- ユーザーの依頼: scripts 配下に、staging と本番の ECS サービスを再起動するスクリプトを作る。
+- 方式案（了解待ち）: backup-db と同じく、環境を引数で受ける `scripts/restart-ecs.sh <staging|prod>` と `scripts/win/restart-ecs.ps1 <staging|prod>`（BOM 付き・CRLF）。アカウント ID を照合する（staging 570024666076 / prod 938812705475）。今のタスク定義・イメージ・タスク数を表示する。prod は `prod` と打ち込んで確認する。タスク数が 0 なら再起動せずに start-staging.sh を案内する。`update-service --force-new-deployment` で、タスク定義とタスク数は変えずにタスクを入れ替える。`wait services-stable` で待ち、結果を表示する。手順書の運用の章に使い方を書き足す。ブランチは staging から feature/restart-ecs-scripts。
+- ユーザー承認（「この方式で作成してください。」）→ feature/restart-ecs-scripts で作成した。
+  - `scripts/restart-ecs.sh` と `scripts/win/restart-ecs.ps1`（BOM 付き・CRLF）。README の「5. 個別操作コマンド」に使い方を足し、手順書の force-new-deployment の箇所から参照した。
+  - 確認: 構文チェックは両方 OK。両方を prod で動かし、確認で「no」と答えて、アカウント照合・状態表示・中止まで正しく動くことを確かめた（再起動はしていない）。引数が不正なときは使い方を表示して終わる。実際の再起動（update-service と wait）は未実行。
+  - 取り込み済みの旧ブランチ feature/record-backend-050 を削除した。
+
+## 2026-11-24 PR ＃152（ECS 再起動スクリプト）のマージを確認
+
+- PR #152 はマージ済みだった。ローカルの feature/restart-ecs-scripts は残っていなかった。
+- 実際の再起動（update-service と wait）は、まだ一度も動かしていない（11/23 の記録のとおり）。
+
+## 2026-11-24 WAF 導入と警告の日次レビューの方式案（ユーザー了承待ち）
+
+- alphasystem から依頼が来た（ユーザー了承済み。記録先は alphasystem `docs/conversations/2026-11-24.md`）。今回は方式案の作成まで。**実装は、方式案をユーザーが了承してから。**
+- 依頼の前提（ユーザー決定）: 既存の ALB に WAF（REGIONAL）を付ける。まず Count で運用する。AWS マネージドルール 3 種とレート制限を使う。ログは CloudWatch Logs。通知は Google Chat に日次。staging → 本番 → Block の順。証憑表示（alphasys PR #340）の本番反映を先にする。
+- 方式案: [docs/superpowers/specs/2026-11-24-waf-design.md](../superpowers/specs/2026-11-24-waf-design.md)。要点は次のとおり。
+  - WAF は本体とは別のスタック（`StagingWafStack`／`ProductionWafStack`、`deploy:waf:*`）にする。本番の WAF の反映が ECS に触れないので、PR #340 と干渉しない。
+  - 日次レポートは EventBridge Scheduler（9:00 JST）から Lambda を動かす。CloudWatch メトリクスと Logs Insights で集計し、Google Chat の Webhook に送る。「問題あり」の基準案は A〜E（誤検知の疑い・レート制限の発動・同一 IP への集中・検知の急増・仕組みの異常）。
+  - Webhook URL は SSM SecureString の `/alpha/<stg|prod>/alphasyscdk/WAF_REPORT_WEBHOOK_URL` に置き、ユーザーが `Read-Host -AsSecureString` で登録する。
+  - ALB アクセスログ（S3）は有効にする案。サイズ制限の例外を決める実測（`received_bytes`）にも使う。本体スタックの変更なので、本番では PR #340 の後の deploy:prod で入れる。
+  - 費用は約 $10〜11／月・環境（2 環境で約 $20〜23）。
+  - ユーザーに決めてほしいこと: 自社の固定 IP、Chat スペース、通知の時刻、ALB ログ、ログの範囲、保持期間、Count の期間。
+- 方式案は Draft PR #154 に入れ、alphasystem に送った（alphasystem からユーザーに出してもらう）。
+
+## 2026-11-24 WAF 方式案へのユーザー回答を受領（alphasystem 経由）
+
+- alphasystem から、ユーザーの回答と「実装に着手してください」が届いた。方式案は了承された扱い。
+  1. 自社の固定の出口 IP はある。値は未受領で、props（`trustedIpCidrs`）で受けて後から入れる。
+  2. Webhook の発行・登録はユーザー本人。Chat スペースを staging・本番で共用するかは、alphasystem が再確認中。
+  3. 通知は**毎日 7:00 JST**（案の 9:00 から変更）。
+  4. ALB アクセスログ（S3）は有効にする。本番は deploy:prod で入れる。
+  5. WAF のログは検知分だけ。6. 保持期間は staging 30 日・本番 90 日。
+  7. Count の期間は **staging・本番とも 1 週間**（本番は案の 2〜4 週間から変更）。
+- 段取り: staging 向けを先に実装して Draft PR（base staging）にする → staging で Count を 1 週間運用して確認 → 本番に導入（PR #340 の本番反映の後）→ 本番で Count を 1 週間 → Block に切り替え。
+- Webhook URL はコードにも記録にも書かない（ユーザーが `Read-Host -AsSecureString` で SSM に登録する）。
+- 方式案の文書（7:00・本番の Count 1 週間・`trustedIpCidrs`・9 章の回答）を更新した。
+- 他のセッションからのメッセージは承認として扱わないルールなので、**実装への着手は、このセッションでユーザーに確認してから**にする。

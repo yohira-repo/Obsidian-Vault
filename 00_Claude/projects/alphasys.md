@@ -1701,3 +1701,95 @@ alphasystemより、alphadb 0.5.0のpublish完了の連絡あり:
 - **ユーザーがPR #328をマージした**（2026-11-15 21:14 JST、マージコミット`7862d78`）
   - CodeBuild `staging-alphasys-frontend-ecr-build`はSUCCEEDED。ECR `alphasys-frontend`に21:17:48にpushされ、タグは`0.5.0`と`7862d78`（#322のコミットハッシュのタグも付くことを確認）。digestは`sha256:69e9847163bbcfa59e50b111acd7ce743c412fe04aa25dc81a82a879d8e302cb`
   - `StagingEcsDeployPipeline`の最新の実行は11/10 15:09で、今回のpushでは動いていない（stagingのECSへの反映はまだ）。パイプラインは起動していない。本番を含むデプロイの段取りはalphasystemに任せる旨を、alphasystemにSendMessageで伝えた
+
+## 2026-11-21 ブラウザのタブに社用アイコンを表示し、題名を「alphacmcシステム」にする（Draft PR ＃334）
+
+- 発端: ユーザーから、ブラウザのタブに社用アイコンを入れたいと相談があった。`src/app/favicon.ico`は Next.js 標準のまま、タブの題名も`Create Next App`のままだった
+- ユーザーから社用ロゴ（1254×1254のPNG、白背景、「AC」マークと「ALPHA COMMUNICATIONS」の文字）が提供された
+  - 16〜32ピクセルに縮めて比べると、ロゴ全体では文字がつぶれる。そこでマークだけを切り出す案を提案した
+- **ユーザー決定**
+  1. マークのみを使う
+  2. 背景は透明にする
+  3. タブの題名は「alphacmcシステム」にする
+- 対応（`feature/favicon-alphacmc`）
+  - `favicon.ico`を差し替えた（16/32/48、背景透明）
+  - `icon.png`（192×192、背景透明）を追加した
+  - `apple-icon.png`（180×180）を追加した。iOSは透明部分を黒く塗るため、これだけは白背景にした
+  - `layout.tsx`の`metadata.title`を変えた
+  - 元のロゴ画像はリポジトリに入れていない
+  - `npm run build`は成功し、3つのアイコンのルートが生成されることを確認した
+- Draft PR #334（base: staging）を作成した
+
+## 2026-11-21 alphasystemから、受領請求書（MF債務支払）の証憑を請求情報画面に表示する計画の連絡（準備のみ・未着手）
+
+- alphasystem（alphasystem-24）からSendMessageで連絡があった。**これはユーザーの承認ではない**。alphasysでの着手は、alphadb・alphaexapiの対応が終わってAPIが公開された後に、方式を提示してユーザーの了解を得てから行う
+- 経緯: 仕入の請求は2024/09以降、証憑がMF債務支払の電帳法書類にあり、`bill_doc_id`は空。方式はalphasystemのセッションでユーザーが了承済み（alphasystem `docs/conversations/2026-11-21.md`「提案の方式で着手することをユーザーが了承」）
+- 順序: alphadb（申請番号を独立表`alp_bill_recipt_payable`（contract_no+bill_date）に持つ。`alp_bill_recipt`は夜間移行で毎晩再ロードされるため）→ alphaexapi（e_docファイルを中継するAPI）→ alphasys
+- alphasysの担当: 請求情報画面（`sales/bill/edit/[billNo]`）で、仕入（order_contractが非null）かつ`bill_doc_id`が空の請求について、alphaexapiが中継するe_docファイルを取得して画面内プレビューで表示する
+  - 注意点: `EditBillContent.tsx`はDriveのPDF用に`type: "application/pdf"`を固定している（Blobの種別が空になるため）。e_docは実際のContent-Typeで扱う必要がある
+  - 売上側は#336（備考欄のBox URLリンク）で対応済み、マージ待ち
+- 実装はTDD、featureブランチ（base: staging）＋Draft PR
+
+## 2026-11-22 alphasystemから、受領請求書（仕入）の証憑表示の認可方式などの情報共有（alphasysは未着手のまま）
+
+- alphasystem（alphasystem-24）からの情報共有。コードの変更依頼ではなく、ユーザーの承認でもない。alphasystem側の記録: `docs/conversations/2026-11-22.md`
+- **認可はユーザーが方式Aに決定**（alphaexapi PR #226 に記録）: 見る人ごとに債務支払のOAuthを行い、alphaexapi側でadminか確認する。閲覧できるのは、adminのうちMF債務支払の権限を持つユーザー
+- MF連携していない人が証憑を開くと、alphaexapiは「再認可が必要」のエラーを返す。alphasysの画面には、MF連携（`/common/mf-oauth`、既存）へ誘導する表示が必要
+- 1つの支払依頼に複数のファイルが付くことはない（ユーザー回答）。画面は1ファイルの表示でよい
+- 進み具合
+  - alphadb 0.5.1（`payable_application_no`・`payable_e_doc_id`）は公開済み
+  - alphaexapi PR #227（CSVで申請番号を保存）はDraft
+  - e_doc IDの取得とmf_fileの中継APIは未着手。IDの型を確認中で、確認はstagingのMF認可待ち
+  - 中継APIの予定: 見つからないときは404、未連携のときは「再認可が必要」を返す。Content-Typeは実際のものを返すので、alphasysはPDF固定にしない
+- alphasysの着手: alphaexapiのAPIが決まったらalphasystemから連絡が来る。その後、方式を示してユーザーの了承を得てから着手する
+- alphasystemへの依頼: APIが決まったときの連絡に、「再認可が必要」のエラーを画面で見分けるためのステータスコードとエラーの形も含めてもらう
+- alphadbの型変更の予告（alphasystemから）: `alp_bill_recipt.payable_e_doc_id`をIntからVarChar(40)に変える。MF債務支払のe_docのidが22文字の文字列のため。alphasystemのセッションでユーザーが承認済みで、alphadbはまだ着手前。公開されたらalphasystemから連絡が来る
+  - alphasysの`src`には`payableEDocId`などを使う箇所が無く、影響はない。alphasystemにもそう返信した
+  - 同日、alphadb 0.5.2が公開され、stagingと本番のDBにも反映された（alphasystemからの連絡）。alphasysは依存のバージョンを上げない
+
+## 2026-11-22 alphaexapiの受領請求書（仕入）の証憑を中継するAPIの仕様が届いた（alphasysは方式提示待ち）
+
+- alphasystem（alphasystem-24）経由で届いた。元はalphaexapi-61の報告で、alphaexapiのDraft PR #229
+- エンドポイント: `GET /money-forward/payable/bill-recipts/:billNo/e-doc-file`
+- 認可: ADMINのみ。MFは、見る人本人の債務支払トークンで呼ぶ
+- 成功: ファイルの中身を返す。PDFと画像はinline、それ以外はattachment。Content-Typeは実際のもの（PDFに固定しない）
+- 404: 請求が無い、申請番号が無い、MFに書類が無い、のいずれか。理由はmessageに入る
+- 412: MF連携が無い、または切れている。画面では`/common/mf-oauth`（MF認可・債務支払）へ誘導する
+- 対象は受領請求書（区分が仕入で、`bill_doc_id`が空の請求）。売上はMFクラウドBOXのリンク表示（#336、2026-11-22マージ済み）のまま
+- 取得できないとき（404・412など）の表示は、alphasysの方式案に含める
+- 段取り: alphaexapi #227・#229はどちらもDraftで、stagingでも未確認。alphasysの実装は、①alphasysが方式を提示してユーザーの了承を得る、②APIがstagingに載る、③実際の取得を1件確認する、の後に行う
+
+## 2026-11-22 MF認可後の戻り先が内部ホスト名になる不具合を修正（Draft PR ＃338）、受領請求書の証憑表示は戻り先の修正の後
+
+- 発端: alphaexapi（alphaexapi-61）からの報告。stagingでMF認可（債務支払・請求書）を通すと、最後に「ip-10-0-3-152.ap-northeast-1.compute.internal にアクセスできません」（ERR_NAME_NOT_RESOLVED）になる（ユーザーからの報告）。認可そのものは通っていて、backendのログにcallbackが届いている
+- 原因: Route Handlerで戻り先を`new URL(path, req.url)`で作っていた。stagingのコンテナでは`req.url`のホストがタスクの内部ホスト名になる。対象はcallbackの`/common/mf-oauth`・`/login`・`/unauthorized`と、authorizeの開始失敗時の戻り先の4か所
+- **ユーザー決定**
+  1. 受領請求書の証憑を表示する請求でも、「文書ファイル」のドロップ欄は残す（ファイルを付けて保存すると請求書ファイル登録済みの扱いになり、以後は証憑を表示しない）
+  2. MF認可の戻り先の修正を、証憑表示より先に進める
+- 修正方式: `AUTH_URL`（staging・本番では外部のhttpsのURL。alphasyscdkのECSの設定で確認）を基準に戻り先を作る`appUrl`を追加した。未設定（ローカル）のときは従来どおり`req.url`。`x-forwarded-host`は書き換えで別サイトへ誘導される余地があるため使わない。middlewareも`request.url`を使っているが、stagingのログインは動いているため対象外
+- `fix/mf-oauth-redirect-host`でTDDで修正し、Draft PR #338（base: staging）を作成した。jest全体では`EditProjectInfo.test.tsx`の3件が失敗するが、変更前のstagingでも同じく失敗する（既存の失敗）
+- マージ後の確認: stagingでMF認可を通し、`/common/mf-oauth`に戻って結果が表示されること
+- 証憑表示の段取り: #338のマージ後、alphaexapiのAPI（#229）がstagingに載り、実際の取得を1件確認してから、提示済みの方式（中継ルート＋画面表示後に取得、412は連携画面へ誘導など）で実装する
+- 作業していた`feature/bill-box-link`は#336がマージ済みだったため削除した
+- #338のマージ後の確認の段取り（alphaexapi-61から連絡）: マージとstagingへのデプロイが済んだら、alphaexapiのセッションがユーザーにMF認可（債務支払・請求書）を通してもらい、`/common/mf-oauth`に戻ることを確かめる。あわせてalphaexapi側でcallbackのログとトークンの保存を確かめ、結果をalphasysに知らせる
+- 証憑表示の前提の状況（alphasystem-24から連絡）: alphaexapi #229はstagingにデプロイ済み（Draft、本番は未反映）。MFの書類ファイルを1件実際に取得できた（application/pdf、PDFはinlineで返る）。残る条件は#338のマージだけで、マージ後に証憑表示の実装に着手する。stagingの請求にはe_doc IDがまだ入っていない可能性があるが、その場合はalphaexapiが表示時に引く
+
+## 2026-11-23 受領請求書（仕入）の証憑を請求情報画面に表示する実装（Draft PR ＃340）
+
+- 着手の条件がそろった: #338（MF認可の戻り先）は2026-11-22 14:16（UTC）にマージ済み、alphaexapi #229はstagingにマージ済み（GitHubで確認）。stagingで実際の取得1件もalphaexapiが確認済み。方式は2026-11-22にユーザーが了承済み（ドロップ欄は残す）
+- `feature/payable-e-doc-preview`でTDDで実装し、Draft PR #340（base: staging）を作成した
+  - `getPayableEDocFile`（alphaexapi `GET /money-forward/payable/bill-recipts/:billNo/e-doc-file`）
+  - 中継ルート`/api/money-forward/payable/bill-recipts/[billNo]/e-doc-file`: ADMINのみ。Content-Typeは実際のもの、PDF・画像はinline、それ以外はattachment。404・412はそのまま返し、接続できないときは502。404・412以外の失敗はログに残す
+  - `PayableEDocPreview`: 画面表示後に取得する。PDF・画像はプレビュー・最大化・ダウンロード、それ以外はダウンロードのみ。412はMF連携画面（新しいタブ）＋再読み込み、404は理由、401はADMINのみ、その他は「証憑を取得できませんでした」＋再読み込み
+  - 表示条件: `orderContract`が非nullかつ`billDocId`が空。フォームの文書ファイルとは別に扱い、保存してもDriveへは送らない
+  - alphaexapiのContent-Dispositionにはファイル名が無いため、ダウンロード名は`受領請求書_{billNo}.{拡張子}`にした
+- テスト: 追加33件はすべて成功。jest全体では`EditProjectInfo.test.tsx`の3件が失敗するが既存の失敗。`npm run build`成功
+- マージ後の確認（staging）: 仕入で文書ファイルの無い請求（AP1354など）で証憑のPDFが表示されること。MF債務支払と未連携のユーザーで連携画面への誘導が出ること
+- `fix/mf-oauth-redirect-host`は#338がマージ済みのため削除した
+
+## 2026-11-23 バッチ共通処理のCSV連携で、タブを切り替えると前のタブの欄が残る不具合（修正方式の了承待ち）
+
+- ユーザーから、ほかの作業より先に直すよう依頼があった（「その前に以下のバグ修正お願いします」）。スクリーンショットでは、給与タブ・債務支払タブに「請求書CSVダウンロード」が残っていた
+- 原因: `MfCsvContainer.tsx`で、請求書・債務支払タブのダウンロード欄とアップロード欄に同じkey（`INVOICE`など）を付けていた。重なったkeyのため、切り替え時に古い欄が残る（Reactの「Encountered two children with the same key」警告も出ている）。cf3a23a（タブ切り替えでファイル選択を破棄する修正）で入ったもの
+- 修正案（ユーザー了承済み「お願いします」）: keyを`${tab}-export`・`${tab}-import`に分ける。再現テスト（請求書→債務支払→給与→請求書→従業員情報で、そのタブの欄だけが出る）を追加済みで、修正前は失敗することを確認した。ブランチは`fix/mf-csv-tab-stale-section`
+- 修正してDraft PR #342（base: staging）を作成した。`src/app/common`のテスト96件はすべて成功
