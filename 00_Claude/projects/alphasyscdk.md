@@ -786,3 +786,151 @@
 - Webhook URL はコードにも記録にも書かない（ユーザーが `Read-Host -AsSecureString` で SSM に登録する）。
 - 方式案の文書（7:00・本番の Count 1 週間・`trustedIpCidrs`・9 章の回答）を更新した。
 - 他のセッションからのメッセージは承認として扱わないルールなので、**実装への着手は、このセッションでユーザーに確認してから**にする。
+
+## 2026-11-24 WAF の staging 向け実装に着手（ユーザー承認）と、方式の訂正
+
+- ユーザーに直接確認し、承認を得た（「着手してよい」）。staging 向けの実装を PR #154 に積む。デプロイはしない。
+- alphasystem から次の訂正が届いた。
+  - **自社の固定の出口 IP は「ある」を取り消す。** テレワークや NordVPN を使うため、出口 IP を限定できない。
+  - 基準 A は「業務パスへの検知」だけにする。IP の設定値（props）は設けない。
+  - Chat スペースは、staging・本番とも**同じスペース**にする。件名の先頭に `[staging]`／`[本番]` を付ける。
+  - Webhook はユーザーが SSM に登録する。staging・本番で同じ URL を別のパラメータに入れてよい。
+  - これで方式案に未確定の事項はなくなった。方式案の文書も直した。
+- 実装したもの:
+  - `lib/waf-stack.ts`
+  - `lib/constructs/waf.ts`
+  - `lib/constructs/waf-daily-report.ts`
+  - `lib/constructs/lambda/waf-daily-report/`（判定は `judge.ts`）
+  - `bin/app.ts` に `StagingWafStack` を追加した（count・レート 2000/5 分・ログ 30 日）。
+  - 業務パスの初期値は次の 3 つ。Count の期間に見直す。
+    - `/money-forward/oauth/callback`
+    - `/common/mf-csv`
+    - `/member/skills/infoset/sheet-upload`
+  - ALB アクセスログ: `AlbConstruct` に `accessLogRetentionDays` を追加し、staging だけ 30 日にした。本番は後の PR で入れる。
+  - npm スクリプト: `deploy:waf:staging`・`diff:waf:staging`
+  - 手順書: 5-2-3 を追加した（Webhook の登録・diff の確認・動作の確認・問題ありのとき・戻し方）。
+  - テスト: `test/waf.test.ts`（13 件）。全体の 20 件が通った。
+- `npm run diff:staging` の結果（読み取りだけ）:
+  - StagingStack の差分は、S3 バケットとそのポリシー、ALB の `access_logs.*` 属性だけ。ECS の変更はない。
+  - StagingWafStack は新しいリソースだけ。
+  - ALB の検索結果は `cdk.context.json` にキャッシュされた。
+- 未確認（staging にデプロイしてから確かめる）:
+  - WAF のログのフィルタ（COUNT・BLOCK・EXCLUDED_AS_COUNT）が、マネージドルール群を Count にしたときの検知を拾えるか
+  - ALB のログの配信が、`enforceSSL` を付けたバケットで通るか
+- 次の段取り:
+  1. ユーザーが PR をマージする。
+  2. ユーザーが Webhook を `/alpha/stg/alphasyscdk/WAF_REPORT_WEBHOOK_URL` に登録する。
+  3. `diff:staging` を確かめてから `deploy:staging` を流す。
+  4. `aws lambda invoke` で通知が届くことを確かめる。
+  5. staging で Count を 1 週間運用する。
+  6. 本番（PR #340 の本番反映の後）に入れる。
+
+## 2026-11-24 WAF の業務パス（基準 A）を追加
+
+- alphasystem から追加の候補が届いた（alphasys-bb が staging のコードで確認した）。PR #154 に反映した。
+  - 外部サービスからの戻り: `/api/auth/callback/google`（NextAuth の Google ログイン）・`/money-forward/oauth/callback`
+  - ファイルを Server Actions で送るページ:
+    - `/common/mf-csv`
+    - `/member/skills/infoset/sheet-upload`
+    - `/sales/bill/add`
+    - `/sales/bill/edit/`
+    - `/sales/contract/confirm`
+    - `/sales/contract/edit/`
+- パスは前方一致で書く。可変部分（`{billNo}`・`{contractNo}`）は、その手前までを書く。
+- 受領請求書の証憑（`/api/money-forward/payable/bill-recipts/{billNo}/e-doc-file`）は対象外。GET で、大きいのは応答のほうなので。
+- Server Actions の本文は既定で 1MB まで送れる。WAF の検査上限 8KB を超えるので、ファイルを送るページは SizeRestrictions_BODY に当たる見込み。
+- **Google ログインの戻りは、止まると誰もログインできない。** Count の期間は、ここへの検知を特に注意して見る。手順書 5-2-3 と方式案に書いた。
+
+## 2026-11-24 PR ＃154 のマージと、staging の Webhook の登録
+
+- ユーザーが PR #154 をマージした。取り込み済みの feature/waf-design は削除した。
+- ユーザーが、マージ前に staging の Webhook URL を SSM に登録した。
+  - パラメータは `/alpha/stg/alphasyscdk/WAF_REPORT_WEBHOOK_URL`（SecureString、Version 1）。
+  - CDK とは別に置いてあり、Lambda が実行時に読むだけなので、マージより先に登録しても問題ない。
+- マージ後に `npm run diff:staging` を確かめた（読み取りだけ）。マージ前と同じだった。
+  - StagingStack は、S3 バケット・ポリシー・ALB の属性だけ。
+  - StagingWafStack は、新しいリソースだけ。
+- 次の段取り（未実施）:
+  1. `npm run deploy:staging` を流す。
+  2. `aws lambda invoke` で通知が届くことを確かめる。
+  3. WAF のログと ALB のログが出ることを確かめる。
+  4. staging で Count を 1 週間運用する。
+- 気になる点: 登録時の入力欄の伏せ字は 44 個だった。Google Chat の Webhook URL は普通 150 文字を超えるので、貼り付けの途中で切れたかもしれない。
+  - ユーザーに、値を表示せずに長さと形だけを確かめるコマンドを渡した。結果はまだ聞いていない。
+  - おかしければ、手順書 5-2-3 の 1 で上書き登録する。デプロイ後の `aws lambda invoke` でも確かめられる。
+- デプロイをユーザーと私のどちらが流すかは、ユーザーの回答待ち。
+- 原因: ユーザーが登録したのは、スペースの URL（画面を開くリンク）だった。Webhook の URL ではなかった。
+  - Webhook の URL の取得手順（スペース名の「▼」→「アプリと統合」→「Webhook を追加」）を案内した。
+  - ユーザーが登録し直す。
+  - 同じ間違いが起きないよう、手順書 5-2-3 の 1 に、取得手順と登録後の確認コマンドを書き足した。
+- ユーザーが Webhook の URL を登録し直した（Version 2）。確認コマンドの結果は長さ 152・形 True で、正しい Webhook の URL が入った。
+
+## 2026-11-24 WAF を staging に反映（ユーザーの指示で Claude が deploy:staging を流した）
+
+- ユーザーの指示:「Claude が流す」。
+- デプロイ前の確認: `.env` も、staging で動いている版も 0.5.0 で一致していた（タスク定義 :90）。
+- 12:01〜12:04 に `npm run deploy:staging` を流した。
+  - StagingWafStack を作成した（WebAclArn `…/regional/webacl/staging-alphasys-waf/ef7adde9-…`）。
+  - StagingStack は、S3 バケット・ポリシー・ALB の属性の更新だけ。ECS はタスク定義 :90 のまま。
+- 動作の確認:
+  - WAF が `staging-alphasys-alb` に関連付けられた。
+  - WAF のログのフィルタ（検知分だけ）は、Count の検知を拾えた。外部のスキャン（AWSManagedIPReputationList・NoUserAgent_HEADER）が記録された。Cookie と Authorization のヘッダーは記録されていない。
+  - ALB アクセスログは S3（`stagingstack-albaccesslogbucket049f3881-…/alb/`）に届いた。`enforceSSL` を付けたバケットでも配信できた。
+  - テストの XSS リクエスト（`?q=<script>…`）は Count なので通った（307）。ログに出たかは、配信を待って確かめる。
+- **不具合**: 日次レポートの Lambda を手で動かしたら、`MalformedQueryException` で失敗した。
+  - 原因: Logs Insights は、ロググループの作成時刻（今日の 12:01）より前に終わる範囲のクエリを受け付けない。前日分と直近 7 日分のクエリがこれに当たった。
+  - このままだと、明日 11/25 7:00 の定期実行でも、直近 7 日分のクエリで失敗する。
+  - 修正案（ユーザーの了承待ち）:
+    1. ロググループの作成時刻を調べ、クエリの開始をそれ以降に切り詰める。作成より前に終わる範囲は、クエリせずに 0 件とする。
+    2. 7 日平均は、データのある日数で割る。データが 1 日分もないときは、基準 D を判定しない。
+    3. IAM に `logs:DescribeLogGroups` を足す。
+    4. テストを足し、`deploy:waf:staging` だけを流す（ECS には触れない）。
+
+## 2026-11-24 WAF 日次レポートの不具合を修正して staging に反映（ユーザー承認）
+
+- ユーザー承認:「この方針で直す」。マージ前でも `deploy:waf:staging` で反映し、明日 7:00 に間に合わせる。
+- 修正（PR #156）:
+  - クエリの開始を、ロググループの作成時刻以降に切り詰める（`clampToCreation`）。
+  - 7 日平均は、データのある期間で割る（`averagePerDay`）。データが 1 日分もないときは、基準 D を判定しない。
+  - IAM に `logs:DescribeLogGroups` を追加した。
+  - テストは全体で 23 件すべて通過した。
+- 12:30 に `deploy:waf:staging` を流した。差分は IAM ポリシーと Lambda のコードだけだった。
+- 手で動かした結果: 成功した。前日 11/23 分として `{"totalRequests":0,"detections":0,"findings":["E"]}` を Chat に送った。
+  - E になったのは、11/23 には WAF がまだ無かったため。想定どおり。
+  - 11/25 7:00 の定期実行では、11/24 の 12:01 以降が集計される。
+- 最初の失敗の実行でも、「集計に失敗しました」の通知が Chat に 1 通送られているはず。
+- テストの XSS リクエストは、`CrossSiteScripting_QUERYARGUMENTS` で検知・記録された。1 時間で検知は 21 件（ほとんどが外部のスキャン）。
+- 次の段取り: 11/25 から staging で Count を 1 週間運用する。毎朝 7:00 の通知を見る。その後、本番の PR を出す（PR #340 の本番反映の後）。
+
+## 2026-11-24 WAF の本番反映のタイミング（案。ユーザーの確認待ち）
+
+- ユーザーから、Chat に通知が 2 通届いた（失敗の通知と、11/23 分の E）と連絡があった。想定どおり。
+- ユーザーの質問「本番への反映はどのタイミングか」に、次の案を出した。
+  - **最短で 12/2（火）**。次の 3 つが揃ったら本番の PR を出す。
+    1. staging で Count を 1 週間運用し終えている（11/25〜12/1 の 7 通。業務パス、特に Google ログインの戻りに致命的な誤検知がない）
+    2. PR #340 が本番に反映済み。PR #340 は 11/23 に staging へマージ済みで、本番への反映は未確認。alphasystem に確認する。同じ日の作業は避ける。
+    3. ユーザーが本番の Webhook（`/alpha/prod/alphasyscdk/WAF_REPORT_WEBHOOK_URL`、staging と同じ URL でよい）を登録している
+  - 本番の反映の順番:
+    1. 本番の PR を出す（`ProductionWafStack`・ログ 90 日、`deploy:waf:prod`、本番の ALB アクセスログ 90 日）。
+    2. `deploy:waf:prod` で WAF を反映する（ECS には触れない）。
+    3. 差分と `.env` の版を確かめてから、`deploy:prod` で ALB アクセスログを入れる（2 と同じ日でも別の日でもよい）。
+    4. 本番で Count を 1 週間運用する（例: 12/3〜12/9）。
+    5. staging → 本番の順に Block に切り替える（12/10 以降）。
+- alphasystem に、PR #340 が本番に反映済みか（予定日があればそれも）を問い合わせた。回答待ち。
+- PR #156 はユーザーがマージ済みだった。この記録は、新しいブランチ feature/record-waf-prod-timing の Draft PR #158 に移した。
+- alphasystem の回答: 証憑表示は本番に反映済み。
+  - alphasys #338/#340/#342 はマージ済みで、staging と本番の ECS の再起動も済んでいる。alphaexapi #227/#229 と alphadb 0.5.1/0.5.2 も本番に反映済み。反映は 11/24 以前。
+  - → **12/2 案の条件 2 は満たした。** 残る条件は、1（staging の Count 1 週間）と 3（本番の Webhook の登録）。
+  - 実機の確認（AP1354 の PDF 表示、MF 未連携ユーザーへの案内）の報告は、まだ届いていない。ただし WAF のタイミングを妨げるものではない。
+
+## 2026-11-24 WAF の本番反映の段取りを確定（ユーザー承認）
+
+- ユーザー承認:「その段取りで進めてください。」
+- 確定した段取り:
+  1. 11/25〜12/1: staging で Count を運用する。毎朝 7:00 の通知（11/24 分〜11/30 分）で、業務パス（特に Google ログインの戻り）の検知を見る。
+  2. 12/2 まで: ユーザーが本番の Webhook を `/alpha/prod/alphasyscdk/WAF_REPORT_WEBHOOK_URL` に登録する（staging と同じ URL でよい）。
+  3. 12/1 の結果を見て、本番の PR を準備する（`ProductionWafStack`・ログ 90 日、`deploy:waf:prod`・`diff:waf:prod`、本番の ALB アクセスログ 90 日）。
+  4. 最短で 12/2（火）: `deploy:waf:prod` で WAF を反映する。差分と `.env` の版を確かめてから、`deploy:prod` で ALB アクセスログを入れる。
+  5. 本番で Count を 1 週間運用する（例: 12/3〜12/9）。
+  6. 12/10 以降: staging → 本番の順に Block に切り替える。
+- 条件 2（PR #340 の本番反映）は満たしている。

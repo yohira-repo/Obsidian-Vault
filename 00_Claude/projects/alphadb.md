@@ -893,3 +893,70 @@
   本番は `mismatched=0 missing=0`（restored は付け直し結果次第で約 1,727）。
 - ⑥ 完了: ユーザーが staging・本番に配布し、本番の配布後確認も問題なし（ユーザー報告）。staging Bastion は alphadb が確認し、
   keep_payable.sql・restore_payable.sql・nightly_migrate.sh・lib.sh とも main とハッシュ一致（配布 07:34 JST）。
+
+## 2026-11-24 alp_usercost の賞与の重複登録：2024/07・2026/12 を削除すると決定
+
+- 確認（staging DB、11/24 01:00 の夜間移行時点。本番も同じ旧システムから入るので同じ内容のはず）:
+  給与（SALARY）は 2023/07〜2026/02（32 か月・1,679 件）。賞与（BONUS）は 2023/12（23 件）・2024/06（31）・2024/07（31）・
+  2025/12（16）・2026/12（16）。
+- 2024/07 は 2024/06 と、2026/12 は 2025/12 と、全員（31 人・16 人）の金額の列がすべて同じ（ym・作成日・更新日以外）。
+- **ユーザー判断: 2024/07 と 2026/12 の賞与は入力誤りで、削除が必要。**
+- `alp_usercost` は夜間移行で毎晩旧システムから入れ直すため、削除は旧システム側で行う（新システムで消しても翌朝戻る）。
+  **ユーザーが現行（旧システム）側で削除を実施する**（11/24 ユーザー回答「現行側で実施します」）。
+  削除後の夜間移行で staging・本番に反映される。反映後、alphadb が staging で 2024/07・2026/12 の BONUS が 0 件になったことを確認する。
+
+## 2026-11-25 MfJobType に DC_CSV_IMPORT を追加（0.5.3）：方式をユーザーが承認
+
+- 発端: alphasystem-a1 からの依頼（11/24）。DC加入者コードCSV取込の仕様が確定
+  （alphasystem `docs/design/2026-11-24-DC加入者コードCSV取込-仕様.md`、Draft PR #167）。alphadb の作業は enum の追加と publish のみ。
+- **ユーザー承認**「その方式で進めてください」。確定した方式（版は **0.5.3**）:
+  1. `schema.prisma` の `MfJobType` の末尾に `DC_CSV_IMPORT` を追加（表・列の変更なし）。
+  2. マイグレーション `20261125090000_add_mf_job_type_dc_csv_import`: `ALTER TYPE "MfJobType" ADD VALUE 'DC_CSV_IMPORT';`
+     （`prisma migrate diff` の出力と一致。2026-10-22 の `EMPLOYEE_CSV_IMPORT` と同じ形）。
+  3. `alp_mf_job.md` のジョブ種別に追記。`package.json` を 0.5.3 に。
+- 夜間移行への影響なし（`alp_mf_job` は入れ直し対象外、退避・復元にも無関係）。`deploy.sh` は不要で、
+  0.5.2 のような「適用と deploy.sh を同じ日中に」の制約もない。
+- リリースの段取り: ① PR を staging にマージ → ② staging→main 同期 PR をマージ → ③ `alphadb-publish`（0.5.3）→
+  ④ `staging-prisma-merge-project-build` → ⑤ `prod-prisma-merge-project-build`（時期はユーザー判断）。
+  マージ・適用は夜間移行の時間帯（01:00 JST 前後）を避ける。③の後、alphadb が 0.5.3 の Published・既定版を確認し、
+  alphaexapi・alphasys・alphasystem-a1 に版を知らせる（`MfJobType` を網羅した `Record`/switch は型エラーになる旨も伝える）。
+- 確認: PGlite で全 19 マイグレーション適用、enum の末尾が `DC_CSV_IMPORT`。`prisma validate` OK、`npm test` 10 pass。
+- 実装: Draft PR **#136**（base: staging、ブランチ `feature/mf-job-type-dc-csv-import`）。alphasystem-a1 に PR・段取り・型エラーの注意を報告済み。
+
+## 2026-11-25 0.5.3（DC_CSV_IMPORT）の公開と通知
+
+- ユーザー報告: ①〜③ 完了（#136 マージ、staging→main 同期、`alphadb-publish`）。
+- alphadb の確認: origin/main に `DC_CSV_IMPORT`・マイグレーション `20261125090000_add_mf_job_type_dc_csv_import`・版 0.5.3 が入っている。
+  CodeArtifact（alphacmc/alphadb-npm）で 0.5.3 が Published（09:24 JST）、既定版 0.5.3。
+- alphaexapi-61・alphasys-bb に 0.5.3 を通知（`MfJobType` を網羅した Record/switch が型エラーになる旨、適用前の DB に
+  `DC_CSV_IMPORT` のジョブを書くと失敗する旨）。alphasystem-a1 に報告。
+- 残り: ④ `staging-prisma-merge-project-build`、⑤ `prod-prisma-merge-project-build`（ユーザー実施、本番の時期はユーザー判断）。
+  実施後、alphadb が staging のビルドログで `Applying migration 20261125090000_add_mf_job_type_dc_csv_import` を確認する。
+- ユーザー報告: ④⑤ 完了（staging・本番の `prisma-merge-project-build`）。
+- alphadb の確認（staging）: `staging-prisma-merge-project-build` 09:25〜09:26 JST SUCCEEDED（main 5ee81e8）、ログに
+  `Applying migration 20261125090000_add_mf_job_type_dc_csv_import`・`All migrations have been successfully applied.`。
+  staging DB の `MfJobType` の末尾に `DC_CSV_IMPORT`。本番は prod プロファイルが使えないため、ユーザーに確認コマンドを渡して結果待ち。
+- 本番の確認（ユーザー実行の結果を alphadb が確認）: `prod-prisma-merge-project-build` 09:28 JST SUCCEEDED（main 5ee81e8）、
+  `Applying migration 20261125090000_add_mf_job_type_dc_csv_import`・`All migrations have been successfully applied.`。
+  **staging・本番とも 0.5.3 の反映完了**（ログの `role "***" already exists` は staging と同じで、ビルドは成功）。
+
+## 2026-11-25 11/25 01:00 夜間移行が users の email 重複で失敗：抽出で一意化する（案B）をユーザーが承認
+
+- 結果: staging・本番とも `RESULT: FAILED (STEP load) rc=3`。`loading 05 users...` で
+  `duplicate key value violates unique constraint "alp_users_email_key"`。1 トランザクションなので全体がロールバックされ、
+  両環境とも 11/24 01:00 時点のデータのまま（新システム側のデータも無事）。直すまで毎晩同じ所で失敗する。
+- 原因: 旧システムで再入社した 2 人が新しい scode で登録され、退職前の行と同じ email を持っている
+  （scode 76→141、107→140。旧システムは email の重複を許す）。旧 alp_user は 120→123 人（140・141・142 を追加）。
+  新システムの `alp_users.email` は UNIQUE（`user_id` は UNIQUE ではないので問題なし）。
+- ロールバック前の NOTICE で付け直しの効果は確認: `payable keep: upserted=1727 cleared=0 superseded=…`（本番 111、staging 236。見込みどおり）。
+- 案A（旧システムで退職前の行の email を空にする）と案B（alphadb の抽出で一意化）を提示。**ユーザー承認「案Bでお願いします」**。
+  実 email を残す行は提案どおり **scode が最大の行**（今回の 2 人はどちらのルールでも再入社後の行になる）。
+- 実装: `queries/extract.sql` の 05 users の email を
+  `CASE WHEN NULLIF(email,'') IS NULL OR scode < max(scode) OVER (PARTITION BY NULLIF(email,'')) THEN 'retired-'||scode::int||'@invalid' ELSE email END`
+  に変更。`overview.md` の email 行に規則を追記。
+- 確認（staging Bastion、今朝のダンプ）: 抽出 123 行・email 123 種類（ダミー 53 = 空 51 + 重複 2）、76・107 がダミー、140・141 が実 email。
+  extract.sql を差し替えた夜間移行の全手順を check の後に例外を入れてロールバックで通し、全 14 テーブルの投入・
+  `payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`・`check ok` まで通過。staging DB は変わらず（users 120）。
+- 反映の段取り: PR を staging にマージ → staging→main 同期 → main の作業ツリーで staging・本番に `deploy.sh`
+  （**今夜 01:00 より前**に配布すれば今夜から通る）。スキーマ変更・publish は不要。配布後、alphadb が staging Bastion の
+  extract.sql のハッシュを確認し、11/26 01:00 の夜間移行の結果を確認する。

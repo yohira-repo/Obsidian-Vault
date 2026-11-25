@@ -1407,3 +1407,8 @@ coop で、alphasystem 配下で決まった運用規則を coop 系にも適用
   - 未決（相談中のまま）: manage サーバに残っている請求のダンプ（`bill_before_novfix_*` 4 つ、`bill_before_stage2_*`）をいつまで残すか。
   - 任意: 11/19 01:00 の本番日次ダンプで、行数が gas 753,921 / denki 2,391,030（補正前 + ガス 224・でんき 44。ほかに請求の変化が無い場合）になっていることを確かめる。
 - → **決定（ユーザー）: manage サーバ（prd・stg）に置いた SQL と、請求のダンプ（`bill_before_novfix_*` 4 つ・`bill_before_stage2_*`）は、数日たって問題が無ければ、あわせて削除する。**（ダンプの扱いの相談はこれで決着。削除の日はユーザーが決める）
+
+## 2026-11-25 manage サーバの補正用の SQL とダンプを削除（完了）
+
+- ユーザーの報告: 過去分の補正（11/18 本番実行）から数日たって問題が無いので、manage サーバ（prd・stg）に置いた補正用の SQL（`fix_prd_stage2_bill.sql`・`fix_prd_member_change_bill.sql` ほか）と、請求のダンプ（`bill_before_novfix_*`・`bill_before_stage2_*`）を削除した（11/18 の決定どおり）。
+- これで、本番リリース（11/17）から過去分の補正（11/18）までの一連の作業と後片付けは完了。リレーバケット `tmp/` の SQL と scratchpad の取得データ・生成物は 11/18 に Claude が削除済み。

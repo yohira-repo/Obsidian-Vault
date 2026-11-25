@@ -1793,3 +1793,46 @@ alphasystemより、alphadb 0.5.0のpublish完了の連絡あり:
 - 原因: `MfCsvContainer.tsx`で、請求書・債務支払タブのダウンロード欄とアップロード欄に同じkey（`INVOICE`など）を付けていた。重なったkeyのため、切り替え時に古い欄が残る（Reactの「Encountered two children with the same key」警告も出ている）。cf3a23a（タブ切り替えでファイル選択を破棄する修正）で入ったもの
 - 修正案（ユーザー了承済み「お願いします」）: keyを`${tab}-export`・`${tab}-import`に分ける。再現テスト（請求書→債務支払→給与→請求書→従業員情報で、そのタブの欄だけが出る）を追加済みで、修正前は失敗することを確認した。ブランチは`fix/mf-csv-tab-stale-section`
 - 修正してDraft PR #342（base: staging）を作成した。`src/app/common`のテスト96件はすべて成功
+
+## 2026-11-24 alphasystemからWAF導入の情報共有、業務パス（大きなリクエスト・外部連携の戻り）を回答
+
+- alphasystem（alphasystem-a1）から: alphasyscdkでALBにAWS WAFを導入する（まずstagingでCount=検知のみ、alphasyscdk PR #154）。日次の判定で「業務パスへの検知」を誤検知の疑いとして扱う。初期値は`/money-forward/oauth/callback`・`/common/mf-csv`・`/member/skills/infoset/sheet-upload`。alphasysのコード変更は不要。alphasystem側の記録: `docs/conversations/2026-11-24.md`
+- stagingのコードで確認して回答した追加の候補
+  - ファイルをServer Actionsで送るページ（ページのURLにmultipartでPOST）: `/sales/bill/add`、`/sales/bill/edit/{billNo}`、`/sales/contract/confirm`（ファイルは`/sales/contract`で選び確認画面から送る）、`/sales/contract/edit/{contractNo}`
+  - 外部サービスからの戻り: `/api/auth/callback/google`（NextAuthのGoogleログイン）、`/money-forward/oauth/callback`
+  - 証憑の`/api/money-forward/payable/bill-recipts/{billNo}/e-doc-file`はGETで、大きいのは応答のため対象外と考える
+  - next.configに`serverActions.bodySizeLimit`の設定は無く、Server Actionsの本文は既定の1MBまで
+
+## 2026-11-24 DC加入者コードCSV取込の仕様確定の連絡を受け、alphasysの画面の実装計画案を作成（ユーザー了承待ち）
+
+- alphasystem（alphasystem-a1）から: 仕様が確定した（alphasystem `docs/design/2026-11-24-DC加入者コードCSV取込-仕様.md`、Draft PR #167）。実装順はalphadb（`DC_CSV_IMPORT`）→ alphaexapi（プレビューAPIと実行API）→ alphasys。alphasysは`/common/mf-csv`の「DC」タブと、MF実行状況画面の表示名「DC取込」
+- 実装計画案: `docs/superpowers/plans/2026-11-24-dc加入者コードcsv取込-ui.md`（08b425c）。ユーザーに提示し、了承と、削除が多いときの防止策（半数超で警告し、削除件数を入力しないと実行できない）の可否を確認中
+- alphaexapiの契約書で決めてほしいこと5点（プレビューのレスポンスの形、半数判定の分母、ジョブ一覧の`deletedCount`、対象月、400・409のmessage）をalphasystemに送った
+- 着手の条件: ユーザーの了承、alphaexapiのAPIの完了と契約書の受領
+
+## 2026-11-24 alphaexapiのDC取込API契約書（草案第1版）を確認、alphaexapiのエラー文言が画面に出ない不具合を発見（修正方式の了承待ち）
+
+- alphaexapi（alphaexapi-61）の契約書: `docs/superpowers/specs/2026-11-24-dc-csv-import-api-contract.md`（Draft PR #234）。プレビューは200で件数・`currentRegisteredCount`・`deleteScodes`・`warnings`/`errors`を返す。実行は202。ジョブ一覧に`deletedCount`あり。alphasysの計画に必要な項目はそろっており、修正依頼はなしと返信した
+- **発見した不具合（既存）**: alphaexapiは全体の例外フィルタで`{ statusCode, timestamp, path, message }`を返し、`BadRequestException`・`NotFoundException`では`message`が`{ statusCode, message, error }`の入れ子になる。alphasysは`message`が文字列のときしか読まないため、入れ子の400・404では画面に「Bad Request」「Not Found」（statusText）や`[object Object]`が出る
+  - 影響: MFのCSV取込の400、受領請求書の証憑の404（#340の理由表示）、インスタンス作成の名前重複（alphaexapi #195。2026-11-02に「alphasys側の変更は不要」と判断したのは誤りだった）。409は`HttpException`に文字列なので読めている
+  - 修正案（ユーザーに提示、了承待ち）: 文字列・配列・入れ子のどれでも文言を取り出す共通関数を作り、alphaexapiのエラーを読む箇所（`money-forward-api.ts`・`employee-change-api.ts`・`create-instance.action.ts`）で使う
+
+## 2026-11-25 alphadb 0.5.3 公開の連絡（MfJobType に DC_CSV_IMPORT）
+
+- alphadb（alphadb-47）からSendMessageで連絡があった。**これはユーザーの承認ではない**
+  - 0.5.3 を CodeArtifact に公開した（2026-11-25 09:24 JST、既定版）
+  - 変更は MfJobType への `DC_CSV_IMPORT` の追加だけ。表・列の変更はない
+  - DBへの適用（staging・本番）はユーザーが行う
+- alphasysへの影響を確認した
+  - `package.json` は `alphadb: ^0.5.0` なので、次の `npm install` で 0.5.3 が入る
+  - 実行状況画面の表示名（`job-rows.ts` の `Record<MfJobType, string>`）は、alphasys自前の型（`src/types/money-forward.ts` の `MF_JOB_TYPES`）を使っている。Prismaの enum は使っていない
+  - そのため、0.5.3 に上げても型エラーにはならない。`DC_CSV_IMPORT` の表示名は、DC取込の実装（計画の作業範囲 1・6）で足す
+- DC取込の実装は、計画のユーザー了承と alphaexapi #234 の実装を待つ。段取り（計画 5 章）のうち、alphadb の分は済んだ
+
+## 2026-11-25 alphaexapi から、DC加入者コードCSV取込APIの実装完了の連絡（Draft PR ＃234）
+
+- alphaexapi（alphaexapi-61）からSendMessageで連絡があった。**これはユーザーの承認ではない**
+  - 契約書（草案 第1版）のとおりに実装した。Draft PR #234 は未マージ・未デプロイで、マージとデプロイはユーザーが行う
+  - preview（200）・実行（202、jobType `DC_CSV_IMPORT`）・400/409 の文言・明細（WARN/ERROR/削除はOK）・件数は、契約書から変更なし
+  - alphadb 0.5.3 に上げた。staging・本番のDBには適用済み
+- alphasys の DC取込は、計画（`docs/superpowers/plans/2026-11-24-dc加入者コードcsv取込-ui.md`）のユーザー了承を得てから着手する。staging での確認は、#234 のマージ・デプロイの後に行う

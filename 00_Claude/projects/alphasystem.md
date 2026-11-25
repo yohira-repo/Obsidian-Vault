@@ -5205,3 +5205,101 @@ Parameter Store のシークレットは `scripts/register-secret-parameters.py`
   7. Count の期間は **staging・本番とも 1 週間**（案の本番 2〜4 週間から変更）。
 - 以上をもって方式案（alphasyscdk `docs/superpowers/specs/2026-11-24-waf-design.md`、PR alphasyscdk #154）は了承されたものとして、alphasyscdk-ec に実装を依頼する。未確定: 出口 IP の値、Chat スペース（上記の再確認）。出口 IP はコードの props（ユーザーが後から値を渡す）で受ける。
 - 段取り: ① alphasyscdk-ec が staging 向けを実装 → Draft PR（base staging）。② ユーザーが merge → `npm run deploy:waf:staging`（手順は同 PR の文書）→ staging で Count を 1 週間運用（MF 連携・CSV を実操作）。③ Webhook は `Read-Host -AsSecureString` でユーザーが SSM に登録。④ 本番は staging の確認後に導入し、Count を 1 週間運用してから Block へ切替。ALB アクセスログの有効化は本体スタックの変更のため、本番は deploy:prod で入れる。
+
+## 2026-11-24 自社の出口 IP は限定できない（先の回答の訂正）
+
+- **ユーザー回答**: テレワークや NordVPN などを使うため、自社の出口 IP は**限定できない**。先の「1> はい（固定の出口 IP はある）」は、この回答で実質的に「限定できない」に訂正された。
+- **決定・影響**: 日次判定の基準 A（誤検知の疑い）から「自社 IP からの検知」を外し、**業務パスへの検知のみ**で判定する。自社 IP の設定値（props）は設けない（または空のまま）。基準 B〜E（レート制限の発動、同一 IP 1 日 100 件以上、7 日平均の 3 倍以上かつ 50 件以上、集計失敗・リクエスト 0 件）は変更なし。
+- alphasyscdk-ec へ連絡し、設計文書と実装に反映させる。Chat スペース（staging・本番とも同じスペース、件名に [staging]/[本番]）の確認はユーザー回答待ち。
+
+## 2026-11-24 WAF 日次通知の Chat スペースの決定
+
+- **ユーザー決定**: Google Chat のスペースは **staging・本番とも同じスペース**、件名（先頭）に `[staging]` / `[本番]` を付ける。
+- これで WAF 方式案の未確定事項（出口 IP は「限定できない」で決着、Chat スペースは本決定）はすべて解消。alphasyscdk-ec の staging 向け実装（Draft PR）を待つ。Webhook URL はユーザーが SSM（SecureString）に登録する。
+
+## 2026-11-24 WAF（staging 向け）の実装・Draft PR 作成報告
+
+- alphasyscdk-ec の報告（原記録は alphasyscdk `docs/conversations/2026-11-24.md`）: Draft PR alphasyscdk #154（base staging）https://github.com/alphacmc/alphasyscdk/pull/154。デプロイはまだ。ユーザー訂正（自社 IP 判定なし、Chat は同一スペース・件名で区別、7:00、Count 1 週間）を反映済み、方式案の文書も更新済み。
+- 中身: `StagingWafStack`（別スタック: Web ACL（count）＋マネージドルール 3 種＋レート制限 5 分 2000、WAF ログは検知分のみ 30 日、毎日 7:00 JST の日次レポート Lambda→Google Chat）。`StagingStack` に ALB アクセスログ（S3・30 日）。手順書に 5-2-3 を追加。
+- 業務パス（基準 A）の初期値（Server Actions はページ URL に POST するため、ページのパス）: `/money-forward/oauth/callback`、`/common/mf-csv`、`/member/skills/infoset/sheet-upload`。Count の期間に alphasys 担当と見直す。
+- 確認: jest 20 件通過。`npm run diff:staging`（読み取りのみ）で StagingStack の差分は S3・ポリシー・ALB の `access_logs.*` 属性だけ（ECS の変更なし）、StagingWafStack は新規リソースのみ。
+- マージ後の段取り（ユーザー作業を含む）: ① Webhook URL を `/alpha/stg/alphasyscdk/WAF_REPORT_WEBHOOK_URL` に登録（`Read-Host -AsSecureString`、手順書 5-2-3 の 1）。② `diff:staging` を確かめて `deploy:staging`。`aws lambda invoke` で通知が届くことを確認。③ staging で Count を 1 週間運用。④ 本番の PR（alphasys #340 の本番反映は済み）→ 本番導入 → Count 1 週間 → Block。
+- デプロイ後の確認点: WAF ログのフィルタが Count の検知を拾うか（拾えなければ全件記録に変更）、ALB アクセスログが S3 に届くか。
+
+## 2026-11-24 WAF の業務パスの追加候補（alphasys-bb の回答）
+
+- alphasys-bb の回答（staging のコードで確認）:
+  - **ファイルを Server Actions で送るページ**（ページの URL に multipart で POST）: `/sales/bill/add`（請求の追加・PDF）、`/sales/bill/edit/{billNo}`（請求の編集・PDF）、`/sales/contract/confirm`（契約の確認・登録）、`/sales/contract/edit/{contractNo}`（契約の編集）。初期値の `/common/mf-csv`・`/member/skills/infoset/sheet-upload` もファイルを送るページで合っている。
+  - **外部サービスからの戻り**（GET、code と state がクエリ）: `/api/auth/callback/google`（NextAuth の Google ログイン）、`/money-forward/oauth/callback`（初期値どおり）。
+  - 参考: 受領請求書の証憑 `/api/money-forward/payable/bill-recipts/{billNo}/e-doc-file` は GET で大きいのは応答。WAF が見るのはリクエストなので対象外。`serverActions.bodySizeLimit` は未設定（既定 1MB）。ALB の WAF の本文検査上限（既定 8KB）を超えるため、SizeRestrictions_BODY に当たるのは上のファイル送信ページ。alphasys のコード変更なし。
+- 対応: alphasyscdk-ec へ、基準 A の業務パスへの追加（PR alphasyscdk #154 に反映）を依頼する。
+
+## 2026-11-24 WAF を staging に反映（alphasyscdk-ec の報告）
+
+- alphasyscdk-ec の報告（原記録は alphasyscdk `docs/conversations/2026-11-24.md`）: ユーザーの指示で alphasyscdk-ec が `deploy:staging` を実行（11/24 12:01〜12:04）。WAF は Count で `staging-alphasys-alb` に関連付け済み。ECS はタスク定義 :90 のまま変更なし。
+- 確認結果: WAF ログは Count の検知を拾えている（外部スキャン約 20 件/時、テスト XSS は CrossSiteScripting_QUERYARGUMENTS で記録、Cookie・Authorization は記録されない）。ALB アクセスログは S3 に到達。
+- 不具合と修正: 日次レポートは、ロググループ作成直後に Logs Insights が作成前の範囲を拒否して失敗。ユーザー了承のうえ修正し反映済み（Draft PR alphasyscdk #156）。手動実行は成功。11/23 分は WAF 未導入のため「E: リクエスト 0 件」の通知（想定どおり）。
+- **段取り**: 11/25 7:00 JST の定期実行から通常の集計。**11/25 から staging で Count を 1 週間運用**（〜12/2 頃）→ その後に本番の PR（alphasys #340 の本番反映は済み）→ 本番 Count 1 週間 → Block。
+- Count 期間中の依頼: 業務パス（特に Google ログインの戻り）の検知を alphasyscdk-ec が確認。ユーザー（または alphasys 担当）は staging で請求・契約のファイル送信、MF 連携、Google ログインを実際に操作し、誤検知の実測を進める。
+
+## 2026-11-24 DC（確定拠出年金）加入者コード CSV アップロード機能の要件と仕様案
+
+- **ユーザー要件**（機能追加の依頼・仕様検討の指示）:
+  - CSV を読み込み、「加入者コード」を `alp_users.dc_user_id` に設定する。
+  - キーは CSV「社員コード」と `alp_users.scode` の比較。
+  - 追加チェックとして CSV「基礎年金番号」を `welfare_pension_insurance_id` と比較する。DB 側は記号と番号の間に `-` が入り、CSV は連続数字。
+  - `alp_users` に存在し `dc_user_id` に値があるが CSV に存在しない場合は、`dc_user_id` を null クリアする（削除扱い。CSV は全加入者分）。
+  - 追加・更新・削除件数をログ出力する。
+  - サンプル: `G:\マイドライブ\社内システム\dc\USR_G_1432078001.csv`（Shift-JIS、30 列、データ 40 行。見出しと形式のみ確認し、中身は出していない）。
+- **確認した事実**: 加入者コード 10 桁・社員コード 1〜3 桁・基礎年金番号 10 桁連続数字で、いずれも重複なし。旧システムの `welfare_pension_insurance_id` は `記号-番号` 形式。旧 DcRepository に加入者コードの取込処理は無く新規機能。DB スキーマ変更は不要。
+- **私の方式案（未承認）**: 既存の従業員情報 CSV 取込と同型。CSV 連携画面に「DC」タブ、`POST /money-forward/jobs/csv/dc-import`、`MfJobType` に `DC_CSV_IMPORT` を追加（alphadb の enum のみ）。1 トランザクション。実装順は alphadb → alphaexapi → alphasys。
+- **ユーザーの回答待ち**: (1) 基礎年金番号の不一致・DB 側が空のときの扱い（推奨: 更新せず警告）、(2) 削除の安全弁（CSV 0 行・削除が半数超なら中断）、(3) ログに社員コードを出すか（推奨: 出す。氏名・加入者コード・基礎年金番号は出さない）、(4) MF 実行状況で警告を見られるようにするか、(5) 退職者の dc_user_id クリアは意図どおりか、(6) 加入者コード重複時は行ごとエラー。回答後に設計書を `docs/design` に作成し、各セッションへ連携する。
+
+## 2026-11-24 DC 加入者コード CSV 取込 ユーザー回答（Q1〜6）と仕様確定
+
+- **ユーザー回答**:
+  1. 基礎年金番号が不一致の場合は**エラーログを出して更新しない**。ただし **DB 側が空の場合は新規加入なので更新する**。
+  2. 削除が多数あるケースは少ないので、推奨案どおり安全弁を置き、**確認画面があると良い**（→ プレビュー→実行の 2 段階とした）。
+  3. ログは推奨案（社員コードを出す。氏名・加入者コード・基礎年金番号は出さない）。
+  4. 警告は **MF 実行状況画面で見られるようにする**。
+  5. 退職者の `dc_user_id` クリアは意図どおり（OK）。
+  6. 加入者コード重複は行ごとエラーで更新しない（OK）。
+- **対応**: 仕様書 `docs/design/2026-11-24-DC加入者コードCSV取込-仕様.md` を作成（確定）。プレビュー API（書き込みなし）と実行 API の 2 本、`MfJobType.DC_CSV_IMPORT`、MfJobDetail に警告・エラー・削除の行を残す。CSV 0 行・見出し欠落は 400。
+- **解釈の補足（要確認なら指摘してもらう）**: Q2 は「削除件数が多い場合の安全弁＋確認画面」と解釈し、削除が半数超の場合は強調表示して誤操作を防ぐ表示とする（具体は alphasys 設計）。
+- **次**: alphadb（enum 追加）→ alphaexapi → alphasys の各セッションへ連携（`ListAgents` で稼働を確認、未起動なら `INBOX_FROM_ALPHASYSTEM.md`）。
+
+## 2026-11-24 DC 取込: Q2 の解釈（安全弁と確認画面の併置）をユーザーが了承
+
+- ユーザー回答: 「安全弁と確認画面を両方置く」解釈で **OK**。仕様書（`docs/design/2026-11-24-DC加入者コードCSV取込-仕様.md`）の 4 章のとおりで確定。
+
+## 2026-11-24 DC 取込: alphasys-bb の実装計画案と API 契約の設計回答
+
+- alphasys-bb が画面の実装計画案を作成（alphasys `docs/superpowers/plans/2026-11-24-dc加入者コードcsv取込-ui.md`、08b425c、staging）。ユーザーの了解はまだで着手していない。
+- alphaexapi の契約書で決める 5 点について、設計として回答し、仕様書 10 章に追記した: (1) プレビュー応答は件数 6 種・削除対象の社員コード・警告/エラー一覧、(2) 現在 `dc_user_id` を持つ社員数も返す、(3) `deletedCount` を MfJobSummary に含め、削除のみでも「明細」を出す、(4) 対象月は従業員情報取込に揃える（取込日の年月 JST）、(5) 400・409 は既存 CSV 取込と同形式。alphaexapi-61 と alphasys-bb に伝えた。
+
+## 2026-11-24 DC 取込: alphaexapi の契約書草案（Draft PR ＃234）と追加決定の仕様書反映
+
+- alphaexapi-61 の報告: API 契約書の草案第 1 版を作成（alphaexapi `docs/superpowers/specs/2026-11-24-dc-csv-import-api-contract.md`、Draft PR #234）。**実装計画はユーザーが了解済み**。実装は alphadb の `DC_CSV_IMPORT` 公開（最新 0.5.2）後。
+- ユーザーが alphaexapi のセッションで決めた 2 点を仕様書に反映: ①別社員との加入者コード重複は**取込後の状態**で判定（入れ替わり・削除される社員のコードの受け継ぎはエラーにしない）、②同じ社員コードが CSV に複数行ある場合は、その社員の行をすべてエラー（更新も削除もしない）。認可は DB の role 判定（既存ジョブ API と同じ）。
+
+## 2026-11-25 DC 取込: alphadb 0.5.3（DC_CSV_IMPORT）の Draft PR ＃136 と公開の段取り
+
+- alphadb-47 の報告（原記録は alphadb `docs/conversations/2026-11-25.md`）: `MfJobType` に `DC_CSV_IMPORT` を追加（0.5.3）。ユーザー承認のうえ Draft PR alphadb #136（base staging）https://github.com/alphacmc/alphadb/pull/136。マイグレーション `20261125090000_add_mf_job_type_dc_csv_import`（`ALTER TYPE ... ADD VALUE`）。表・列の変更なし、夜間移行への影響なし、`deploy.sh` 不要。PGlite で全 19 マイグレーション OK、`prisma validate` OK、`npm test` 10 件通過。
+- **段取り**（順序）: ① #136 マージ → ② staging→main 同期 → ③ alphadb-publish（0.5.3）→ ④ staging の prisma-merge-project-build → ⑤ 本番の prisma-merge-project-build（本番の時期はユーザー判断）。③の後、alphadb が版を確かめて alphaexapi・alphasys と alphasystem に知らせる。
+- 利用側の注意: `Record<MfJobType, …>` や `switch` で `MfJobType` を網羅している箇所は 0.5.3 で型エラーになる（alphasys の MF 実行状況の表示名など）。alphaexapi の実装は 0.5.3 公開後。
+
+## 2026-11-25 DC 取込: alphadb 0.5.3 を公開（段取り ①〜③ 完了）
+
+- alphadb-47 の報告: #136 マージ済み、main 反映済み、CodeArtifact で 0.5.3 を公開（2026-11-25 09:24 JST、既定版 0.5.3）。alphaexapi-61・alphasys-bb には alphadb が通知済み。
+- 残り: ④ staging / ⑤ 本番の prisma-merge-project-build（ユーザー実施。本番の時期はユーザー判断）。alphaexapi の実装は 0.5.3 を前提に着手できる。
+
+## 2026-11-25 DC 取込: alphadb 0.5.3 を staging・本番の DB に適用（alphadb の作業完了）
+
+- alphadb-47 の報告: staging 09:26 JST・本番 09:28 JST に prisma-merge-project-build が SUCCEEDED（main 5ee81e8）。staging DB の `MfJobType` の末尾に `DC_CSV_IMPORT` があることを確認済み。段取り ④⑤ まで完了し、alphadb の作業は終わり。
+- 次: alphaexapi の実装（0.5.3 前提）→ alphasys の実装。
+
+## 2026-11-25 DC 取込: alphaexapi の実装（Draft PR ＃234）と契約書の確認結果
+
+- alphaexapi-61 の報告: DC 取込の alphaexapi 側を実装（Draft PR #234、未マージ）。alphadb 0.5.3 に更新、プレビュー API（200）・実行 API（202）、判定は共通、実行は 1 トランザクション、MfJobDetail は警告・エラー・削除のみ、CloudWatch に件数 1 行。契約書からの変更なし。実装の細部: 社員コードを数値として読めない行は削除から守れない（プレビューのエラーに行番号で出る）、取込後の重複判定はエラー行の社員が元の値を持ち続けることによる連鎖的な重複も含める、トランザクションのタイムアウト 60 秒。
+- alphasystem の契約書確認: 仕様書 3・4・6・10 章と整合しており**修正希望なし**。alphaexapi-61 へ回答。
+- 次: alphaexapi #234 のレビュー・マージ（ユーザー）。alphasys の実装は alphasys-bb の計画のユーザー了解待ち。
