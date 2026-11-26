@@ -1836,3 +1836,107 @@ alphasystemより、alphadb 0.5.0のpublish完了の連絡あり:
   - preview（200）・実行（202、jobType `DC_CSV_IMPORT`）・400/409 の文言・明細（WARN/ERROR/削除はOK）・件数は、契約書から変更なし
   - alphadb 0.5.3 に上げた。staging・本番のDBには適用済み
 - alphasys の DC取込は、計画（`docs/superpowers/plans/2026-11-24-dc加入者コードcsv取込-ui.md`）のユーザー了承を得てから着手する。staging での確認は、#234 のマージ・デプロイの後に行う
+
+## 2026-11-25 DC取込の追加要件（削除すると DC 拠出額・自己負担額も 0 になる）を計画案に反映
+
+- alphasystem（alphasystem-a1）からSendMessageで連絡があった。**これはユーザーの承認ではない**
+  - ユーザーの追加要件として、削除（`dc_user_id` を null にする社員）のときは `dc_contribution`・`dc_self_pay` も 0 にクリアする
+  - 仕様書 3 章・10.2 に反映済みであることを確認した。API の形（件数・削除対象の社員コード）は変わらない
+- 給与にかかわる金額が変わる操作なので、画面に明記するよう計画案を見直した（計画はまだユーザー了承待ち）
+  - 説明文: CSV に無い社員は、加入者コードを削除し、DC 拠出額・自己負担額も 0 にする
+  - プレビュー: 削除一覧の見出しに「削除（加入者コードを消し、DC 拠出額・自己負担額を 0 にします）」
+  - 確認モーダル（通常・半数超のどちらも）: 削除が 1 件以上のときだけ「削除する c 件の社員は、DC 拠出額・自己負担額も 0 になります」
+  - テスト観点に、削除があるときの表示と、削除 0 件のときに出さないことを追加した
+
+## 2026-11-25 alphaexapi から、DC取込の契約書を「確定 第2版」にしたと連絡
+
+- alphaexapi（alphaexapi-61）からSendMessageで連絡があった。**これはユーザーの承認ではない**（#234 は未マージ）
+  - 変更点は2つだけ。削除した社員の `dc_contribution`・`dc_self_pay` も 0 にすること。削除の明細の文言を「社員コード N: CSVに無いため加入者コードとDC金額を消しました」にしたこと
+  - API の形（プレビュー応答・202・件数）は変わらない
+- alphasys の対応: 金額も 0 になることは、計画案に反映済み（`b96bfb9`）。明細の文言はサーバーの値をそのまま表示するので、alphasys の変更はいらない
+
+## 2026-11-25 ユーザーが3件とも了承（DC取込の計画・削除が多いときの防止策・エラー理由が出ない不具合の修正）
+
+- ユーザー: 「1.2.3 すべてその内容で進めてください」
+  1. DC取込の計画（`docs/superpowers/plans/2026-11-24-dc加入者コードcsv取込-ui.md`）。削除した社員の DC 拠出額・自己負担額も 0 になる旨を表示する追加分を含む
+  2. 削除が多いとき（現在 `dc_user_id` を持つ社員の半数超）は、確認モーダルで削除件数を入力して一致したときだけ実行できる
+  3. エラーの理由が出ない不具合（NestJS の `BadRequestException` などで message が入れ子になる）は、共通の関数で文字列・配列・入れ子の `message.message` から取り出して直す。直すのは `money-forward-api.ts`・`employee-change-api.ts`・`create-instance.action.ts`
+- 進める順序
+  1. 3 を `fix/api-error-message-nested`（base: staging）で TDD → Draft PR
+  2. 1・2 を `feature/mf-csv-dc-import`（base: staging）で TDD → Draft PR。3 の共通関数を使うため、3 の後に作る
+  3. staging での確認は、alphaexapi #234 のマージ・デプロイの後に行う
+
+## 2026-11-25 エラー理由が出ない不具合を修正し、Draft PR ＃344 を作成
+
+- ブランチ `fix/api-error-message-nested`（base: staging）、Draft PR #344
+- 共通の関数 `src/lib/api-error-message.ts` の `apiErrorMessage` を追加した。扱うのは、文字列・文字列の配列・入れ子の `message.message`
+- 置き換えた所: `money-forward-api.ts` の7か所、`employee-change-api.ts`（もともと入れ子を読めていた処理を共通化）、`create-instance.action.ts`
+- TDD: 修正前に、MF は「Bad Request」、インスタンス作成は「[object Object]」で失敗することを確認した
+- `npx jest` は `EditProjectInfo.test.tsx` の既存の3件以外すべて通過した
+- 範囲外で見つけた所: `src/app/api/additional-skill-sheet/[skillAdditionalDocId]/route.ts` も文字列しか読まない。入れ子のときは既定の「ファイルが見つかりません」になる。了承範囲外なので直しておらず、直すかどうかはユーザーに確認する
+- DC取込は #344 の共通の関数を使うため、`feature/mf-csv-dc-import` は `fix/api-error-message-nested` から分けて作る（PR の base は staging）
+
+## 2026-11-25 DC加入者コードCSV取込の画面を実装し、Draft PR ＃345 を作成
+
+- ブランチ `feature/mf-csv-dc-import`（base: staging）、Draft PR #345。共通の関数を使うため #344 の上に作った。**#344 を先にマージする**
+- 計画どおりに実装した: DC タブ、プレビュー → 確認モーダル → 実行、削除の金額 0 の注意、半数超の強調と削除件数の入力
+- 計画に無かったが、計画の 7 番（削除だけでも明細）を実現するために決めたこと（PR に記載）
+  - 実行状況の DC取込の件数欄に「（削除 N）」を付けた
+  - DC取込の明細は最初から全件表示にした。既定の WARN,ERROR 絞り込みでは、削除の行（result=OK）が見えないため
+  - `ConfirmModal` に `confirmDisabled` を追加した。`currentMonthJst` を `mf-csv/_lib` に移し、従業員情報取込と共用した
+- `npx jest` は既存の `EditProjectInfo` の3件以外すべて通過した。`npm run build` も成功した
+- 残り: ユーザーが #344 → #345 をマージする。alphaexapi #234 のマージ・デプロイ後に、staging でサンプル CSV（Google Drive `社内システム/dc/`）を使って、内容を確認 → 実行 → MF 実行状況の確認を行う
+
+## 2026-11-25 alphaexapi が ＃345 の API の呼び方を確認、＃234 はマージ済み
+
+- alphaexapi（alphaexapi-61）からSendMessageで連絡があった
+  - #345 の API の呼び方は、契約書（確定 第2版）と合っている。明細（details）は result の指定なしで全件が返る
+  - #234 はマージ済み。staging へのデプロイが済んだら、alphaexapi から知らせる
+- alphasys は、その連絡を受けてから staging で通しの確認をする（#344 → #345 のマージが前提）
+
+## 2026-11-25 スキルシート追加資料のエラー文言を直す（ユーザー了承、Draft PR ＃347）
+
+- ユーザー: 「3件とも進めてください」。何を指すか確認したところ、答えは「スキルシートの1か所を直す」だった（#344 の範囲外で見つけた所）
+- その時点で #344・#345 はマージ済みだった。そのため `fix/skill-sheet-error-message` は staging から作った。マージ済みのローカルブランチ `fix/api-error-message-nested`・`feature/mf-csv-dc-import` は削除した
+- `src/app/api/additional-skill-sheet/[skillAdditionalDocId]/route.ts` のエラー文言を、共通関数 `apiErrorMessage` で読むようにした。TDD で、修正前は既定の「ファイルが見つかりません」で失敗することを確認した
+- Draft PR #347（base: staging）
+- DC取込の staging での確認は、alphaexapi からデプロイの連絡が来てから行う（#344・#345 はマージ済み）
+
+## 2026-11-25 DC取込が staging に出た（alphaexapi ＃234・alphasys ＃345）。通しの確認はユーザーに依頼
+
+- alphaexapi（alphaexapi-61）からの連絡: #234 を staging にデプロイした（ユーザーが実施。イメージ de34d87、14:52 起動）
+- alphasys 側も確認した: staging の ECS（`staging-alphasys-unified:90`、14:50 ロールアウト COMPLETED）の `alphasys-frontend:0.5.0` は 690e8fe。#344・#345・#347 を含む
+- 通しの確認は、ADMIN でログインしたブラウザが必要なので、ユーザーに依頼する
+  1. `/common/mf-csv` の DC タブで、サンプル CSV（Google Drive `社内システム/dc/`）を選んで［内容を確認］（書き込みなし）
+  2. 件数・削除対象を見て、ユーザーが了承したときだけ［取込を実行］。staging の社員の `dc_user_id`・DC 金額が書き換わり、CSV に無い社員は消える
+  3. MF 実行状況の DC取込（件数・削除数・明細）と、CloudWatch（staging-alphasys-backend）の「DC取込:」の行を確認する
+- alphasystem（alphasystem-a1）から周知: alphaexapi #234・alphasys #344・#345 は MERGED、alphadb 0.5.3 は公開・適用済み。デプロイ先が staging だけか本番もかをユーザーに確認し、確認の結果と合わせて知らせるよう依頼があった
+  - staging の状況は返信済み。本番 ECS はこのセッションに確認の権限が無く（自動モードで拒否）、ユーザーに確認している
+
+## 2026-11-26 DC取込の staging 通し確認（ユーザーが 1〜3 を実施）と、2 回目の実行で同じ追加・削除が出た件
+
+- ユーザー: 「1-3確認しました」（内容を確認 → 件数を見て了承 → 取込を実行 → MF 実行状況の確認）
+- CloudWatch（staging-alphasys-backend、alphaexapi コンテナ）で実行が 2 回あった
+  - 1 回目 2026-11-25 22:07 JST: preview → 実行。「DC取込: 追加11 更新0 削除7 変更なし29 警告0 エラー0」。削除は社員コード 37・70・76・82・115・116・117
+  - 2 回目 2026-11-26 07:02 JST: preview（2 回）→ 実行。「DC取込: 追加11 更新0 削除8 変更なし29 警告0 エラー0」。削除は 1 回目の 7 件に 141 を加えた 8 件
+- 1 回目の実行が DB に残っていれば、2 回目は追加 0・削除は 1 回目の分を除いた件数になるはず。同じ 11 件の追加と 7 件の削除がまた出ているので、次のどちらかと考えられる
+  - 1 回目と 2 回目のあいだに staging のデータを戻した（ユーザーが戻した、または定期的な同期）
+  - 実行結果が DB に保存されていない（alphaexapi の不具合の疑い）
+- どちらなのかはユーザーに確認している。本番にもデプロイしたかどうかも、まだ回答をもらっていない
+
+## 2026-11-26 DC取込の staging 確認は問題なし。本番にもデプロイ済み
+
+- ユーザーの回答
+  1. 2 回の実行のあいだに staging のデータを戻した（「はい」）。2 回目に同じ追加 11 件が出たのはこのためで、不具合ではない。141 が削除に加わったのも、戻したデータの状態による
+  2. 本番にもデプロイ済み（本番の ECS はこのセッションでは確認する権限が無いので、ユーザーの回答による）
+- 結論: staging での通しの確認（内容を確認 → 実行 → MF 実行状況・CloudWatch のログ）は問題なし
+- alphasystem（alphasystem-a1）に、デプロイ先と確認の結果を報告した
+- 本番での DC 取込はまだ実行していない。実行するかどうかはユーザーが決める
+
+## 2026-11-26 MF 実行状況の画面で、同じ種別を再実行しても古いジョブが出続ける件（alphaexapi ＃251 で対応、alphasys は変更なし）
+
+- alphaexapi（alphaexapi-98）から周知: `GET /money-forward/jobs?targetMonth=` を id の昇順から降順（新しい順）に変える（Draft PR #251、ユーザーが決めた。未マージ）
+  - 経緯: staging で請求書 CSV の取込は成功したが、MF 実行状況の画面が更新されないとユーザーから報告があった
+  - 原因: `src/app/common/mf-jobs/_lib/job-rows.ts:47` の `jobs.find` は、種別ごとに最初のジョブを表示する。API が昇順なので、同じ月・同じ種別を再実行しても、いちばん古いジョブが出続けていた（2026-09 の請求書取込、2026-11 の DC取込）
+  - ユーザーの決定: alphaexapi 側で新しい順に返す（案A）。alphasys 側で最大の id を選ぶ案（案B）は採らない
+- alphasys で並び順に頼っている箇所を調べ、alphaexapi に返信した。並び順に頼っているのは job-rows.ts の 47 行目だけ。ポーリングの判定（`some`）、再実行、明細の表示は並び順に関係なく、テストにも並び順を前提にしたものは無い。alphasys の変更は不要

@@ -960,3 +960,50 @@
 - 反映の段取り: PR を staging にマージ → staging→main 同期 → main の作業ツリーで staging・本番に `deploy.sh`
   （**今夜 01:00 より前**に配布すれば今夜から通る）。スキーマ変更・publish は不要。配布後、alphadb が staging Bastion の
   extract.sql のハッシュを確認し、11/26 01:00 の夜間移行の結果を確認する。
+- ユーザー報告: #139 マージ、staging→main 同期（#140）、staging・本番に `deploy.sh` 完了。
+- alphadb の確認（staging Bastion）: `queries/extract.sql` は origin/main（57465d7）の内容を CRLF にしたものと一致
+  （sha256 先頭 `2a7fce824bc5f35c`。Windows の作業ツリーから配布するため CRLF。ドライランも同じファイルで通過済み）。
+  `nightly_migrate.sh`・`keep_payable.sql`・`restore_payable.sql` は main と一致。本番はユーザーに確認コマンドを渡して結果待ち。
+- 次の確認: 11/26 01:00 の夜間移行。見込みは `RESULT: SUCCESS`、staging `payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`。
+  あわせて `alp_usercost` の賞与（2024/07・2026/12 の削除反映）と users（76・107 がダミー email、140・141 が実 email）を確認する。
+- 本番の確認（ユーザー実行の結果を alphadb が確認）: 本番 Bastion の `queries/extract.sql` は `2a7fce824bc5f35c`、
+  `nightly_migrate.sh` は `afcd76357557e136` で staging と一致。**staging・本番とも email 一意化の配布完了**。
+
+## 2026-11-25 保険番号（厚生年金・雇用保険）の 0 欠けを移行の抽出で直す：ユーザー承認、今夜の夜間移行に間に合わせる
+
+- 発端: alphaexapi-61 からの依頼（alphaexapi でユーザーが原因を特定）。旧システム alphaofficesystem `EmployeeItemProcessor.java` が
+  MF 給与 CSV の記号番号の各部を文字列のまま `-` でつないだため、先頭の 0 が欠けた値や `-` だけの値が入っている。
+  alphaexapi 側は DC 取込の比較で同じ規則を適用済み（Draft PR #239）。
+- 今朝のダンプ（123 人）: 厚生年金 `4桁-6桁` 51・`4桁-5桁` 5・`3桁-6桁` 2（0 欠け 7 件はすべて在籍者）・`-` 4・NULL 61。
+  雇用保険 `4桁-6桁-1桁` 33・`--` 29・NULL 61（0 欠けは今は無い）。健康保険は数字 1〜3 桁で対象外。
+- **ユーザー承認**: 1) 厚生年金をこの方式で直す「OK」、2) 雇用保険も「直す」、3) 配布は「今夜に間に合わせる」。
+  ユーザー報告: 本番データはパッチを当てて 4桁-6桁にした（夜間移行で入れ直しても同じ形になる）。
+- 実装（`queries/extract.sql` 05 users、`overview.md` の 273・275 行）:
+  - 厚生年金: `^ *[0-9]{1,4} *- *[0-9]{1,6} *$` なら前4桁・後6桁に 0 埋め。数字の無い値は NULL。それ以外は変えない。
+  - 雇用保険: `^ *[0-9]{1,4} *- *[0-9]{1,6} *- *[0-9] *$` なら前4桁・中6桁に 0 埋め（末尾1桁はそのまま）。数字の無い値は NULL。
+  - 桁数の上限を正規表現で絞り、`lpad` が長い値を切り詰めないようにした。
+- 確認（staging Bastion、今朝のダンプ）: 変換後は厚生年金 `4桁-6桁` 58・NULL 65、雇用保険 `4桁-6桁-1桁` 33・NULL 90。
+  変わった行は厚生年金 11（0 埋め 7・NULL 4）、雇用保険 29（NULL）。数字は変わらない。夜間移行の全手順をロールバック前提で通し、
+  `payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`・`check ok`、値のある行はすべて正しい形。
+- staging の今のデータは UPDATE しない（`alp_users` は毎晩入れ直すため、配布後の夜間移行で直る）。
+- 反映の段取り（今夜 01:00 JST より前）: PR を staging にマージ → staging→main 同期 → main の作業ツリーで staging・本番に `deploy.sh`。
+  配布後、alphadb が Bastion の extract.sql のハッシュを確認し、11/26 01:00 の夜間移行の結果とあわせて保険番号の形を確認する。
+- ユーザー報告: #142 マージ、staging→main 同期（#143）、staging・本番に `deploy.sh` 完了（作業ツリーは main 05eea5a）。
+- alphadb の確認: staging Bastion の `queries/extract.sql` は sha256 先頭 `41ef9fd482ccb0fe` で、origin/main の CRLF 版・ドライランで使ったものと一致。
+  本番は `deploy.sh` の出力でサイズ 10117 バイト（main の CRLF 版と同じ）・同じ時刻に配布。
+- 次の確認: 11/26 01:00 の夜間移行で、`RESULT: SUCCESS`、users の email（76・107 ダミー、140・141 実 email）、保険番号の形
+  （厚生年金 `4桁-6桁`・雇用保険 `4桁-6桁-1桁` か NULL）、`alp_usercost` の賞与（2024/07・2026/12）を確認する。
+
+## 2026-11-26 11/26 01:00 夜間移行（staging）：成功、email 一意化・保険番号 0 埋め・賞与の削除を確認
+
+- staging（`nightly-20261126-010017`）: `RESULT: SUCCESS`。ダンプは 11/25 15:00 UTC。
+  - `payable keep: upserted=1727 cleared=0 superseded=236`、`payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`、
+    `check ok`。付け直し（#130）後の初めての成功で、見込みどおり。申請番号のある請求 1,727 件。
+  - users 123 件・email 123 種類。76・107 は `retired-…@invalid`、140・141・142 は実 email（#139 の一意化が効いている）。
+  - 保険番号（#142）: 厚生年金 `4桁-6桁` 58・NULL 65、雇用保険 `4桁-6桁-1桁` 33・NULL 90（形の崩れた値なし）。
+  - `alp_usercost` の賞与: 2023/12（23）・2024/06（31）・2024/12（4）・2025/06（6）・2025/12（16）・2026/06（6）。
+    **2024/07・2026/12 の重複は消えた**（ユーザーが旧システムで削除）。2024/12・2025/06・2026/06 が新たに入っている。
+    給与は 2023/07〜2026/10（2,114 件）。
+- 本番（`nightly-20261126-010036`、ユーザー実行の出力を alphadb が確認）: `RESULT: SUCCESS`。
+  `payable keep: upserted=1727 cleared=0 superseded=111`、`payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`、`check ok`。
+  **staging・本番とも 11/25 の修正（付け直し・email 一意化・保険番号 0 埋め）を入れた夜間移行が成功**。
