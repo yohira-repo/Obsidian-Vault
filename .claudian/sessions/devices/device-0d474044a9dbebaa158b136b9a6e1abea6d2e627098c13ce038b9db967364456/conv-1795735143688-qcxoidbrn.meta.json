@@ -1,0 +1,24 @@
+{
+  "id": "conv-1795735143688-qcxoidbrn",
+  "providerId": "claude",
+  "title": "Daily syncこのセッションを振り返りました。\n\n**記録すべき内容はありません。**\n...",
+  "titleGenerationStatus": "success",
+  "createdAt": 1795735143696,
+  "lastActivityAt": 1795735268190,
+  "sessionId": "7e22a6a2-23c2-4ade-9225-a620cc6ee36a",
+  "selectedModel": "sonnet",
+  "providerState": {
+    "providerSessionId": "7e22a6a2-23c2-4ade-9225-a620cc6ee36a"
+  },
+  "linkedContentPath": "01_Daily/2026-11-27.md",
+  "usage": {
+    "model": "sonnet",
+    "inputTokens": 1,
+    "cacheCreationInputTokens": 835,
+    "cacheReadInputTokens": 69305,
+    "contextWindow": 967000,
+    "contextTokens": 70141,
+    "percentage": 7,
+    "contextWindowIsAuthoritative": true
+  }
+}

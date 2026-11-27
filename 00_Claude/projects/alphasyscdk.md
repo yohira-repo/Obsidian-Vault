@@ -934,3 +934,78 @@
   5. 本番で Count を 1 週間運用する（例: 12/3〜12/9）。
   6. 12/10 以降: staging → 本番の順に Block に切り替える。
 - 条件 2（PR #340 の本番反映）は満たしている。
+
+## 2026-11-26 本番移行（カットオーバー 12/3）の依頼と、WAF の本番反映の延期
+
+- alphasystem から依頼が来た。本番移行の計画書（`alphasystem/docs/design/2026-11-26-本番移行-計画.md`、ユーザーの最終了承済み）の alphasyscdk 担当分。
+  - 日程: 12/2（水）19:00 に旧システムを凍結 → 12/3（木）01:00 に夜間移行の最終実行 → 午前に停止・確認 → 9:00 に業務開始。準備は 12/2 まで。
+  - alphasyscdk の作業:
+    - 0-1 日次バックアップの S3（本番専用、SSE-KMS、7 日、他アカウントを拒否、書込は本番 Bastion）と、失敗の監視
+    - 0-2 リレーバケット（マスキング済みだけ、書込は本番 Bastion、読取は staging Bastion、短期）
+    - 0-5 staging の Drive（本番ドライブは閲覧のみ、staging 用の共有ドライブ、`SHARED_DRIVE` の差し替え。既存フォルダの更新は staging では失敗する扱い）
+  - 方式案を先に出し、ユーザーの了解を得てから着手する。本番へのデプロイと確認はユーザーが行う。
+- **WAF の本番反映は延期する（ユーザー決定）。** カットオーバーの前後は避ける。11/24 に確定した「最短 12/2」の段取りは取り下げ。日付はカットオーバーの後に改めて決める。staging の Count 運用はそのまま続ける。
+- 訂正: 11/24 の記録で「12/2（火）」と書いたが、12/2 は**水曜**。
+- 方式案（ユーザー了承待ち）: [docs/superpowers/specs/2026-11-26-db-backup-relay-design.md](../superpowers/specs/2026-11-26-db-backup-relay-design.md)
+  - バックアップとリレーは、本体とは別のスタック（`ProductionBackupStack`・`StagingRelayAccessStack`）にする。本番の ECS・Bastion に触れず、Bastion のロールに IAM ポリシーを付け足すだけ。
+  - 本番への反映は 12/1（火）の日中に、ユーザーが行う。12/2 19:00〜12/3 は alphasyscdk のデプロイをしない。
+  - 失敗の監視: 毎朝 7:30 に確認の Lambda が、S3 の最新のダンプとログの `RESULT:` を見て、Google Chat に送る。「動かなかった」ことも拾う。
+  - **staging と本番は同じサービスアカウント（googledrivemanager。鍵だけ別）を使っている。** そのため、staging だけを本番ドライブの閲覧のみにできない。staging 専用のサービスアカウントを新しく作る案を出した。CDK の変更は要らない（SSM の値の差し替えと ECS の再起動だけ）。
+  - ユーザーに決めてほしいこと（方式案 7 章）: 別スタック、反映日、通知、staging 専用のサービスアカウント、テンプレートの置き場所、KMS キー。
+
+## 2026-11-27 本番移行の準備の方式案を了承（ユーザー）と、alphadb との取り決め
+
+- ユーザーが方式案 7 章を次のとおり決めた。
+  1. **この方式で着手する**: 別スタックにする。本番への反映は 12/1（火）の日中にユーザーが行う。12/2 19:00〜12/3 はデプロイしない。KMS キーはバックアップとリレーで別々にする。
+  2. バックアップの確認の通知は、**毎朝 7:30 に 1 通**（問題なしでも短く送る。WAF と同じスペース）。
+  3. **staging 専用の Google サービスアカウントを作る**（ユーザーが Google Cloud で作る）。
+  4. staging のテンプレートは、**staging 用の共有ドライブに移す**（`template-ids.staging.json` を更新して `deploy:staging`）。
+- alphadb-da から、取り決めのすり合わせが届いた（alphadb の方式案はユーザーの了承待ち）。
+  - 置き場所は `daily/YYYY-MM-DD/alphasys-YYYYMMDD-HHMMSS.dump`（`pg_dump -Fc`）。
+  - ログは `/alphasys/prod/db-backup`。ストリーム名は `backup-YYYYMMDD-HHMMSS`。最後の 1 行が `RESULT: SUCCESS` か `RESULT: FAILED (STEP …) rc=N`。
+  - 取得は毎日 2:00 JST。削除の権限は要らない。
+  - 12/1〜12/2 昼に、スクリプトを配布して手で 1 回動かす（ユーザーが実行）。タイマーの有効化は 12/3 夜。
+  - alphadb の質問への回答:
+    1. 暗号化のヘッダーを付けない PutObject（既定の暗号化に任せる）は許す書き方にする（`StringNotEqualsIfExists`）。
+    2. マルチパートに必要な権限（`s3:PutObject` に含まれる・`kms:GenerateDataKey`・`kms:Decrypt`）を付ける。`s3:AbortMultipartUpload` も付ける。
+    3. 設定値（BACKUP_BUCKET・LOG_GROUP・夜間移行と同じ DB の export）は、これで足りる。
+
+## 2026-11-27 日次バックアップ・リレーバケットを実装（PR ＃160）
+
+- 実装したもの（ユーザーの了承に基づく）:
+  - `lib/backup-stack.ts`（`ProductionBackupStack`）と `lib/constructs/db-backup.ts`
+    - S3 ×2（SSE-KMS・バケットキー・パブリックアクセス遮断・TLS 強制・7 日／3 日・RETAIN）
+    - KMS ×2（ローテーションあり）
+    - ロググループ `/alphasys/prod/db-backup`
+    - 確認の Lambda と、毎朝 7:30 JST のスケジュール
+  - `lib/relay-access-stack.ts`（`StagingRelayAccessStack`）: staging の Bastion に、リレーの読取と、S3 経由の復号だけを付ける。
+  - 判定: `lib/constructs/lambda/db-backup-check/check.ts`。直近 26 時間の最新のダンプが 0 バイトでないことと、最後の `RESULT:` が SUCCESS であることを見る。
+  - `cdk.json` に `bastionRoleName` を追加した。
+    - staging は `StagingStack-SsmEc2BastionInstanceRole3094ABFF-hsR02A1lWWHI`。
+    - **本番は空**。空の間は `ProductionBackupStack` を作らないので、`deploy:prod` は止まらない。
+  - npm スクリプト: `deploy:backup:prod`・`diff:backup:prod`・`deploy:backup:staging`・`diff:backup:staging`
+  - 手順書: 5-2-4 を追加した。
+  - テスト: `test/backup.test.ts`。全体の 35 件が通った。
+- `npm run diff:staging`（読み取りだけ）: StagingStack・SharedStack・StagingWafStack は差分なし。StagingRelayAccessStack は IAM ポリシー 1 つの追加だけ。
+- 未了:
+  - **本番の Bastion のロール名**（ユーザーに読取専用のコマンドで確かめてもらう）。`cdk.json` に入れてから、本番の diff を見る。
+  - staging の Drive は、ユーザーが staging 専用のサービスアカウントを作った後に行う。
+    - 手順書 `google-service-account-key.md` の書き直し
+    - テンプレートの配置スクリプトを、環境ごとに親フォルダを持てるように直す（今は親フォルダが 1 つ）
+
+## 2026-11-27 バックアップの確認の通知は 12/4 から（ユーザー決定）と、alphadb のスクリプト
+
+- alphadb-da が、日次バックアップのスクリプトを Draft PR alphacmc/alphadb#147 にした。
+  - 暗号化のヘッダーは付けない。
+  - 使う API は `s3 cp`（分割アップロード）と `s3api head-object`（`s3:GetObject` の権限で通る。KMS の復号は要らない）。削除はしない。
+  - staging で試した。DB 71MB → ダンプ 4MB。存在しないバケットを指定したので、アップロードで想定どおり FAILED になった。
+  - 段取り:
+    1. 12/1 の本番反映の後、12/1〜12/2 昼に、ユーザーがスクリプトを配布して手で 1 回動かす。
+    2. 12/3 夕方、夜間移行を止めた後に、タイマーを有効にする。
+    3. 初回の取得は 12/4 2:00。
+- 気づいた点: 確認の Lambda は 12/1 の反映直後から毎朝動く。そのため、12/2 の朝と 12/3（カットオーバー当日）の朝に「問題あり」を送ってしまう。
+- **ユーザー決定: 確認の通知は 12/4 から動かす。**
+  - スケジュールに開始日 12/4 7:00 JST を入れた（初回の通知は 12/4 7:30）。
+  - 開始日を過ぎた後のデプロイでは、開始日を指定しない。
+  - 手で 1 回動かしたときの確認は、`aws lambda invoke` で行う。
+  - テストは 35 件すべて通過した。手順書 5-2-4 と方式案 2.2 にも書いた。

@@ -960,14 +960,6 @@
 - 反映の段取り: PR を staging にマージ → staging→main 同期 → main の作業ツリーで staging・本番に `deploy.sh`
   （**今夜 01:00 より前**に配布すれば今夜から通る）。スキーマ変更・publish は不要。配布後、alphadb が staging Bastion の
   extract.sql のハッシュを確認し、11/26 01:00 の夜間移行の結果を確認する。
-- ユーザー報告: #139 マージ、staging→main 同期（#140）、staging・本番に `deploy.sh` 完了。
-- alphadb の確認（staging Bastion）: `queries/extract.sql` は origin/main（57465d7）の内容を CRLF にしたものと一致
-  （sha256 先頭 `2a7fce824bc5f35c`。Windows の作業ツリーから配布するため CRLF。ドライランも同じファイルで通過済み）。
-  `nightly_migrate.sh`・`keep_payable.sql`・`restore_payable.sql` は main と一致。本番はユーザーに確認コマンドを渡して結果待ち。
-- 次の確認: 11/26 01:00 の夜間移行。見込みは `RESULT: SUCCESS`、staging `payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`。
-  あわせて `alp_usercost` の賞与（2024/07・2026/12 の削除反映）と users（76・107 がダミー email、140・141 が実 email）を確認する。
-- 本番の確認（ユーザー実行の結果を alphadb が確認）: 本番 Bastion の `queries/extract.sql` は `2a7fce824bc5f35c`、
-  `nightly_migrate.sh` は `afcd76357557e136` で staging と一致。**staging・本番とも email 一意化の配布完了**。
 
 ## 2026-11-25 保険番号（厚生年金・雇用保険）の 0 欠けを移行の抽出で直す：ユーザー承認、今夜の夜間移行に間に合わせる
 
@@ -1007,3 +999,44 @@
 - 本番（`nightly-20261126-010036`、ユーザー実行の出力を alphadb が確認）: `RESULT: SUCCESS`。
   `payable keep: upserted=1727 cleared=0 superseded=111`、`payable restore: restored=1727 relinked=0 ambiguous=0 mismatched=0 missing=0`、`check ok`。
   **staging・本番とも 11/25 の修正（付け直し・email 一意化・保険番号 0 埋め）を入れた夜間移行が成功**。
+
+## 2026-11-27 カットオーバーの alphadb 担当分：日次バックアップと手順書の方式を了承
+
+alphasystem の本番移行計画（`docs/design/2026-11-26-本番移行-計画.md`）の 0-1・2-1〜2-3・4-1・4-2 の alphadb 担当分。
+**ユーザーが方式（1）と手順書の置き場所（2）を了承**（「1,2 ともその方式で進めてください。」）。
+
+**日次バックアップ**（[prisma/doc/backup/db_backup.md](../prisma/doc/backup/db_backup.md)）
+
+- 本番 Bastion の systemd timer で毎日 **02:00 JST**。Aurora の `alphasys` 全体を `pg_dump -Fc` → `pg_restore --list` で確認 →
+  `s3://alphasys-prod-db-backup-938812705475/daily/YYYY-MM-DD/alphasys-YYYYMMDD-HHMMSS.dump`。
+  サイズ・sha256 をログに出し、作業ファイルは成否を問わず削除。S3 は消さない（ライフサイクル 7 日）。
+- ログは `/alphasys/prod/db-backup`、ストリーム `backup-YYYYMMDD-HHMMSS`、最後に `RESULT: SUCCESS` / `RESULT: FAILED (STEP …) rc=N`。
+- alphasyscdk-08 と合わせた点（2026-11-27 回答）: 暗号化ヘッダーは付けない（バケットの既定 SSE-KMS）。分割アップロードの権限・
+  KMS の `GenerateDataKey`・`Decrypt`・`AbortMultipartUpload` は alphasyscdk が付ける。設定は `BACKUP_BUCKET`・`LOG_GROUP`・DB 接続で足りる。
+  確認は毎朝 7:30 の Lambda（直近 26 時間の最後の `RESULT:` 行と、`daily/` の最新オブジェクト）。
+- 夜間移行とは独立したフォルダ（`prisma/doc/backup/`、Bastion では `/opt/alphadb-backup/`、設定 `/etc/alphadb-backup.env`）。
+  `setup_backup.sh` は夜間移行の設定から DB 接続の値を写し、**タイマーは有効にしない**。
+- **Bastion の置換への備え（UserData 等）はしない**: alphasyscdk はスタックを分けており、置換されても 7:30 の確認で気づけるため。
+- staging で試験（2026-11-27）: DB 71MB → ダンプ 4MB・約 1 秒、TABLE DATA 35。存在しないバケットで `RESULT: FAILED (STEP upload) rc=1`、
+  作業ファイルが残らないことを確認。Bastion の空きは 5.9GB。
+
+**段取り**
+
+| いつ | 作業 | 誰が |
+| --- | --- | --- |
+| 12/1（火）日中 | alphasyscdk の本番反映（バケット・ロググループ・権限） | ユーザー |
+| 12/1 反映後〜12/2（水）昼 | `AWS_PROFILE=prod bash prisma/doc/backup/deploy.sh` → `setup_backup.sh` → 手動で 1 回実行（タイマーは有効にしない） | ユーザー（出力は alphadb が確認） |
+| 12/2（水）日中 | 事前確認（タイマーの次回、設定ファイル、スクリプトのハッシュ、前夜の SUCCESS）。19:00〜12/3 の作業が終わるまで alphasyscdk の本番デプロイをしない | ユーザー |
+| 12/3（木）朝〜9:00 | 最終実行の確認（失敗なら再実行）→ **本番の夜間移行を停止**（`disable --now` → ユニット削除 → `mask`）→ `check.sql` 再実行・件数 → `DROP SCHEMA nightly CASCADE` | ユーザー |
+| 12/3（木）夕方 | staging の夜間移行を停止・`nightly` スキーマ削除、本番のバックアップのタイマーを `enable --now` | staging は alphadb も可、本番はユーザー |
+| 12/4（金）02:00 / 7:30 | 初回のバックアップ / 確認の通知 | 自動 |
+
+**手順書**: 新しいファイル [prisma/doc/migration/cutover_runbook.md](../prisma/doc/migration/cutover_runbook.md)（`nightly_automation.md` には追記しない。§11.1 からリンク）。
+
+- 停止は `disable --now` に加えて `mask` する。`/etc/systemd/system` に実ファイルがあると `mask` できないため、先にユニットを消す
+  （staging でダミーのユニットで確認）。停止後は `setup_bastion.sh` を実行しない。
+
+**後回し**: マスキング＆リストア（計画 0-3・0-4）は、12/3 を条件にしない（計画の決定どおり）。対象の洗い出しから別途提案する。
+
+- 実装: Draft PR #147（`feature/daily-backup-cutover-runbook` → staging）。alphasyscdk-08・alphasystem-09 に PR と段取りを連絡済み。
+- 確認の通知は **12/4 7:30 から**（alphasyscdk 側のユーザー決定。12/2・12/3 朝に「問題あり」を送らないため、スケジュールの開始を 12/4 7:00 JST に）。12/1〜12/2 の手動 1 回のあとは `aws lambda invoke --function-name prod-alphasys-db-backup-check` で判定を確認する（`db_backup.md` §4 の 3 に追記）。権限は #147 の使い方（`s3 cp`・`head-object`）で足りると alphasyscdk-08 が確認。
